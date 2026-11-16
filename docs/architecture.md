@@ -4,7 +4,7 @@ Status: in development. Nothing here describes released features unless the [fea
 
 ## Goal
 
-An application with no wallet protocol code of its own calls a tenant-scoped REST API to request a credential presentation, sends the user to a wallet, and receives a verified, minimized result by polling (an authenticated webhook is planned).
+An application with no wallet protocol code of its own calls a tenant-scoped REST API to request a credential presentation, sends the user to a wallet, and receives a verified, minimized result by polling, optionally prompted by a signed webhook.
 
 ```mermaid
 flowchart LR
@@ -68,6 +68,8 @@ JWS and JWE algorithms are fixed by an allowlist per trust profile, and the veri
 **Results.** Only claims mapped by the policy's `output` are kept, encrypted with a per-tenant key derived from `EUDIW_DATA_KEY`, and deleted on first retrieval or after the result TTL. The raw presentation is never stored. Same-device sessions return `redirect_uri` with a one-time `response_code` to the wallet; result retrieval requires it.
 
 **Trusted lists.** Each policy can name signed ETSI trusted lists (TS 119 612 XML, including the EU list of trusted lists, and TS 119 602 JSON). Each node loads them at startup and hourly. Certificates of approved services of the configured types join the policy's anchors until the list's next update ([ADR-006](adr/0006-trusted-lists.md)).
+
+**Webhooks.** When a session ends, the same statement queues a notification for clients with a webhook. Each node sends due notifications, signed as Standard Webhooks specify, with retries; the body names the session and status only ([ADR-008](adr/0008-webhooks.md)).
 
 **Audit.** Each decision records tenant, session, client, action, outcome, reason code and configuration revision. No claims, tokens or credentials.
 

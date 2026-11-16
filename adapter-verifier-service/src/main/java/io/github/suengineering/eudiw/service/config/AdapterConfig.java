@@ -68,7 +68,21 @@ public record AdapterConfig(String revision, Map<String, Tenant> tenants) {
      * @param policies policy ids this client may start
      * @param completionUri pre-registered URI the wallet is sent back to in same-device flows
      */
-    public record ClientApplication(String clientId, Set<String> policies, Optional<URI> completionUri) {}
+    public record ClientApplication(
+            String clientId, Set<String> policies, Optional<URI> completionUri, Optional<Webhook> webhook) {}
+
+    /**
+     * Where and how to notify a client when its sessions end (Standard Webhooks, HMAC-SHA256).
+     *
+     * @param url the endpoint
+     * @param secrets signing secrets, current first; each is also used to sign during a rotation
+     */
+    public record Webhook(URI url, java.util.List<byte[]> secrets) {
+        public Webhook {
+            java.util.Objects.requireNonNull(url, "url");
+            secrets = java.util.List.copyOf(secrets);
+        }
+    }
 
     /**
      * @param id policy identifier

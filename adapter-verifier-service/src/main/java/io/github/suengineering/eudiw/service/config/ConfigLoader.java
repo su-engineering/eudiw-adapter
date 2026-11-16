@@ -139,11 +139,54 @@ public final class ConfigLoader {
                 }
                 completion = Optional.of(uri);
             }
-            if (clients.put(clientId, new ClientApplication(clientId, Set.copyOf(granted), completion)) != null) {
+            Optional<AdapterConfig.Webhook> webhook = Optional.empty();
+            if (c.containsKey("webhook")) {
+                webhook = Optional.of(webhook(object(c.get("webhook"), "webhook"), base, id, production));
+            }
+            if (clients.put(clientId, new ClientApplication(clientId, Set.copyOf(granted), completion, webhook))
+                    != null) {
                 throw new ConfigException("tenant " + id + ": duplicate client " + clientId);
             }
         }
         return new Tenant(id, identity, walletInvocation, Map.copyOf(clients), Map.copyOf(policies));
+    }
+
+    private static AdapterConfig.Webhook webhook(
+            Map<String, Object> json, Path base, String tenantId, boolean production) {
+        String where = "tenant " + tenantId + " webhook";
+        URI url;
+        try {
+            url = URI.create(string(json, "url"));
+        } catch (IllegalArgumentException e) {
+            throw new ConfigException(where + ": invalid url", e);
+        }
+        if (!"https".equals(url.getScheme()) && (production || !"http".equals(url.getScheme()))) {
+            throw new ConfigException(where + ": url must use https");
+        }
+        List<byte[]> secrets = new ArrayList<>();
+        secrets.add(webhookSecret(read(base, string(json, "secret_file")).strip(), where));
+        if (json.containsKey("previous_secret_file")) {
+            secrets.add(webhookSecret(
+                    read(base, string(json, "previous_secret_file")).strip(), where));
+        }
+        return new AdapterConfig.Webhook(url, secrets);
+    }
+
+    /** A {@code whsec_} prefixed base64 secret of 24 to 64 bytes (Standard Webhooks). */
+    static byte[] webhookSecret(String value, String where) {
+        if (!value.startsWith("whsec_")) {
+            throw new ConfigException(where + ": secret must start with whsec_");
+        }
+        byte[] secret;
+        try {
+            secret = Base64.getDecoder().decode(value.substring("whsec_".length()));
+        } catch (IllegalArgumentException e) {
+            throw new ConfigException(where + ": secret is not base64", e);
+        }
+        if (secret.length < 24 || secret.length > 64) {
+            throw new ConfigException(where + ": secret must be 24 to 64 bytes");
+        }
+        return secret;
     }
 
     private static Policy policy(Map<String, Object> json, Path base, String tenantId, boolean production) {

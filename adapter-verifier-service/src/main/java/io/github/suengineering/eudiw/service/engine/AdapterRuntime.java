@@ -201,6 +201,25 @@ public class AdapterRuntime {
         }
     }
 
+    /** Whether the client has a webhook, so its finished sessions queue a notification. */
+    public boolean notifies(String tenantId, String clientId) {
+        return config.tenant(tenantId)
+                .map(t -> t.clients().get(clientId))
+                .map(c -> c.webhook().isPresent())
+                .orElse(false);
+    }
+
+    /** Client ids that have a webhook. */
+    public Set<String> webhookClients() {
+        Set<String> clients = new java.util.HashSet<>();
+        for (Tenant tenant : config.tenants().values()) {
+            tenant.clients().values().stream()
+                    .filter(c -> c.webhook().isPresent())
+                    .forEach(c -> clients.add(c.clientId()));
+        }
+        return clients;
+    }
+
     /** Whether the first trusted list refresh has run (readiness waits for it). */
     public boolean trustedListsAttempted() {
         return trustedListsAttempted || trustedLists.values().stream().allMatch(TrustedLists::isEmpty);

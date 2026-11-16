@@ -32,6 +32,6 @@ public class Sweeper {
 
     @Scheduled(every = "{eudiw.sweep-interval:30s}", concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
     void sweep() {
-        store.sweep(runtime.clock().instant());
+        store.sweep(runtime.clock().instant(), runtime.webhookClients());
     }
 }

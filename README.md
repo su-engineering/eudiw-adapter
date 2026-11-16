@@ -35,7 +35,7 @@ If you want wallet login inside Keycloak instead, see [keycloak-oid4vp](https://
 - **Same-device and cross-device flows**: deep link or QR code, with a one-time `response_code` that stops a same-device request from being relayed to someone else's wallet.
 - **Tested against an independent wallet**: the [eudi-dev](https://github.com/eudi-dev/eudi-dev) wallet in strict HAIP and ARF mode, plus RFC 9901 and OpenID4VP test vectors and a differential test against a second SD-JWT implementation.
 
-Not yet: ISO mdoc (`mso_mdoc`), OCSP, webhooks (poll for results), Digital Credentials API, credential issuance (OID4VCI). Work in progress is tracked in the [delivery plan](docs/pr-plan.md).
+Not yet: ISO mdoc (`mso_mdoc`), OCSP, Digital Credentials API, credential issuance (OID4VCI). Work in progress is tracked in the [delivery plan](docs/pr-plan.md).
 
 ## Standards
 
@@ -74,7 +74,7 @@ curl -X POST https://adapter.example/v1/verification-sessions \
   -H 'Content-Type: application/json' -d '{"policy_id":"age-over-18","mode":"same_device"}'
 ```
 
-Show `wallet_launch.launch_uri` as a link (same device) or a QR code (cross device). Poll the session; when it is `verified`, fetch the result once. For `same_device`, the wallet returns the user to your completion URI with a `response_code`, and the result endpoint requires it. Plain cross-device QR flows cannot detect a relayed request; see the [threat model](docs/threat-model.md).
+Show `wallet_launch.launch_uri` as a link (same device) or a QR code (cross device). Poll the session, or configure a [webhook](docs/configuration.md) to be told when it ends; when it is `verified`, fetch the result once. For `same_device`, the wallet returns the user to your completion URI with a `response_code`, and the result endpoint requires it. Plain cross-device QR flows cannot detect a relayed request; see the [threat model](docs/threat-model.md).
 
 ## Modules
 

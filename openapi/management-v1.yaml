@@ -119,6 +119,43 @@ paths:
                 $ref: '#/components/schemas/Session'
         '404':
           $ref: '#/components/responses/Problem'
+webhooks:
+  verificationSessionEnded:
+    post:
+      operationId: verificationSessionEnded
+      summary: A session of the calling client ended
+      description: |
+        Sent to the client's configured webhook URL when one of its sessions becomes `verified`, `rejected`,
+        `denied` or `expired`. Cancelled sessions are not notified, since the client cancelled them. The body never
+        contains claims: fetch the result with the session id.
+
+        Signed as Standard Webhooks specify: `webhook-signature` is `v1,` followed by the base64 HMAC-SHA256 of
+        `webhook-id`, `.`, `webhook-timestamp`, `.` and the exact request body, keyed with the decoded `whsec_`
+        secret. During a secret rotation it holds two space-separated signatures. Reject a timestamp far from your
+        clock and process each `webhook-id` once. Any 2xx response acknowledges; other responses are retried with
+        backoff for about a day, except `410 Gone`, which stops delivery. Redirects are not followed.
+      parameters:
+        - name: webhook-id
+          in: header
+          required: true
+          schema: { type: string, pattern: '^msg_[0-9a-f]{32}$' }
+        - name: webhook-timestamp
+          in: header
+          required: true
+          schema: { type: string, description: Unix time of this attempt in seconds }
+        - name: webhook-signature
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerificationSessionEvent'
+      responses:
+        '200':
+          description: Acknowledged. Any 2xx status acknowledges.
 components:
   securitySchemes:
     bearer:
@@ -142,6 +179,30 @@ components:
           schema:
             $ref: '#/components/schemas/Problem'
   schemas:
+    VerificationSessionEvent:
+      type: object
+      required: [type, timestamp, data]
+      properties:
+        type:
+          type: string
+          enum:
+            - verification_session.verified
+            - verification_session.rejected
+            - verification_session.denied
+            - verification_session.expired
+        timestamp:
+          type: string
+          format: date-time
+          description: When the session ended.
+        data:
+          type: object
+          required: [id, status, policy_id]
+          properties:
+            id: { type: string }
+            status: { type: string, enum: [verified, rejected, denied, expired] }
+            policy_id: { type: string }
+            reason: { type: string, description: Coarse failure code, as in the session resource. }
+            client_reference: { type: string }
     CreateSession:
       type: object
       required: [policy_id]

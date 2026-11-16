@@ -539,7 +539,7 @@ class VerificationFlowTest {
         }
     }
 
-    static final class MutableClock extends Clock {
+    public static final class MutableClock extends Clock {
         private volatile Instant now;
 
         MutableClock(Instant now) {

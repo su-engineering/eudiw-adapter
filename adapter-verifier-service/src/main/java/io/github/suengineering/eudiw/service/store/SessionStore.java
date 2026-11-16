@@ -177,10 +177,18 @@ public class SessionStore {
             byte[] resultCiphertext,
             String responseCodeHash,
             Instant resultExpiresAt,
-            Instant now) {
-        String sql = "UPDATE verification_session SET status = ?, failure_code = ?, result_ciphertext = ?,"
-                + " response_code_hash = ?, result_expires_at = ?, completed_at = ?"
-                + " WHERE id = ? AND status = 'pending' AND expires_at > ?";
+            Instant now,
+            boolean notify) {
+        // One statement: the session ends and, for clients with a webhook, its notification is queued, or neither.
+        String sql =
+                "WITH done AS (UPDATE verification_session SET status = ?, failure_code = ?, result_ciphertext = ?,"
+                        + " response_code_hash = ?, result_expires_at = ?, completed_at = ?"
+                        + " WHERE id = ? AND status = 'pending' AND expires_at > ? RETURNING id, tenant_id, client_id, status),"
+                        + " queued AS (INSERT INTO webhook_delivery (id, session_id, tenant_id, client_id, event_status,"
+                        + " occurred_at, next_attempt_at, created_at)"
+                        + " SELECT 'msg_' || replace(gen_random_uuid()::text, '-', ''), id, tenant_id, client_id, status, ?, ?, ?"
+                        + " FROM done WHERE ? RETURNING 1)"
+                        + " SELECT count(*) FROM done";
         try (Connection c = dataSource.getConnection();
                 PreparedStatement ps = c.prepareStatement(sql)) {
             ps.setString(1, status);
@@ -191,7 +199,14 @@ public class SessionStore {
             ps.setTimestamp(6, ts(now));
             ps.setString(7, sessionId);
             ps.setTimestamp(8, ts(now));
-            return ps.executeUpdate() == 1;
+            ps.setTimestamp(9, ts(now));
+            ps.setTimestamp(10, ts(now));
+            ps.setTimestamp(11, ts(now));
+            ps.setBoolean(12, notify);
+            try (ResultSet rs = ps.executeQuery()) {
+                rs.next();
+                return rs.getLong(1) == 1;
+            }
         } catch (SQLException e) {
             throw new StoreException(e);
         }
@@ -235,10 +250,37 @@ public class SessionStore {
     }
 
     /** Expires overdue sessions, drops unretrieved results and stale per-request keys. */
-    public int sweep(Instant now) {
-        int expired = update(
-                "UPDATE verification_session SET status = 'expired' WHERE status = 'pending' AND expires_at <= ?",
-                ts(now));
+    /**
+     * @param notifyClients client ids with a webhook; their expired sessions queue a notification in the same
+     *     statement
+     */
+    public int sweep(Instant now, java.util.Set<String> notifyClients) {
+        int expired;
+        String sql = "WITH done AS (UPDATE verification_session SET status = 'expired', completed_at = ?"
+                + " WHERE status = 'pending' AND expires_at <= ? RETURNING id, tenant_id, client_id),"
+                + " queued AS (INSERT INTO webhook_delivery (id, session_id, tenant_id, client_id, event_status,"
+                + " occurred_at, next_attempt_at, created_at)"
+                + " SELECT 'msg_' || replace(gen_random_uuid()::text, '-', ''), id, tenant_id, client_id, 'expired', ?, ?, ?"
+                + " FROM done WHERE client_id = ANY(?) RETURNING 1)"
+                + " SELECT count(*) FROM done";
+        try (Connection c = dataSource.getConnection();
+                PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setTimestamp(1, ts(now));
+            ps.setTimestamp(2, ts(now));
+            ps.setTimestamp(3, ts(now));
+            ps.setTimestamp(4, ts(now));
+            ps.setTimestamp(5, ts(now));
+            ps.setArray(6, c.createArrayOf("text", notifyClients.toArray()));
+            try (ResultSet rs = ps.executeQuery()) {
+                rs.next();
+                expired = (int) rs.getLong(1);
+            }
+        } catch (SQLException e) {
+            throw new StoreException(e);
+        }
+        update(
+                "DELETE FROM webhook_delivery WHERE state <> 'pending' AND created_at <= ?",
+                ts(now.minus(java.time.Duration.ofDays(7))));
         update(
                 "UPDATE verification_session SET status = 'expired', result_ciphertext = NULL"
                         + " WHERE status = 'verified' AND result_expires_at <= ?",

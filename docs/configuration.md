@@ -15,6 +15,7 @@ The verifier service reads environment variables for deployment settings and one
 | `EUDIW_PRODUCTION` | no, default `true` | `true` refuses HTTP public URLs, development egress settings, `status_policy: ignore` and non-HTTPS completion URIs |
 | `EUDIW_EGRESS_ALLOW_PRIVATE_ADDRESSES`, `EUDIW_EGRESS_ALLOW_HTTP` | no, default `false` | Development only: let status list and trusted list fetches reach private addresses or plain HTTP |
 | `EUDIW_TRUSTED_LISTS_REFRESH_INTERVAL` | no, default `1h` | How often each node fetches and verifies the configured trusted lists |
+| `EUDIW_WEBHOOK_INTERVAL` | no, default `5s` | How often each node sends due webhook notifications |
 
 The public port (8080) serves the management API and the wallet endpoints. Health checks are on the management port (9000) at `/health/live` and `/health/ready`, not on the public port. Do not expose port 9000 publicly.
 
@@ -69,6 +70,7 @@ Relative paths resolve against the directory of the tenants file.
 - `client_id`: the OAuth client id in the access token. Unique across all tenants.
 - `policies`: the only policies this client may start.
 - `completion_uri`: where same-device flows send the user back, with `#response_code=...`. Required for `same_device` sessions.
+- `webhook`: optional. `url` (HTTPS in production) receives a signed notification when one of this client's sessions is verified, rejected, denied or expired; `secret_file` holds a `whsec_` secret of 24 to 64 random bytes (generate with `echo "whsec_$(openssl rand -base64 32)"`); `previous_secret_file` optionally holds the old secret during a rotation. The notification carries no claims. See the `webhooks` section of the [OpenAPI](../openapi/management-v1.yaml) and [ADR-008](adr/0008-webhooks.md).
 
 **Policy**
 - `dcql`: the DCQL query sent to wallets (OpenID4VP 1.0 section 6). Callers cannot change it.

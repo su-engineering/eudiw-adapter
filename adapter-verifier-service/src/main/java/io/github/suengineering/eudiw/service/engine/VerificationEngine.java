@@ -283,7 +283,15 @@ public class VerificationEngine {
         if (!configurationUnchanged(session)) {
             // Never verify under rules other than those the session started with.
             store.consumeInstance(kid, now);
-            store.complete(session.id(), "rejected", "configuration_changed", null, null, null, now);
+            store.complete(
+                    session.id(),
+                    "rejected",
+                    "configuration_changed",
+                    null,
+                    null,
+                    null,
+                    now,
+                    runtime.notifies(session.tenantId(), session.clientId()));
             return new WalletReply(400, Map.of("error", "invalid_request"));
         }
         Tenant tenant = runtime.config().tenant(session.tenantId()).orElseThrow();
@@ -361,7 +369,15 @@ public class VerificationEngine {
         }
         SessionRow session = store.findById(instance.get().sessionId()).orElseThrow();
         if (!configurationUnchanged(session)) {
-            store.complete(session.id(), "rejected", "configuration_changed", null, null, null, now);
+            store.complete(
+                    session.id(),
+                    "rejected",
+                    "configuration_changed",
+                    null,
+                    null,
+                    null,
+                    now,
+                    runtime.notifies(session.tenantId(), session.clientId()));
             return new WalletReply(400, Map.of("error", "invalid_request"));
         }
         Tenant tenant = runtime.config().tenant(session.tenantId()).orElseThrow();
@@ -399,7 +415,8 @@ public class VerificationEngine {
                 ciphertext,
                 responseCode == null ? null : DataProtection.hash(responseCode),
                 result == null ? null : now.plus(policy.resultTtl()),
-                now);
+                now,
+                runtime.notifies(session.tenantId(), session.clientId()));
         if (!completed) {
             store.audit(
                     session.tenantId(),
