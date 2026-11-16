@@ -152,6 +152,29 @@ class WebhookTest {
     }
 
     @Test
+    void twoDispatchersRunningAtOnceSendEachDeliveryOnce() throws Exception {
+        List<String> ids = List.of(verify(), verify(), verify());
+        TestEnvironment.WEBHOOK_DELAY_MILLIS.set(300);
+        try {
+            var pool = java.util.concurrent.Executors.newFixedThreadPool(2);
+            var first = pool.submit(dispatcher::dispatch);
+            var second = pool.submit(dispatcher::dispatch);
+            first.get();
+            second.get();
+            pool.shutdown();
+        } finally {
+            TestEnvironment.WEBHOOK_DELAY_MILLIS.set(0);
+        }
+        List<String> sent = TestEnvironment.WEBHOOK_CALLS.stream()
+                .map(call -> new JsonPath(call.body()).getString("data.id"))
+                .toList();
+        assertThat(sent).containsExactlyInAnyOrderElementsOf(ids);
+        for (String id : ids) {
+            assertThat(outbox.states(id)).containsExactly("delivered");
+        }
+    }
+
+    @Test
     void goneStopsDelivery() {
         String id = verify();
         TestEnvironment.WEBHOOK_STATUSES.add(410);

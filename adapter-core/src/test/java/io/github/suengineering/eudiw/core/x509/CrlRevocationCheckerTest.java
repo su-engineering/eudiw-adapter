@@ -117,6 +117,36 @@ class CrlRevocationCheckerTest {
     }
 
     @Test
+    void aFailedFetchIsNotRetriedOnEveryCheck() {
+        java.util.concurrent.atomic.AtomicReference<Instant> now =
+                new java.util.concurrent.atomic.AtomicReference<>(NOW);
+        Clock moving = new Clock() {
+            @Override
+            public java.time.ZoneId getZone() {
+                return ZoneOffset.UTC;
+            }
+
+            @Override
+            public Clock withZone(java.time.ZoneId zone) {
+                return this;
+            }
+
+            @Override
+            public Instant instant() {
+                return now.get();
+            }
+        };
+        CrlRevocationChecker remembering = new CrlRevocationChecker(fetcher, moving, 16);
+        assertFailure(() -> remembering.check(chain, root.certificate()), "certificate_status_unknown");
+        assertFailure(() -> remembering.check(chain, root.certificate()), "certificate_status_unknown");
+        assertThat(fetched).containsExactly(CA_CRL);
+
+        serveCurrentCrls();
+        now.set(NOW.plus(CrlRevocationChecker.FAILURE_MEMORY).plusSeconds(1));
+        assertThatCode(() -> remembering.check(chain, root.certificate())).doesNotThrowAnyException();
+    }
+
+    @Test
     void aCertificateWithoutDistributionPointCannotBeChecked() {
         TestPki.Issued plain = TestPki.endEntity("CN=Plain", ca, FROM, UNTIL, KeyUsage.digitalSignature, List.of());
         serveCurrentCrls();

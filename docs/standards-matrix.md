@@ -14,7 +14,7 @@ Pinned versions. Changes go through a reviewed ADR and tests. "Supported" means 
 | ETSI TS 119 612 (trusted lists) | V2.4.1 | | XML trusted lists and the EU list of trusted lists |
 | ETSI TS 119 182-1 (JAdES) | V1.2.1 | | Compact signatures on TS 119 602 lists |
 | EUDI Wallet Architecture and Reference Framework | v3.0.0 | 21 July 2026 | Ecosystem reference |
-| Standard Webhooks | as published at standardwebhooks.com | | Signed session notifications (`v1` HMAC-SHA256) |
+| Standard Webhooks | specification at commit `ab6844147ce9` | | Signed session notifications (`v1` HMAC-SHA256) |
 | OpenID for Verifiable Credential Issuance 1.0 | Final | 16 September 2025 | Not used yet |
 
 ## Feature status

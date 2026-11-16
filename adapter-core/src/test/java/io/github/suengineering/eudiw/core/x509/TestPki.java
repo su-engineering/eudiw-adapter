@@ -176,6 +176,19 @@ public final class TestPki {
     /** A certificate whose CRLDistributionPoints names {@code crlUri}. */
     public static Issued withCrl(
             String name, Issued parent, boolean ca, int keyUsage, Instant notBefore, Instant notAfter, String crlUri) {
+        return withCrl(name, parent, ca, keyUsage, notBefore, notAfter, crlUri, List.of());
+    }
+
+    /** A certificate whose CRLDistributionPoints names {@code crlUri}, with subject alternative names. */
+    public static Issued withCrl(
+            String name,
+            Issued parent,
+            boolean ca,
+            int keyUsage,
+            Instant notBefore,
+            Instant notAfter,
+            String crlUri,
+            List<GeneralName> sans) {
         try {
             KeyPair keys = ecKeyPair();
             X509v3CertificateBuilder builder = new JcaX509v3CertificateBuilder(
@@ -192,6 +205,10 @@ public final class TestPki {
                     Extension.subjectKeyIdentifier, false, utils.createSubjectKeyIdentifier(keys.getPublic()));
             builder.addExtension(
                     Extension.authorityKeyIdentifier, false, utils.createAuthorityKeyIdentifier(parent.certificate()));
+            if (!sans.isEmpty()) {
+                builder.addExtension(
+                        Extension.subjectAlternativeName, false, new GeneralNames(sans.toArray(new GeneralName[0])));
+            }
             GeneralNames names = new GeneralNames(new GeneralName(GeneralName.uniformResourceIdentifier, crlUri));
             builder.addExtension(
                     Extension.cRLDistributionPoints,

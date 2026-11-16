@@ -68,6 +68,17 @@ class VerificationFlowTest {
     @BeforeEach
     void setUp() {
         HttpFetcher fetcher = (uri, accept, max) -> {
+            if (uri.toString().equals(TestEnvironment.CRL_C)) {
+                try {
+                    return java.nio.file.Files.readAllBytes(TestEnvironment.DIR.resolve("issuer-c-root.crl"));
+                } catch (java.io.IOException e) {
+                    throw new HttpFetcher.FetchException("unreadable", e);
+                }
+            }
+            if (uri.toString().startsWith(TestEnvironment.ISSUER_C)) {
+                return TestWallet.statusListToken(TestEnvironment.ISSUER_C, "issuer-c-key.pem", "issuer-c.pem")
+                        .getBytes(StandardCharsets.US_ASCII);
+            }
             String issuer = uri.toString().startsWith(TestEnvironment.ISSUER_A) ? "a" : "b";
             return TestWallet.statusListToken(
                             issuer.equals("a") ? TestEnvironment.ISSUER_A : TestEnvironment.ISSUER_B,
@@ -201,6 +212,37 @@ class VerificationFlowTest {
                 .get("/v1/verification-sessions/" + other.getString("id"))
                 .then()
                 .body("status", org.hamcrest.Matchers.equalTo("rejected"));
+    }
+
+    @Test
+    void certificateRevocationRejectsAnIssuerListedInItsCaCrl() {
+        String good = presentUnderCrlPolicy(TestEnvironment.ISSUER_C, "issuer-c");
+        String revoked = presentUnderCrlPolicy(TestEnvironment.ISSUER_C_REVOKED, "issuer-c-revoked");
+
+        given().auth()
+                .oauth2(TestWallet.fullToken("portal-a"))
+                .get("/v1/verification-sessions/" + good)
+                .then()
+                .body("status", org.hamcrest.Matchers.equalTo("verified"));
+        given().auth()
+                .oauth2(TestWallet.fullToken("portal-a"))
+                .get("/v1/verification-sessions/" + revoked)
+                .then()
+                .body("status", org.hamcrest.Matchers.equalTo("rejected"))
+                .body("reason", org.hamcrest.Matchers.equalTo("certificate_revoked"));
+    }
+
+    private String presentUnderCrlPolicy(String issuer, String files) {
+        JsonPath session = create("portal-a", "cross_device", "age-over-18-crl");
+        Map<String, Object> request = TestWallet.fetchRequest(session.getString("wallet_launch.request_uri"));
+        Map<String, Object> response = Map.of(
+                "vp_token",
+                Map.of(
+                        "age",
+                        List.of(wallet.presentation(
+                                request, issuer, files + "-key.pem", files + ".pem", Map.of("age_over_18", true), 1))));
+        TestWallet.respond(request, response);
+        return session.getString("id");
     }
 
     @Test
@@ -507,7 +549,12 @@ class VerificationFlowTest {
         StringBuilder sb = new StringBuilder();
         try (Connection c = dataSource.getConnection();
                 Statement s = c.createStatement()) {
-            for (String table : List.of("verification_session", "request_instance", "audit_event")) {
+            for (String table : List.of(
+                    "verification_session",
+                    "request_instance",
+                    "audit_event",
+                    "webhook_delivery",
+                    "trusted_list_sequence")) {
                 try (ResultSet rs = s.executeQuery("SELECT * FROM " + table)) {
                     int columns = rs.getMetaData().getColumnCount();
                     while (rs.next()) {

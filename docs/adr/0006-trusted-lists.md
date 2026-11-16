@@ -31,7 +31,7 @@ Status: accepted, implemented.
    - A closed list (no next update) contributes nothing.
    - A list that fails to refresh keeps its last verified version only until that version's next update.
    - A national list is trusted only while a current LOTL still points to it and still publishes its signing certificate. When the LOTL drops the pointer or rotates the signer, or no current LOTL is left, the national list is dropped at once.
-   - A lower sequence number than the highest accepted one is refused as a rollback. The service keeps the highest sequence number per list in PostgreSQL, so a restart or another node does not accept an older list.
+   - A lower sequence number than the highest accepted one is refused as a rollback. The service keeps the highest sequence number per list identifier in PostgreSQL, so a restart or another node does not accept an older list. The record is shared by every policy that names the same identifier, which is intended: the same identifier means the same list.
    - A list that fails in any way, including an unexpected exception, is reported as failed without stopping the other lists or policies.
 6. **Services become anchors by type and status.**
    - Each list source names the service types whose certificates may anchor credential issuers, and optionally further types that may anchor status list tokens (for example `PID/Revocation`).

@@ -29,7 +29,7 @@ If you want wallet login inside Keycloak instead, see [keycloak-oid4vp](https://
 - **OpenID4VP 1.0 as profiled by HAIP 1.0**: signed request objects fetched by `request_uri`, `x509_hash` client identifier, `direct_post.jwt` responses encrypted (ECDH-ES P-256) to a fresh key per request, DCQL queries with claim sets, credential sets and `trusted_authorities`.
 - **Data minimization**: each policy decides which claims leave the service. Everything else the wallet disclosed is dropped. Results are encrypted at rest, retrievable once, and expire. The raw presentation is never stored.
 - **ETSI trusted lists**: issuer trust from signed TS 119 602 lists (such as the EU PID providers list) and TS 119 612 trusted lists, including the EU list of trusted lists, with pinned signers, freshness checks and rollback protection. Tested with synthetic lists so far, not yet with a published list. Or configure anchor certificates directly.
-- **HSM and KMS keys**: request-signing keys can stay in a hardware HSM, cloud HSM or KMS through PKCS#11.
+- **HSM and KMS keys**: request-signing keys can stay in an HSM or KMS through PKCS#11. Tested with SoftHSM; the demo signs with a key inside it.
 - **Multi-tenant**: tenants, client applications and policies come from configuration. The tenant is taken from the caller's OAuth 2.0 token, never from the request. Trust anchors and status caches are per policy.
 - **Issuer certificate revocation** with CRLs, opt-in per policy, fetched only after the chain validates.
 - **Fails closed**: unknown issuer, broken chain, revoked or unknown status, replayed or mismatched key binding, or a late response rejects the session with a coarse reason code.
@@ -59,7 +59,7 @@ Requirements: Docker, Java 21, `curl`, `jq`.
 ./deploy/compose/demo.sh
 ```
 
-The demo starts PostgreSQL, Keycloak (as the OAuth server for your backend) and the adapter, generates synthetic keys, then plays both sides: a backend asks whether the user is over 18, and the eudi-dev test wallet issues itself a synthetic credential and presents it. The result is `{"age_over_18": true}` and nothing else, although the credential also holds a name. The demo then shows a credential from an untrusted issuer being rejected.
+The demo starts PostgreSQL, Keycloak (as the OAuth server for your backend) and the adapter, generates synthetic keys (the adapter's request-signing key is created inside SoftHSM and never leaves it, and issuer trust comes from a signed trusted list), then plays both sides: a backend asks whether the user is over 18, and the eudi-dev test wallet issues itself a synthetic credential and presents it. The result is `{"age_over_18": true}` and nothing else, although the credential also holds a name. The demo then shows a credential from an untrusted issuer being rejected.
 
 The demo runs over plain HTTP on localhost with `EUDIW_PRODUCTION=false`. Production requires HTTPS.
 

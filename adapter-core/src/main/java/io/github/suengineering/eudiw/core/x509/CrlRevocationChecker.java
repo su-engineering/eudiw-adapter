@@ -63,6 +63,10 @@ public final class CrlRevocationChecker {
     private final HttpFetcher fetcher;
     private final Clock clock;
     private final Map<String, X509CRL> cache;
+    private final Map<String, Instant> failedUntil = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** How long a failed fetch is remembered, so an unreachable CRL does not cost a timeout on every check. */
+    static final java.time.Duration FAILURE_MEMORY = java.time.Duration.ofSeconds(60);
 
     public CrlRevocationChecker(HttpFetcher fetcher, Clock clock, int cacheEntries) {
         this.fetcher = Objects.requireNonNull(fetcher, "fetcher");
@@ -127,14 +131,21 @@ public final class CrlRevocationChecker {
             if (cached != null && isCurrent(cached, now)) {
                 return cached;
             }
+            Instant retryAfter = failedUntil.get(point);
+            if (retryAfter != null && now.isBefore(retryAfter)) {
+                last = new VerificationFailure("certificate_status_unknown", "CRL fetch failed recently");
+                continue;
+            }
             try {
                 X509CRL crl = fetch(point);
                 if (!isCurrent(crl, now)) {
                     throw new VerificationFailure("certificate_status_unknown", "CRL is not current");
                 }
                 cache.put(point, crl);
+                failedUntil.remove(point);
                 return crl;
             } catch (VerificationFailure e) {
+                failedUntil.put(point, now.plus(FAILURE_MEMORY));
                 last = e;
             }
         }

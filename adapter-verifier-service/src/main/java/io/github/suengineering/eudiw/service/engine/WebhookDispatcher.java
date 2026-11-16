@@ -77,10 +77,20 @@ public class WebhookDispatcher {
         dispatch();
     }
 
-    /** Attempts every due delivery once. */
+    /**
+     * Sends due deliveries, claiming each one alone just before sending it, so a claim's lease (60 s) always covers
+     * its single request (at most 25 s with connect and request timeouts) and other nodes can take the remaining
+     * rows meanwhile. Stops after 50 deliveries or 30 s.
+     */
     public void dispatch() {
-        Instant now = runtime.clock().instant();
-        for (Delivery delivery : outbox.claim(now, Duration.ofSeconds(60), 50)) {
+        long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
+        for (int sent = 0; sent < 50 && System.nanoTime() < deadline; sent++) {
+            Instant now = runtime.clock().instant();
+            List<Delivery> claimed = outbox.claim(now, Duration.ofSeconds(60), 1);
+            if (claimed.isEmpty()) {
+                return;
+            }
+            Delivery delivery = claimed.get(0);
             try {
                 deliver(delivery, now);
             } catch (RuntimeException e) {

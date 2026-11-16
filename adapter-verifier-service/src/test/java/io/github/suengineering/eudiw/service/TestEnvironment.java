@@ -47,6 +47,9 @@ public class TestEnvironment implements QuarkusTestResourceLifecycleManager {
     public static final String AUDIENCE = "eudiw-adapter";
     public static final String ISSUER_A = "https://issuer-a.test.example";
     public static final String ISSUER_B = "https://issuer-b.test.example";
+    public static final String ISSUER_C = "https://issuer-c.test.example";
+    public static final String ISSUER_C_REVOKED = "https://issuer-c-revoked.test.example";
+    public static final String CRL_C = "https://crl.test.example/issuer-c-root.crl";
     public static final String VCT = "https://credentials.test.example/age";
     public static final String PID_LIST_ID = "https://lists.test.example/pid-providers.jwt";
     public static final String PID_ISSUANCE = "http://uri.etsi.org/19602/SvcType/PID/Issuance";
@@ -54,6 +57,8 @@ public class TestEnvironment implements QuarkusTestResourceLifecycleManager {
     public static final java.util.List<WebhookCall> WEBHOOK_CALLS = new java.util.concurrent.CopyOnWriteArrayList<>();
 
     public static final java.util.Deque<Integer> WEBHOOK_STATUSES = new java.util.concurrent.ConcurrentLinkedDeque<>();
+    public static final java.util.concurrent.atomic.AtomicLong WEBHOOK_DELAY_MILLIS =
+            new java.util.concurrent.atomic.AtomicLong();
     public static final byte[] WEBHOOK_SECRET =
             "test-webhook-secret-0123456789abcdef".getBytes(StandardCharsets.US_ASCII);
     private static com.sun.net.httpserver.HttpServer webhookServer;
@@ -107,11 +112,17 @@ public class TestEnvironment implements QuarkusTestResourceLifecycleManager {
                 exchange.getRequestHeaders()
                         .forEach((k, v) -> headers.put(k.toLowerCase(java.util.Locale.ROOT), v.get(0)));
                 String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+                try {
+                    Thread.sleep(WEBHOOK_DELAY_MILLIS.get());
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
                 WEBHOOK_CALLS.add(new WebhookCall(headers, body));
                 Integer status = WEBHOOK_STATUSES.poll();
                 exchange.sendResponseHeaders(status == null ? 200 : status, -1);
                 exchange.close();
             });
+            webhookServer.setExecutor(java.util.concurrent.Executors.newFixedThreadPool(4));
             webhookServer.start();
         }
         return webhookServer.getAddress().getPort();
@@ -140,6 +151,37 @@ public class TestEnvironment implements QuarkusTestResourceLifecycleManager {
                 until,
                 KeyUsage.digitalSignature,
                 List.of(TestPki.dns("issuer-b.test.example")));
+        Issued rootC = TestPki.rootCa("CN=Issuer Root C", from, until);
+        Issued issuerC = TestPki.withCrl(
+                "CN=Issuer C",
+                rootC,
+                false,
+                KeyUsage.digitalSignature,
+                from,
+                until,
+                CRL_C,
+                List.of(TestPki.dns("issuer-c.test.example")));
+        Issued issuerCRevoked = TestPki.withCrl(
+                "CN=Issuer C Revoked",
+                rootC,
+                false,
+                KeyUsage.digitalSignature,
+                from,
+                until,
+                CRL_C,
+                List.of(TestPki.dns("issuer-c-revoked.test.example")));
+        write("issuer-c-root.pem", pem(rootC.certificate()));
+        write("issuer-c.pem", pem(issuerC.certificate()));
+        write("issuer-c-key.pem", pem(issuerC.keyPair().getPrivate()));
+        write("issuer-c-revoked.pem", pem(issuerCRevoked.certificate()));
+        write("issuer-c-revoked-key.pem", pem(issuerCRevoked.keyPair().getPrivate()));
+        Files.write(
+                DIR.resolve("issuer-c-root.crl"),
+                TestPki.crl(
+                        rootC,
+                        Instant.now().minus(1, ChronoUnit.HOURS),
+                        Instant.now().plus(7, ChronoUnit.DAYS),
+                        issuerCRevoked.certificate()));
         Issued rpRoot = TestPki.rootCa("CN=RP Root", from, until);
         Issued rpA = TestPki.endEntity("CN=Verifier A", rpRoot, from, until, KeyUsage.digitalSignature, List.of());
         Issued rpB = TestPki.endEntity("CN=Verifier B", rpRoot, from, until, KeyUsage.digitalSignature, List.of());
@@ -176,19 +218,22 @@ public class TestEnvironment implements QuarkusTestResourceLifecycleManager {
                 {"credentials":[{"id":"age","format":"dc+sd-jwt","meta":{"vct_values":["%s"]},
                   "trusted_authorities":[{"type":"etsi_tl","values":["%s"]}],
                   "claims":[{"path":["age_over_18"]}]}]}""".formatted(VCT, PID_LIST_ID);
-        String tenants =
-                """
+        String tenants = """
                 {"tenants":[
                   {"id":"tenant-a",
                    "verifier":{"private_key_file":"rp-a-key.pem","certificate_chain_file":"rp-a.pem"},
                    "clients":[
-                     {"client_id":"portal-a","policies":["age-over-18"],"completion_uri":"%s",
+                     {"client_id":"portal-a","policies":["age-over-18","age-over-18-crl"],"completion_uri":"%s",
                       "webhook":{"url":"http://127.0.0.1:%d/hook","secret_file":"portal-a.whsec"}},
                      {"client_id":"other-app-a","policies":[]}],
                    "policies":[{"id":"age-over-18","dcql":%s,
                      "output":{"age_over_18":{"credential":"age","path":["age_over_18"]}},
                      "trust_anchors_file":"issuer-a-root.pem","allowed_issuers":["%s"],
-                     "status_policy":"require_valid","session_ttl_seconds":300,"result_ttl_seconds":600}]},
+                     "status_policy":"require_valid","session_ttl_seconds":300,"result_ttl_seconds":600},
+                    {"id":"age-over-18-crl","dcql":%s,
+                     "output":{"age_over_18":{"credential":"age","path":["age_over_18"]}},
+                     "trust_anchors_file":"issuer-c-root.pem","certificate_revocation":"crl",
+                     "status_policy":"require_valid"}]},
                   {"id":"tenant-b",
                    "verifier":{"private_key_file":"rp-b-key.pem","certificate_chain_file":"rp-b.pem"},
                    "clients":[{"client_id":"portal-b","policies":["age-over-18","age-over-18-listed"]}],
@@ -201,7 +246,8 @@ public class TestEnvironment implements QuarkusTestResourceLifecycleManager {
                      "trusted_lists":[{"identifier":"%s","location":"pid-list.jwt","format":"lote_json",
                        "signer_certificates_file":"list-signer.pem","issuance_service_types":["%s"]}],
                      "status_policy":"require_valid"}]}
-                ]}""".formatted(COMPLETION_URI, webhookPort, dcql, ISSUER_A, dcql, listedDcql, PID_LIST_ID, PID_ISSUANCE);
+                ]}""".formatted(
+                        COMPLETION_URI, webhookPort, dcql, ISSUER_A, dcql, dcql, listedDcql, PID_LIST_ID, PID_ISSUANCE);
         write("tenants.json", tenants);
     }
 

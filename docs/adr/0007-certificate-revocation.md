@@ -19,7 +19,7 @@ The JDK can evaluate both, but its own fetching would bypass the service's egres
    - a CRL without a next update, or past it;
    - a CRL that does not verify.
    A listed certificate is `certificate_revoked`.
-5. **Caching.** CRLs are cached per policy until their next update, at most 256 per policy.
+5. **Caching.** CRLs are cached per policy until their next update, at most 256 per policy. A failed fetch is remembered for 60 seconds, so an unreachable distribution point does not cost a timeout on every verification; checks in that window reject.
 6. **A directly trusted certificate** (a trusted list naming the issuer's own certificate) has no issuer in the path, so nothing is checked. The list itself is the revocation mechanism: removing the certificate from the list revokes it.
 7. **OCSP is not implemented.** Adding it means either an OCSP client written against RFC 6960 with a DER encoder and decoder, or a separate optional module that brings BouncyCastle at runtime. Either needs its own review. Neither is started.
 

@@ -11,7 +11,7 @@ if [ ! -d ../../adapter-verifier-service/target/quarkus-app ]; then
   (cd ../.. && ./mvnw -q -B -pl adapter-verifier-service -am package -DskipTests)
 fi
 
-docker compose up -d --build keygen postgres keycloak adapter
+docker compose up -d --build keygen hsm-init postgres keycloak adapter
 
 echo "Waiting for Keycloak and the adapter..."
 ready=""

@@ -1,8 +1,15 @@
 # Runtime image for the verifier service. Build the application first:
 #   ./mvnw -pl adapter-verifier-service -am package -DskipTests
-FROM eclipse-temurin:21.0.9_10-jre-alpine
+# glibc base, so vendor PKCS#11 libraries for HSMs and KMSs can be loaded.
+FROM eclipse-temurin:21.0.9_10-jre-noble
 
-RUN addgroup -S -g 10001 eudiw && adduser -S -u 10001 -G eudiw eudiw
+# Optional OS packages, for example "softhsm2 opensc openssl" for the local demo. Empty for production images.
+ARG EXTRA_PACKAGES=""
+RUN if [ -n "$EXTRA_PACKAGES" ]; then \
+      apt-get update && apt-get install -y --no-install-recommends $EXTRA_PACKAGES && rm -rf /var/lib/apt/lists/*; \
+    fi \
+ && groupadd --system --gid 10001 eudiw \
+ && useradd --system --uid 10001 --gid eudiw --no-create-home --shell /usr/sbin/nologin eudiw
 WORKDIR /app
 COPY --chown=10001:10001 adapter-verifier-service/target/quarkus-app/lib/ /app/lib/
 COPY --chown=10001:10001 adapter-verifier-service/target/quarkus-app/*.jar /app/

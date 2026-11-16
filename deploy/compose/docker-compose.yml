@@ -34,12 +34,35 @@ services:
     ports:
       - "127.0.0.1:8081:8080"
 
-  adapter:
+  # Creates a SoftHSM token and generates the verifier's request-signing key inside it.
+  hsm-init:
+    image: eudiw-adapter-demo:local
     build:
       context: ../..
       dockerfile: adapter-verifier-service/src/main/docker/Dockerfile
+      args:
+        EXTRA_PACKAGES: softhsm2 opensc openssl
+    user: "0"
+    entrypoint: ["/bin/sh", "/hsm-init.sh"]
     depends_on:
       keygen:
+        condition: service_completed_successfully
+    volumes:
+      - ./hsm-init.sh:/hsm-init.sh:ro
+      - keys:/keys:ro
+      - hsm:/hsm
+
+  adapter:
+    image: eudiw-adapter-demo:local
+    build:
+      context: ../..
+      dockerfile: adapter-verifier-service/src/main/docker/Dockerfile
+      args:
+        EXTRA_PACKAGES: softhsm2 opensc openssl
+    depends_on:
+      keygen:
+        condition: service_completed_successfully
+      hsm-init:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
@@ -56,6 +79,7 @@ services:
       EUDIW_OIDC_AUDIENCE: eudiw-adapter
       QUARKUS_OIDC_TOKEN_ISSUER: http://localhost:8081/realms/demo
       QUARKUS_OIDC_CONNECTION_DELAY: 90s
+      SOFTHSM2_CONF: /hsm/softhsm2.conf
     entrypoint:
       - /bin/sh
       - -c
@@ -66,6 +90,7 @@ services:
     volumes:
       - ./config/tenants.json:/config/tenants.json:ro
       - keys:/keys:ro
+      - hsm:/hsm
     ports:
       - "127.0.0.1:8080:8080"
       - "127.0.0.1:9000:9000"
@@ -80,3 +105,4 @@ services:
 
 volumes:
   keys:
+  hsm:

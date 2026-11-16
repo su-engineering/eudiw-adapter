@@ -3,8 +3,12 @@
     {
       "id": "demo-city",
       "verifier": {
-        "private_key_file": "/keys/verifier-key.pem",
-        "certificate_chain_file": "/keys/verifier.pem"
+        "pkcs11": {
+          "library": "/usr/lib/softhsm/libsofthsm2.so",
+          "key_label": "verifier",
+          "pin_file": "/hsm/pin"
+        },
+        "certificate_chain_file": "/hsm/verifier-hsm.pem"
       },
       "wallet_invocation": "openid4vp://",
       "clients": [
