@@ -1,0 +1,42 @@
+{
+  "tenants": [
+    {
+      "id": "demo-city",
+      "verifier": {
+        "private_key_file": "/keys/verifier-key.pem",
+        "certificate_chain_file": "/keys/verifier.pem"
+      },
+      "wallet_invocation": "openid4vp://",
+      "clients": [
+        {
+          "client_id": "demo-portal",
+          "policies": ["age-over-18"],
+          "completion_uri": "http://localhost:8080/demo-complete"
+        }
+      ],
+      "policies": [
+        {
+          "id": "age-over-18",
+          "dcql": {
+            "credentials": [
+              {
+                "id": "age",
+                "format": "dc+sd-jwt",
+                "meta": { "vct_values": ["https://credentials.demo.example/age"] },
+                "claims": [ { "path": ["age_over_18"] } ]
+              }
+            ]
+          },
+          "output": {
+            "age_over_18": { "credential": "age", "path": ["age_over_18"] }
+          },
+          "trust_anchors_file": "/keys/issuer-root.pem",
+          "allowed_issuers": ["https://issuer.demo.example"],
+          "status_policy": "reject_known_invalid",
+          "session_ttl_seconds": 300,
+          "result_ttl_seconds": 600
+        }
+      ]
+    }
+  ]
+}

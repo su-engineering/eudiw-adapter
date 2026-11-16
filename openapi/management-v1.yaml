@@ -1,0 +1,264 @@
+openapi: 3.1.0
+info:
+  title: eudiw-adapter management API
+  version: 0.1.0
+  summary: Start credential verifications and retrieve minimized results.
+  description: |
+    Application-facing API of the eudiw-adapter verifier service. Every operation requires an OAuth 2.0 access
+    token (client credentials) whose client is registered in the adapter configuration. The tenant is always taken
+    from the token's client, never from the request.
+
+    The wallet-facing OpenID4VP endpoints (`/oid4vp/requests/{handle}`, `/oid4vp/responses`) follow
+    OpenID for Verifiable Presentations 1.0 and HAIP 1.0 and are not part of this API.
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+servers:
+  - url: https://adapter.example
+security:
+  - bearer: []
+paths:
+  /v1/verification-sessions:
+    post:
+      operationId: createVerificationSession
+      summary: Start a verification session
+      description: |
+        Creates a session for a policy granted to the calling client. The request the wallet receives is built
+        from the policy alone; callers cannot add claims. Requires scope `verification:create`.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: Client-generated key, 8 to 128 characters of `[A-Za-z0-9._-]`. Retrying with the same key
+            and body returns the same session; the same key with a different body returns 422.
+          schema:
+            type: string
+            pattern: '^[A-Za-z0-9._-]{8,128}$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSession'
+      responses:
+        '201':
+          description: Session created, or the existing session for this idempotency key
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatedSession'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+  /v1/verification-sessions/{id}:
+    get:
+      operationId: getVerificationSession
+      summary: Get the session status
+      description: Requires scope `verification:read`. Sessions of other clients or tenants return 404.
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Session status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '404':
+          $ref: '#/components/responses/Problem'
+  /v1/verification-sessions/{id}/result:
+    get:
+      operationId: getVerificationResult
+      summary: Retrieve the verified result once
+      description: |
+        Returns the minimized result of a verified session and deletes it; a second call returns 404. Same-device
+        sessions require the `response_code` the wallet's redirect delivered to the client's completion URI.
+        Requires scope `verification:result`.
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - name: response_code
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The minimized result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Result'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+  /v1/verification-sessions/{id}/cancel:
+    post:
+      operationId: cancelVerificationSession
+      summary: Cancel a pending session
+      description: Idempotent. A session that already reached a terminal state is unchanged. Requires scope
+        `verification:cancel`.
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: The session after cancellation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '404':
+          $ref: '#/components/responses/Problem'
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: OAuth 2.0 access token with `azp` or `client_id` naming a registered client and a `scope` claim.
+  parameters:
+    SessionId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^vrs_[A-Za-z0-9_-]{43}$'
+  responses:
+    Problem:
+      description: Error
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+  schemas:
+    CreateSession:
+      type: object
+      required: [policy_id]
+      additionalProperties: false
+      properties:
+        policy_id:
+          type: string
+          description: A policy granted to the calling client.
+        mode:
+          type: string
+          enum: [cross_device, same_device]
+          default: cross_device
+          description: |
+            `same_device` sends the wallet back to the client's registered completion URI with a one-time
+            `response_code`, which result retrieval requires (protects against session fixation, OpenID4VP 1.0
+            section 14.2). `cross_device` (QR code) cannot detect a relayed request.
+        client_reference:
+          type: string
+          pattern: '^[A-Za-z0-9._:-]{1,128}$'
+          description: Correlation value for the caller. Not used for identity.
+    Session:
+      type: object
+      required: [id, status, policy_id, mode, created_at, expires_at, result_available]
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum: [pending, verified, rejected, denied, expired, cancelled, consumed]
+          description: |
+            `verified`: the policy is satisfied and a result can be retrieved once. `rejected`: a cryptographic,
+            trust, status or policy check failed. `denied`: the user or wallet declined. `consumed`: the result was
+            retrieved.
+        policy_id:
+          type: string
+        mode:
+          type: string
+        client_reference:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        reason:
+          type: string
+          description: Coarse failure code when rejected, for example `credential_revoked` or `certificate_untrusted`.
+        result_available:
+          type: boolean
+    CreatedSession:
+      allOf:
+        - $ref: '#/components/schemas/Session'
+        - type: object
+          required: [wallet_launch, poll_url]
+          properties:
+            wallet_launch:
+              type: object
+              required: [request_uri, launch_uri, qr_payload]
+              properties:
+                request_uri:
+                  type: string
+                  format: uri
+                launch_uri:
+                  type: string
+                  description: Wallet invocation URI (for example `openid4vp://...`).
+                qr_payload:
+                  type: string
+                  description: The same value as `launch_uri`, for rendering as a QR code.
+            poll_url:
+              type: string
+    Result:
+      type: object
+      required: [id, status, policy_id, verified_at, claims, credential_evidence]
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          const: verified
+        policy_id:
+          type: string
+        verified_at:
+          type: string
+          format: date-time
+        claims:
+          type: object
+          description: Only the claims the policy's output maps, nothing else the wallet disclosed.
+          additionalProperties: true
+        credential_evidence:
+          type: array
+          items:
+            type: object
+            required: [format, credential_type, issuer]
+            properties:
+              format:
+                type: string
+              credential_type:
+                type: string
+              issuer:
+                type: string
+    Problem:
+      type: object
+      required: [status, code, correlation_id]
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        code:
+          type: string
+        detail:
+          type: string
+        correlation_id:
+          type: string

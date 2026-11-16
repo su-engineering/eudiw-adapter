@@ -1,0 +1,4 @@
+# Public test vectors from RFC 9901 (synthetic example credentials, no secrets)
+adapter-core/src/test/resources/rfc9901/appendix-a.3.txt:jwt:1
+adapter-core/src/test/resources/rfc9901/section-5.2.txt:jwt:1
+adapter-core/src/test/resources/rfc9901/appendix-a.4.txt:jwt:1
