@@ -18,6 +18,7 @@ package io.github.suengineering.eudiw.service.config;
 import io.github.suengineering.eudiw.core.dcql.ClaimsPath;
 import io.github.suengineering.eudiw.core.dcql.DcqlQuery;
 import io.github.suengineering.eudiw.core.json.Json;
+import io.github.suengineering.eudiw.core.keys.Pkcs11Keys;
 import io.github.suengineering.eudiw.core.oid4vp.VerifierIdentity;
 import io.github.suengineering.eudiw.core.oid4vp.VpTokenVerifier.StatusPolicy;
 import io.github.suengineering.eudiw.core.trust.TrustedList;
@@ -98,11 +99,27 @@ public final class ConfigLoader {
     private static Tenant tenant(Map<String, Object> json, Path base, boolean production) {
         String id = id(json.get("id"), "tenant id");
         Map<String, Object> verifier = object(json.get("verifier"), "verifier");
-        PrivateKey key = privateKey(read(base, string(verifier, "private_key_file")));
         List<X509Certificate> chain = certificates(read(base, string(verifier, "certificate_chain_file")));
+        if (verifier.containsKey("private_key_file") == verifier.containsKey("pkcs11")) {
+            throw new ConfigException(
+                    "tenant " + id + ": set exactly one of verifier.private_key_file and verifier.pkcs11");
+        }
         VerifierIdentity identity;
         try {
-            identity = new VerifierIdentity(key, chain);
+            if (verifier.containsKey("pkcs11")) {
+                Map<String, Object> hsm = object(verifier.get("pkcs11"), "pkcs11");
+                int slot = hsm.containsKey("slot_list_index") && hsm.get("slot_list_index") instanceof Number n
+                        ? n.intValue()
+                        : 0;
+                char[] pin = read(base, string(hsm, "pin_file")).strip().toCharArray();
+                Pkcs11Keys.Loaded loaded =
+                        Pkcs11Keys.load(Path.of(string(hsm, "library")), slot, string(hsm, "key_label"), pin);
+                java.util.Arrays.fill(pin, '\0');
+                identity = new VerifierIdentity(loaded.key(), chain, Optional.of(loaded.provider()));
+            } else {
+                PrivateKey key = privateKey(read(base, string(verifier, "private_key_file")));
+                identity = new VerifierIdentity(key, chain);
+            }
         } catch (IllegalArgumentException e) {
             throw new ConfigException("tenant " + id + ": " + e.getMessage(), e);
         }

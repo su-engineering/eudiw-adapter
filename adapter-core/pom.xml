@@ -13,6 +13,10 @@
   <name>eudiw-adapter core</name>
   <description>Credential verification, trust and DCQL evaluation without framework dependencies</description>
 
+  <properties>
+    <eudiw.require-pkcs11>false</eudiw.require-pkcs11>
+  </properties>
+
   <dependencies>
     <dependency>
       <groupId>com.nimbusds</groupId>
@@ -49,6 +53,19 @@
             </goals>
           </execution>
         </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <systemPropertyVariables>
+            <eudiw.require-pkcs11>${eudiw.require-pkcs11}</eudiw.require-pkcs11>
+          </systemPropertyVariables>
+          <environmentVariables>
+            <!-- SoftHSM reads its configuration from the environment when the PKCS#11 library loads. -->
+            <SOFTHSM2_CONF>${project.build.directory}/softhsm/softhsm2.conf</SOFTHSM2_CONF>
+          </environmentVariables>
+        </configuration>
       </plugin>
     </plugins>
   </build>

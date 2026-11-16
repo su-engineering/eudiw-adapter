@@ -46,7 +46,7 @@ Status: `planned`, `implemented` (code and a regression test exist), `partial`.
 | Unauthenticated request fetches exhaust keys or storage | At most 5 request instances per session; request URIs are unguessable and expire with the session | implemented |
 | Someone who sees the QR code ends the session | Anyone holding the request URI can fetch the request and post `access_denied`, or use up the five fetches, ending that session as `denied` or unservable. Denial of service only: no claims are released and the caller can start a new session. Prefer same-device flows and short TTLs | accepted, documented |
 | Large or nested payloads exhaust CPU | Body limits, JSON and CBOR depth limits, per-tenant rate limits | partial: size, depth and decompression limits in core, mutation tests over 5,000 malformed SD-JWT inputs; rate limits planned | Oversized and deeply nested input rejected fast |
-| Key theft | Keys outside images and the repository; per-request keys encrypted at rest; KMS or PKCS#11 signer | partial: keys are read from mounted files, never baked into images; KMS signer planned |
+| Key theft | Keys outside images and the repository; per-request keys encrypted at rest; KMS or PKCS#11 signer | implemented: request-signing keys can stay in an HSM or KMS through PKCS#11 ([ADR-009](adr/0009-hsm-request-signing.md)); file keys are read from mounted files, never baked into images |
 
 ## Out of scope
 
