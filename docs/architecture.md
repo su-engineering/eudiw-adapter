@@ -31,7 +31,7 @@ flowchart LR
 | --- | --- | --- | --- |
 | Wallet to service | `request_uri` fetch, `direct_post.jwt` response | Untrusted, anonymous | Opaque request handles, per-request state, nonce and decryption key, single-use completion |
 | Application to service | Session create, read, result, cancel | Authenticated client, tenant-scoped | OAuth2 access token validated locally; tenant taken from the token, never from the path |
-| Service to the internet | Status lists today; trusted lists, OCSP and CRL planned | Untrusted content, URLs partly attacker-influenced | Egress policy (no private, loopback or link-local addresses), size and time limits, signature checks |
+| Service to the internet | Status lists and trusted lists; OCSP and CRL planned | Untrusted content, URLs partly attacker-influenced | Egress policy (no private, loopback or link-local addresses), size and time limits, signature checks |
 | Operator to service | Tenant, policy and key configuration | Trusted | Separate administrative credentials |
 
 ## Core design
@@ -46,8 +46,8 @@ The core holds no global state, and network access goes only through the `HttpFe
 
 | Port | Purpose |
 | --- | --- |
-| `HttpFetcher` | Fetch status lists (later trusted lists) under an egress policy; `JdkHttpFetcher` refuses non-public addresses, plain HTTP and redirects |
-| Trust anchor supplier | `Supplier<Set<TrustAnchor>>`, consulted on every verification so anchor updates apply |
+| `HttpFetcher` | Fetch status lists and trusted lists under an egress policy; `JdkHttpFetcher` refuses non-public addresses, plain HTTP and redirects |
+| Trust store supplier | `Supplier<TrustStore>`: trusted certificates with the list each came from, consulted on every verification so list updates apply |
 | `java.time.Clock` | Current time, injectable in tests |
 | `IssuerKeyResolver` | How the issuer key is found: `x5c` chain (HAIP) or a static key map |
 
@@ -66,6 +66,8 @@ JWS and JWE algorithms are fixed by an allowlist per trust profile, and the veri
 **Responses.** The wallet posts `direct_post.jwt`. The service finds the request instance by the JWE `kid`, decrypts with that instance's key, checks `state`, then marks the instance used in one conditional update; a second post of the same response fails. Verification runs the policy's verifier: SD-JWT VC with key binding to the tenant's client identifier and the instance's nonce, issuer chain to the policy's anchors, status, DCQL. The session then moves from `pending` to a terminal state in one conditional update that also requires it to be unexpired; late, duplicate or cancelled responses change nothing.
 
 **Results.** Only claims mapped by the policy's `output` are kept, encrypted with a per-tenant key derived from `EUDIW_DATA_KEY`, and deleted on first retrieval or after the result TTL. The raw presentation is never stored. Same-device sessions return `redirect_uri` with a one-time `response_code` to the wallet; result retrieval requires it.
+
+**Trusted lists.** Each policy can name signed ETSI trusted lists (TS 119 612 XML, including the EU list of trusted lists, and TS 119 602 JSON). Each node loads them at startup and hourly. Certificates of approved services of the configured types join the policy's anchors until the list's next update ([ADR-006](adr/0006-trusted-lists.md)).
 
 **Audit.** Each decision records tenant, session, client, action, outcome, reason code and configuration revision. No claims, tokens or credentials.
 

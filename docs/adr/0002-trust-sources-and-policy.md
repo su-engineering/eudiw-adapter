@@ -1,6 +1,6 @@
 # ADR-002: Trust sources and trust policy
 
-Status: accepted. Implemented for the first release: per-policy trust anchors (decision 1, as configured certificates), explicit status results (2), scoped caches (3), anchored issuer keys (5), production refusals (6). Trusted list ingestion (4) and DID methods (7) come later.
+Status: accepted. Implemented for the first release: per-policy trust anchors (decision 1, as configured certificates), explicit status results (2), scoped caches (3), anchored issuer keys (5), production refusals (6). Trusted lists (4) are implemented as described in [ADR-006](0006-trusted-lists.md). DID methods (7) come later.
 
 ## Context
 
@@ -19,4 +19,4 @@ Issuer trust can come from ETSI TS 119 602 lists (JSON or JWT), ETSI TS 119 612 
 ## Open
 
 - Enforcing DCQL `trusted_authorities` on responses: planned, on by default for new tenants.
-- Refresh and rollback rules for lists (sequence number or issue date must not go backwards).
+- Refresh and rollback rules for lists: decided in ADR-006 (the sequence number may not go backwards).

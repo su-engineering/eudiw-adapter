@@ -24,6 +24,8 @@ import io.github.suengineering.eudiw.core.oid4vp.VpTokenVerifier.StatusPolicy;
 import io.github.suengineering.eudiw.core.sdjwt.SdJwtVcVerifier;
 import io.github.suengineering.eudiw.core.sdjwt.X5cIssuerKeyResolver;
 import io.github.suengineering.eudiw.core.status.StatusListChecker;
+import io.github.suengineering.eudiw.core.trust.TrustedLists;
+import io.github.suengineering.eudiw.core.x509.TrustStore;
 import io.github.suengineering.eudiw.service.config.AdapterConfig;
 import io.github.suengineering.eudiw.service.config.AdapterConfig.Policy;
 import io.github.suengineering.eudiw.service.config.AdapterConfig.Tenant;
@@ -36,12 +38,16 @@ import java.net.URI;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Base64;
-import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
+import org.jboss.logging.Logger;
 
 /**
  * Loads the configuration once at startup, refuses unsafe settings in production, and holds one verifier per
@@ -71,7 +77,10 @@ public class AdapterRuntime {
 
     private AdapterConfig config;
     private DataProtection dataProtection;
-    private final Map<String, VpTokenVerifier> verifiers = new HashMap<>();
+    private static final Logger LOG = Logger.getLogger(AdapterRuntime.class);
+
+    private final Map<String, VpTokenVerifier> verifiers = new ConcurrentHashMap<>();
+    private final Map<String, TrustedLists> trustedLists = new ConcurrentHashMap<>();
     private Clock clock = Clock.systemUTC();
     private HttpFetcher fetcher;
 
@@ -111,19 +120,26 @@ public class AdapterRuntime {
 
     private void buildVerifiers() {
         verifiers.clear();
+        trustedLists.clear();
         for (Tenant tenant : config.tenants().values()) {
             for (Policy policy : tenant.policies().values()) {
-                Set<java.security.cert.TrustAnchor> anchors = policy.trustAnchors();
+                TrustStore configured = TrustStore.ofAnchors(policy.trustAnchors());
+                TrustedLists lists = new TrustedLists(policy.trustedLists(), fetcher, clock);
+                trustedLists.put(key(tenant.id(), policy.id()), lists);
+                Supplier<TrustStore> issuance =
+                        lists.isEmpty() ? () -> configured : () -> configured.merge(lists.issuance());
+                Supplier<TrustStore> status =
+                        lists.isEmpty() ? () -> configured : () -> configured.merge(lists.status());
                 StatusListChecker checker = new StatusListChecker(
                         fetcher,
-                        () -> anchors,
+                        () -> status.get().anchors(),
                         AlgorithmPolicy.DEFAULT,
                         clock,
                         Duration.ofSeconds(60),
                         Duration.ofMinutes(15),
                         1000);
                 VpTokenVerifier verifier = new VpTokenVerifier(
-                        new SdJwtVcVerifier(new X5cIssuerKeyResolver(() -> anchors, clock), false),
+                        new SdJwtVcVerifier(X5cIssuerKeyResolver.withTrustStore(issuance, clock), false),
                         policy.statusPolicy() == StatusPolicy.IGNORE ? Optional.empty() : Optional.of(checker),
                         new VpTokenVerifier.Settings(
                                 clock,
@@ -135,6 +151,31 @@ public class AdapterRuntime {
                 verifiers.put(key(tenant.id(), policy.id()), verifier);
             }
         }
+    }
+
+    /** Fetches and verifies every configured trusted list. Failures are logged by location and code only. */
+    public void refreshTrustedLists() {
+        for (Map.Entry<String, TrustedLists> entry : trustedLists.entrySet()) {
+            if (entry.getValue().isEmpty()) {
+                continue;
+            }
+            for (TrustedLists.LoadResult result : entry.getValue().refresh()) {
+                if (!result.ok()) {
+                    LOG.warnf("trusted list %s not updated: %s", result.location(), result.code());
+                }
+            }
+        }
+    }
+
+    /** Policies that use trusted lists but currently trust no certificate from them. */
+    public List<String> policiesWithoutCurrentTrustedLists() {
+        List<String> missing = new ArrayList<>();
+        trustedLists.forEach((key, lists) -> {
+            if (!lists.isEmpty() && lists.issuance().isEmpty()) {
+                missing.add(key.replace('\n', '/'));
+            }
+        });
+        return missing;
     }
 
     /** Test hook: replace the clock and network access, then rebuild the verifiers. */

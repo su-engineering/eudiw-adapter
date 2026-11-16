@@ -34,10 +34,27 @@ public record AlgorithmPolicy(Set<JWSAlgorithm> allowed, int minimumRsaKeyBits) 
             JWSAlgorithm.ES512,
             JWSAlgorithm.PS256,
             JWSAlgorithm.PS384,
-            JWSAlgorithm.PS512);
+            JWSAlgorithm.PS512,
+            JWSAlgorithm.RS256,
+            JWSAlgorithm.RS384,
+            JWSAlgorithm.RS512);
 
     /** ECDSA on P-256, P-384 and P-521 and RSASSA-PSS with keys of at least 2048 bits. */
-    public static final AlgorithmPolicy DEFAULT = new AlgorithmPolicy(SUPPORTED, 2048);
+    public static final AlgorithmPolicy DEFAULT = new AlgorithmPolicy(
+            Set.of(
+                    JWSAlgorithm.ES256,
+                    JWSAlgorithm.ES384,
+                    JWSAlgorithm.ES512,
+                    JWSAlgorithm.PS256,
+                    JWSAlgorithm.PS384,
+                    JWSAlgorithm.PS512),
+            2048);
+
+    /**
+     * For signed trusted lists only: {@link #DEFAULT} plus RSASSA-PKCS1-v1_5, which ETSI TS 119 312 still allows
+     * for list signing. Never used for credentials or presentations.
+     */
+    public static final AlgorithmPolicy TRUSTED_LISTS = new AlgorithmPolicy(SUPPORTED, 2048);
 
     /** ES256 only, the algorithm HAIP 1.0 requires every party to support. */
     public static final AlgorithmPolicy ES256_ONLY = new AlgorithmPolicy(Set.of(JWSAlgorithm.ES256), 2048);

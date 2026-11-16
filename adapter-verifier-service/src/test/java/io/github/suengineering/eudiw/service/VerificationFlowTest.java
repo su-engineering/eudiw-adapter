@@ -79,11 +79,15 @@ class VerificationFlowTest {
     }
 
     private JsonPath create(String clientId, String mode) {
+        return create(clientId, mode, "age-over-18");
+    }
+
+    private JsonPath create(String clientId, String mode, String policyId) {
         return given().auth()
                 .oauth2(TestWallet.fullToken(clientId))
                 .header("Idempotency-Key", UUID.randomUUID().toString())
                 .contentType(ContentType.JSON)
-                .body(Map.of("policy_id", "age-over-18", "mode", mode, "client_reference", "ref-1"))
+                .body(Map.of("policy_id", policyId, "mode", mode, "client_reference", "ref-1"))
                 .post("/v1/verification-sessions")
                 .then()
                 .statusCode(201)
@@ -166,6 +170,37 @@ class VerificationFlowTest {
             assertThat(stored).doesNotContain(disclosure);
             assertThat(log).doesNotContain(disclosure);
         }
+    }
+
+    @Test
+    void issuerTrustedOnlyThroughASignedTrustedListIsAccepted() {
+        // Tenant B's listed policy has no configured anchors: issuer A is trusted only because the signed
+        // PID providers list names its root, and the query's etsi_tl names that list.
+        assertThat(runtime.policiesWithoutCurrentTrustedLists()).contains("tenant-b/age-over-18-listed");
+        runtime.refreshTrustedLists();
+        assertThat(runtime.policiesWithoutCurrentTrustedLists()).isEmpty();
+
+        JsonPath session = create("portal-b", "cross_device", "age-over-18-listed");
+        Map<String, Object> request = TestWallet.fetchRequest(session.getString("wallet_launch.request_uri"));
+        assertThat(TestWallet.respond(request, presentAgeOver18(request, 1)).statusCode())
+                .isEqualTo(200);
+
+        given().auth()
+                .oauth2(TestWallet.fullToken("portal-b"))
+                .get("/v1/verification-sessions/" + session.getString("id"))
+                .then()
+                .statusCode(200)
+                .body("status", org.hamcrest.Matchers.equalTo("verified"));
+
+        // The same credential under tenant B's anchor-file policy is still rejected.
+        JsonPath other = create("portal-b", "cross_device");
+        Map<String, Object> otherRequest = TestWallet.fetchRequest(other.getString("wallet_launch.request_uri"));
+        TestWallet.respond(otherRequest, presentAgeOver18(otherRequest, 1));
+        given().auth()
+                .oauth2(TestWallet.fullToken("portal-b"))
+                .get("/v1/verification-sessions/" + other.getString("id"))
+                .then()
+                .body("status", org.hamcrest.Matchers.equalTo("rejected"));
     }
 
     @Test

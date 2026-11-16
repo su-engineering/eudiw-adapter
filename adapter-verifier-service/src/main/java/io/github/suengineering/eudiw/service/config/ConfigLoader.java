@@ -20,6 +20,8 @@ import io.github.suengineering.eudiw.core.dcql.DcqlQuery;
 import io.github.suengineering.eudiw.core.json.Json;
 import io.github.suengineering.eudiw.core.oid4vp.VerifierIdentity;
 import io.github.suengineering.eudiw.core.oid4vp.VpTokenVerifier.StatusPolicy;
+import io.github.suengineering.eudiw.core.trust.TrustedList;
+import io.github.suengineering.eudiw.core.trust.TrustedListSource;
 import io.github.suengineering.eudiw.service.config.AdapterConfig.ClientApplication;
 import io.github.suengineering.eudiw.service.config.AdapterConfig.OutputClaim;
 import io.github.suengineering.eudiw.service.config.AdapterConfig.Policy;
@@ -177,8 +179,19 @@ public final class ConfigLoader {
         }
 
         Set<TrustAnchor> anchors = new LinkedHashSet<>();
-        for (X509Certificate certificate : certificates(read(base, string(json, "trust_anchors_file")))) {
-            anchors.add(new TrustAnchor(certificate, null));
+        if (json.containsKey("trust_anchors_file")) {
+            for (X509Certificate certificate : certificates(read(base, string(json, "trust_anchors_file")))) {
+                anchors.add(new TrustAnchor(certificate, null));
+            }
+        }
+        List<TrustedListSource> trustedLists = new ArrayList<>();
+        if (json.containsKey("trusted_lists")) {
+            for (Object entry : list(json, "trusted_lists")) {
+                trustedLists.add(trustedList(object(entry, "trusted list"), base, where, production));
+            }
+        }
+        if (anchors.isEmpty() && trustedLists.isEmpty()) {
+            throw new ConfigException(where + ": set trust_anchors_file, trusted_lists or both");
         }
         Set<String> allowedIssuers = new LinkedHashSet<>();
         if (json.containsKey("allowed_issuers")) {
@@ -212,11 +225,63 @@ public final class ConfigLoader {
                 query,
                 Map.copyOf(output),
                 Set.copyOf(anchors),
+                List.copyOf(trustedLists),
                 Set.copyOf(allowedIssuers),
                 statusPolicy,
                 enforceAuthorities,
                 sessionTtl,
                 resultTtl);
+    }
+
+    private static TrustedListSource trustedList(
+            Map<String, Object> json, Path base, String where, boolean production) {
+        String location = string(json, "location");
+        URI uri;
+        try {
+            uri = location.startsWith("https://") || location.startsWith("http://")
+                    ? URI.create(location)
+                    : base.resolve(location).normalize().toUri();
+        } catch (IllegalArgumentException e) {
+            throw new ConfigException(where + ": invalid trusted list location", e);
+        }
+        if (production && "http".equalsIgnoreCase(uri.getScheme())) {
+            throw new ConfigException(where + ": trusted list locations must use HTTPS in production");
+        }
+        TrustedList.Format format =
+                switch (string(json, "format")) {
+                    case "tsl_xml" -> TrustedList.Format.TSL_XML;
+                    case "lote_json" -> TrustedList.Format.LOTE_JSON;
+                    default -> throw new ConfigException(where + ": trusted list format must be tsl_xml or lote_json");
+                };
+        List<X509Certificate> signers = certificates(read(base, string(json, "signer_certificates_file")));
+        Set<String> accepted = json.containsKey("accepted_statuses")
+                ? strings(json, "accepted_statuses", where)
+                : TrustedListSource.DEFAULT_ACCEPTED_STATUSES;
+        try {
+            return new TrustedListSource(
+                    json.containsKey("identifier") ? string(json, "identifier") : uri.toString(),
+                    uri,
+                    format,
+                    signers,
+                    Boolean.TRUE.equals(json.get("follow_pointers")),
+                    json.containsKey("territories") ? strings(json, "territories", where) : Set.of(),
+                    strings(json, "issuance_service_types", where),
+                    json.containsKey("status_service_types") ? strings(json, "status_service_types", where) : Set.of(),
+                    accepted);
+        } catch (IllegalArgumentException e) {
+            throw new ConfigException(where + ": " + e.getMessage(), e);
+        }
+    }
+
+    private static Set<String> strings(Map<String, Object> json, String key, String where) {
+        Set<String> values = new LinkedHashSet<>();
+        for (Object value : list(json, key)) {
+            if (!(value instanceof String s) || s.isEmpty()) {
+                throw new ConfigException(where + ": " + key + " must be non-empty strings");
+            }
+            values.add(s);
+        }
+        return values;
     }
 
     private static Duration seconds(
@@ -283,6 +348,11 @@ public final class ConfigLoader {
                 for (Policy p : t.policies().values()) {
                     for (TrustAnchor a : p.trustAnchors()) {
                         digest.update(a.getTrustedCert().getEncoded());
+                    }
+                    for (TrustedListSource list : p.trustedLists()) {
+                        for (X509Certificate signer : list.signers()) {
+                            digest.update(signer.getEncoded());
+                        }
                     }
                 }
             }

@@ -10,7 +10,9 @@ Pinned versions. Changes go through a reviewed ADR and tests. "Supported" means 
 | SD-JWT VC | version referenced by HAIP 1.0 | | `dc+sd-jwt` credentials |
 | Token Status List | version referenced by HAIP 1.0 | | Revocation and suspension |
 | ISO/IEC 18013-5 | | | mdoc issuer and device authentication |
-| ETSI TS 119 602 / TS 119 612 | | | Trusted lists |
+| ETSI TS 119 602 (lists of trusted entities) | V1.1.1 | | PID provider and other EU lists, JSON binding |
+| ETSI TS 119 612 (trusted lists) | V2.4.1 | | XML trusted lists and the EU list of trusted lists |
+| ETSI TS 119 182-1 (JAdES) | V1.2.1 | | Compact signatures on TS 119 602 lists |
 | EUDI Wallet Architecture and Reference Framework | v3.0.0 | 21 July 2026 | Ecosystem reference |
 | OpenID for Verifiable Credential Issuance 1.0 | Final | 16 September 2025 | Not used yet |
 
@@ -25,7 +27,7 @@ States: `not implemented`, `implemented` (code exists), `tested` (automated test
 | ISO mdoc: issuer and device authentication | not implemented |
 | `direct_post.jwt` with response encryption | interop-tested: OpenID4VP 1.0 section 8.3 example; eudi-dev wallet v3.8.0 with `--haip --arf --mode strict` (2026-11-16) |
 | `x509_hash` client identifier, signed request objects | interop-tested: eudi-dev wallet v3.8.0 with `--haip --arf --mode strict` (2026-11-16): it accepts our access certificate chain under the configured relying-party CA and refuses it under a different CA. Over plain HTTP in tests |
-| ETSI TS 119 602 / 119 612 trusted lists, LOTL | not implemented |
+| ETSI TS 119 602 / 119 612 trusted lists, LOTL | tested with synthetic signed lists: JSON with compact JAdES and XML with enveloped signatures, LOTL pointer following, tampering, wrong signer, XXE, partial-coverage signature wrapping, external references, rollback, expiry, six-month limit. Not yet run against a published list |
 | Token Status List | JWT form tested: draft 14 section 4 and Appendix C vectors (1, 2, 4 and 8 bits), signed `x5c` status list tokens; CWT form not implemented |
 | Issuer certificate revocation (CRL, OCSP) | not implemented |
 | Relying-party access and registration certificates | requires external onboarding |

@@ -48,6 +48,8 @@ public class TestEnvironment implements QuarkusTestResourceLifecycleManager {
     public static final String ISSUER_A = "https://issuer-a.test.example";
     public static final String ISSUER_B = "https://issuer-b.test.example";
     public static final String VCT = "https://credentials.test.example/age";
+    public static final String PID_LIST_ID = "https://lists.test.example/pid-providers.jwt";
+    public static final String PID_ISSUANCE = "http://uri.etsi.org/19602/SvcType/PID/Issuance";
     public static final String COMPLETION_URI = "https://portal-a.test.example/done";
 
     @Override
@@ -57,7 +59,7 @@ public class TestEnvironment implements QuarkusTestResourceLifecycleManager {
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }
-        return Map.of(
+        Map<String, String> settings = new java.util.HashMap<>(Map.of(
                 "eudiw.config-file",
                 DIR.resolve("tenants.json").toString(),
                 "eudiw.public-base-url",
@@ -77,7 +79,9 @@ public class TestEnvironment implements QuarkusTestResourceLifecycleManager {
                 "quarkus.oidc.token.audience",
                 AUDIENCE,
                 "eudiw.sweep-interval",
-                "off");
+                "off"));
+        settings.put("eudiw.trusted-lists.refresh-interval", "off");
+        return settings;
     }
 
     @Override
@@ -120,6 +124,11 @@ public class TestEnvironment implements QuarkusTestResourceLifecycleManager {
         write("rp-b.pem", pem(rpB.certificate()));
         write("rp-b-key.pem", pem(rpB.keyPair().getPrivate()));
 
+        Issued listSigner = TestPki.endEntity(
+                "CN=List Signer,O=Test Operator,C=EU", rpRoot, from, until, KeyUsage.digitalSignature, List.of());
+        write("list-signer.pem", pem(listSigner.certificate()));
+        write("pid-list.jwt", pidList(listSigner, rootA.certificate()));
+
         KeyPairGenerator rsa = KeyPairGenerator.getInstance("RSA");
         rsa.initialize(2048);
         KeyPair tokenKeys = rsa.generateKeyPair();
@@ -131,6 +140,10 @@ public class TestEnvironment implements QuarkusTestResourceLifecycleManager {
         String dcql = """
                 {"credentials":[{"id":"age","format":"dc+sd-jwt","meta":{"vct_values":["%s"]},
                   "claims":[{"path":["age_over_18"]}]}]}""".formatted(VCT);
+        String listedDcql = """
+                {"credentials":[{"id":"age","format":"dc+sd-jwt","meta":{"vct_values":["%s"]},
+                  "trusted_authorities":[{"type":"etsi_tl","values":["%s"]}],
+                  "claims":[{"path":["age_over_18"]}]}]}""".formatted(VCT, PID_LIST_ID);
         String tenants = """
                 {"tenants":[
                   {"id":"tenant-a",
@@ -144,13 +157,69 @@ public class TestEnvironment implements QuarkusTestResourceLifecycleManager {
                      "status_policy":"require_valid","session_ttl_seconds":300,"result_ttl_seconds":600}]},
                   {"id":"tenant-b",
                    "verifier":{"private_key_file":"rp-b-key.pem","certificate_chain_file":"rp-b.pem"},
-                   "clients":[{"client_id":"portal-b","policies":["age-over-18"]}],
+                   "clients":[{"client_id":"portal-b","policies":["age-over-18","age-over-18-listed"]}],
                    "policies":[{"id":"age-over-18","dcql":%s,
                      "output":{"age_over_18":{"credential":"age","path":["age_over_18"]}},
                      "trust_anchors_file":"issuer-b-root.pem",
+                     "status_policy":"require_valid"},
+                    {"id":"age-over-18-listed","dcql":%s,
+                     "output":{"age_over_18":{"credential":"age","path":["age_over_18"]}},
+                     "trusted_lists":[{"identifier":"%s","location":"pid-list.jwt","format":"lote_json",
+                       "signer_certificates_file":"list-signer.pem","issuance_service_types":["%s"]}],
                      "status_policy":"require_valid"}]}
-                ]}""".formatted(COMPLETION_URI, dcql, ISSUER_A, dcql);
+                ]}""".formatted(COMPLETION_URI, dcql, ISSUER_A, dcql, listedDcql, PID_LIST_ID, PID_ISSUANCE);
         write("tenants.json", tenants);
+    }
+
+    /** A TS 119 602 PID providers list (JSON, compact JAdES) that lists issuer root A. Synthetic. */
+    private static String pidList(Issued signer, X509Certificate listed) throws Exception {
+        Instant issued = Instant.now().minus(1, ChronoUnit.DAYS).truncatedTo(ChronoUnit.SECONDS);
+        Map<String, Object> service = Map.of(
+                "ServiceInformation",
+                Map.of(
+                        "ServiceName",
+                        List.of(Map.of("lang", "en", "value", "PID issuance")),
+                        "ServiceTypeIdentifier",
+                        PID_ISSUANCE,
+                        "ServiceDigitalIdentity",
+                        Map.of(
+                                "X509Certificates",
+                                List.of(Map.of("val", Base64.getEncoder().encodeToString(listed.getEncoded()))))));
+        Map<String, Object> entity = Map.of(
+                "TrustedEntityInformation",
+                Map.of(
+                        "TEName", List.of(Map.of("lang", "en", "value", "Issuer A")),
+                        "TEAddress", Map.of(),
+                        "TEInformationURI", List.of(Map.of("lang", "en", "uriValue", ISSUER_A))),
+                "TrustedEntityServices",
+                List.of(service));
+        Map<String, Object> scheme = Map.of(
+                "LoTEVersionIdentifier",
+                1,
+                "LoTESequenceNumber",
+                1,
+                "LoTEType",
+                "http://uri.etsi.org/19602/LoTEType/EUPIDProvidersList",
+                "SchemeOperatorName",
+                List.of(Map.of("lang", "en", "value", "Test Operator")),
+                "SchemeTerritory",
+                "EU",
+                "ListIssueDateTime",
+                issued.toString(),
+                "NextUpdate",
+                issued.plus(90, ChronoUnit.DAYS).toString());
+        Map<String, Object> lote =
+                Map.of("LoTE", Map.of("ListAndSchemeInformation", scheme, "TrustedEntitiesList", List.of(entity)));
+        com.nimbusds.jose.JWSObject jws = new com.nimbusds.jose.JWSObject(
+                new com.nimbusds.jose.JWSHeader.Builder(com.nimbusds.jose.JWSAlgorithm.ES256)
+                        .x509CertChain(List.of(com.nimbusds.jose.util.Base64.encode(
+                                signer.certificate().getEncoded())))
+                        .customParam("iat", issued.getEpochSecond())
+                        .build(),
+                new com.nimbusds.jose.Payload(com.nimbusds.jose.util.JSONObjectUtils.toJSONString(lote)));
+        jws.sign(new com.nimbusds.jose.crypto.ECDSASigner(
+                (java.security.interfaces.ECPrivateKey) signer.keyPair().getPrivate()));
+        return jws.serialize();
     }
 
     public static String read(String name) {

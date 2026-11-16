@@ -27,6 +27,7 @@ import com.nimbusds.jose.jwk.JWK;
 import com.nimbusds.jose.jwk.RSAKey;
 import io.github.suengineering.eudiw.core.VerificationFailure;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Verifies a JWS with a key the caller already trusts. The algorithm is derived from the key (curve for EC,
@@ -42,6 +43,16 @@ public final class JwsSignatureVerifier {
      *     invalid_signature}
      */
     public static void verify(JWSObject jws, JWK trustedKey, AlgorithmPolicy policy) {
+        verify(jws, trustedKey, policy, Set.of());
+    }
+
+    /**
+     * Like {@link #verify(JWSObject, JWK, AlgorithmPolicy)}, but accepts a {@code crit} header that lists only
+     * names the caller has processed itself.
+     *
+     * @param understoodCritical header parameter names the caller processes; any other {@code crit} entry rejects
+     */
+    public static void verify(JWSObject jws, JWK trustedKey, AlgorithmPolicy policy, Set<String> understoodCritical) {
         Objects.requireNonNull(jws, "jws");
         Objects.requireNonNull(trustedKey, "trustedKey");
         Objects.requireNonNull(policy, "policy");
@@ -50,15 +61,15 @@ public final class JwsSignatureVerifier {
         if (!policy.allows(algorithm)) {
             throw new VerificationFailure("unsupported_algorithm", "JWS algorithm not allowed: " + algorithm);
         }
-        if (jws.getHeader().getCriticalParams() != null
-                && !jws.getHeader().getCriticalParams().isEmpty()) {
+        Set<String> critical = jws.getHeader().getCriticalParams();
+        if (critical != null && !understoodCritical.containsAll(critical)) {
             throw new VerificationFailure("unsupported_algorithm", "critical header parameters are not supported");
         }
         if (trustedKey.isPrivate()) {
             throw new VerificationFailure("unsupported_key", "verification key must be a public key");
         }
 
-        JWSVerifier verifier = verifierFor(trustedKey, algorithm, policy);
+        JWSVerifier verifier = verifierFor(trustedKey, algorithm, policy, critical == null ? Set.of() : critical);
         boolean valid;
         try {
             valid = jws.verify(verifier);
@@ -70,7 +81,8 @@ public final class JwsSignatureVerifier {
         }
     }
 
-    private static JWSVerifier verifierFor(JWK key, JWSAlgorithm algorithm, AlgorithmPolicy policy) {
+    private static JWSVerifier verifierFor(
+            JWK key, JWSAlgorithm algorithm, AlgorithmPolicy policy, Set<String> deferredCritical) {
         try {
             if (key instanceof ECKey ecKey) {
                 JWSAlgorithm expected = algorithmForCurve(ecKey.getCurve());
@@ -78,18 +90,17 @@ public final class JwsSignatureVerifier {
                     throw new VerificationFailure(
                             "unsupported_algorithm", "algorithm " + algorithm + " does not match key curve");
                 }
-                return new ECDSAVerifier(ecKey);
+                return new ECDSAVerifier(ecKey.toECPublicKey(), deferredCritical);
             }
             if (key instanceof RSAKey rsaKey) {
-                if (!JWSAlgorithm.Family.RSA.contains(algorithm)
-                        || !algorithm.getName().startsWith("PS")) {
+                if (!JWSAlgorithm.Family.RSA.contains(algorithm)) {
                     throw new VerificationFailure(
                             "unsupported_algorithm", "algorithm " + algorithm + " does not match RSA key");
                 }
                 if (rsaKey.size() < policy.minimumRsaKeyBits()) {
                     throw new VerificationFailure("unsupported_key", "RSA key too short");
                 }
-                return new RSASSAVerifier(rsaKey);
+                return new RSASSAVerifier(rsaKey.toRSAPublicKey(), deferredCritical);
             }
         } catch (JOSEException e) {
             throw new VerificationFailure("unsupported_key", "key cannot be used for verification", e);

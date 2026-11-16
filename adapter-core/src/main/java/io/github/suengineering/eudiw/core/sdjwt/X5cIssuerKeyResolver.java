@@ -21,6 +21,7 @@ import io.github.suengineering.eudiw.core.VerificationFailure;
 import io.github.suengineering.eudiw.core.x509.CertificateChainValidator;
 import io.github.suengineering.eudiw.core.x509.CertificateKeys;
 import io.github.suengineering.eudiw.core.x509.CertificateNames;
+import io.github.suengineering.eudiw.core.x509.TrustStore;
 import java.security.cert.TrustAnchor;
 import java.security.cert.X509Certificate;
 import java.time.Clock;
@@ -40,15 +41,31 @@ import java.util.function.Supplier;
  */
 public final class X5cIssuerKeyResolver implements IssuerKeyResolver {
 
-    private final Supplier<Set<TrustAnchor>> trustAnchors;
+    private final Supplier<TrustStore> trustStore;
     private final Clock clock;
 
     /**
-     * @param trustAnchors current trust anchors, consulted on every call so trust list updates apply
+     * @param trustAnchors current trust anchors, consulted on every call so updates apply
+     * @param clock time source
      */
     public X5cIssuerKeyResolver(Supplier<Set<TrustAnchor>> trustAnchors, Clock clock) {
-        this.trustAnchors = Objects.requireNonNull(trustAnchors, "trustAnchors");
+        Objects.requireNonNull(trustAnchors, "trustAnchors");
+        this.trustStore = () -> TrustStore.ofAnchors(trustAnchors.get());
         this.clock = Objects.requireNonNull(clock, "clock");
+    }
+
+    private X5cIssuerKeyResolver(Clock clock, Supplier<TrustStore> trustStore) {
+        this.trustStore = Objects.requireNonNull(trustStore, "trustStore");
+        this.clock = Objects.requireNonNull(clock, "clock");
+    }
+
+    /**
+     * @param trustStore current trusted certificates and their sources, consulted on every call so trusted list
+     *     updates apply
+     * @param clock time source
+     */
+    public static X5cIssuerKeyResolver withTrustStore(Supplier<TrustStore> trustStore, Clock clock) {
+        return new X5cIssuerKeyResolver(clock, trustStore);
     }
 
     @Override
@@ -59,7 +76,10 @@ public final class X5cIssuerKeyResolver implements IssuerKeyResolver {
         }
         List<X509Certificate> chain =
                 CertificateChainValidator.parse(x5c.stream().map(Base64::decode).toList());
-        X509Certificate leaf = CertificateChainValidator.validate(chain, trustAnchors.get(), clock.instant());
+        TrustStore store = trustStore.get();
+        CertificateChainValidator.ValidatedPath path =
+                CertificateChainValidator.validatePath(chain, store.anchors(), clock.instant());
+        X509Certificate leaf = path.leaf();
 
         Object iss = unverifiedPayload.get("iss");
         String issuer;
@@ -70,6 +90,6 @@ public final class X5cIssuerKeyResolver implements IssuerKeyResolver {
         } else {
             throw new VerificationFailure("issuer_untrusted", "iss is not bound to the signing certificate");
         }
-        return new ResolvedIssuerKey(CertificateKeys.publicJwk(leaf), issuer, chain);
+        return new ResolvedIssuerKey(CertificateKeys.publicJwk(leaf), issuer, chain, store.sourcesOf(path.anchor()));
     }
 }

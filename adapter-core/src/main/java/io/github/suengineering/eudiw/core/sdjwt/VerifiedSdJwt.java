@@ -34,6 +34,8 @@ import java.util.Set;
  * @param keyBindingVerified whether a Key Binding JWT was verified against the holder key, audience and nonce
  * @param issuerCertificateChain the validated issuer certificate chain, end-entity first; empty when the issuer
  *     key was not resolved from certificates
+ * @param trustSources where the trusted certificate that anchored the issuer came from, for example a trusted
+ *     list location
  */
 public record VerifiedSdJwt(
         JWSHeader header,
@@ -42,4 +44,5 @@ public record VerifiedSdJwt(
         Set<String> selectivelyDisclosedTopLevelClaims,
         Optional<JWK> holderKey,
         boolean keyBindingVerified,
-        java.util.List<java.security.cert.X509Certificate> issuerCertificateChain) {}
+        java.util.List<java.security.cert.X509Certificate> issuerCertificateChain,
+        Set<String> trustSources) {}

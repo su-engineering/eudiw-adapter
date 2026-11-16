@@ -32,7 +32,6 @@ import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -207,7 +206,7 @@ public final class VpTokenVerifier {
                 vc.sdJwt().payload(),
                 vc.sdJwt().keyBindingVerified(),
                 CertificateIdentifiers.authorityKeyIds(vc.sdJwt().issuerCertificateChain()),
-                new LinkedHashSet<>());
+                vc.sdJwt().trustSources());
     }
 
     private void checkStatus(VerifiedSdJwtVc vc, Context context) {

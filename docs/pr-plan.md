@@ -26,7 +26,7 @@ Not in the first release: ISO mdoc, ETSI trusted list ingestion, credential issu
 - [x] SD-JWT (RFC 9901): parsing, disclosure digests, key binding JWT
 - [x] SD-JWT VC: type and issuer checks, `x5c` issuer binding
 - [x] DCQL: query model, construction from a policy, response matching
-- [ ] After the first release: trust lists, ETSI TS 119 602 (JSON, JWT), TS 119 612 (XML) and LOTL, signature and freshness
+- [x] Trusted lists: ETSI TS 119 602 (JSON, compact JAdES), TS 119 612 (XML) and LOTL, signature, freshness and rollback ([ADR-006](adr/0006-trusted-lists.md))
 - [x] Token Status List, JWT form (CWT form with mdoc)
 - [ ] After the first release: ISO mdoc, MSO, value digests, issuer and device authentication, session transcript for OID4VP
 - [x] Presentation processor: `vp_token` to verified, minimized claims under a policy (SD-JWT VC)
@@ -50,4 +50,4 @@ Not in the first release: ISO mdoc, ETSI trusted list ingestion, credential issu
 
 ## After the first release
 
-ETSI trusted lists, ISO mdoc, webhooks, multi-node operation, rate limits, telemetry, SBOM, restricted Kubernetes deployment, `trusted_authorities` enforcement, DC API, DID trust, and later an OID4VCI issuer service.
+ISO mdoc, webhooks, multi-node operation, rate limits, telemetry, SBOM, restricted Kubernetes deployment, `trusted_authorities` enforcement, DC API, DID trust, and later an OID4VCI issuer service.

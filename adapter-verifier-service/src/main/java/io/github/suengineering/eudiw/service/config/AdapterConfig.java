@@ -86,6 +86,7 @@ public record AdapterConfig(String revision, Map<String, Tenant> tenants) {
             DcqlQuery query,
             Map<String, OutputClaim> output,
             Set<TrustAnchor> trustAnchors,
+            java.util.List<io.github.suengineering.eudiw.core.trust.TrustedListSource> trustedLists,
             Set<String> allowedIssuers,
             StatusPolicy statusPolicy,
             boolean enforceTrustedAuthorities,

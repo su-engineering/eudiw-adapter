@@ -28,12 +28,13 @@ If you want wallet login inside Keycloak instead, see [keycloak-oid4vp](https://
 - **SD-JWT VC verification** (RFC 9901, SD-JWT VC): issuer signature, disclosure digests, key binding to your request's nonce and client identifier, issuer X.509 certificate chain to your trust anchors, Token Status List revocation and suspension.
 - **OpenID4VP 1.0 as profiled by HAIP 1.0**: signed request objects fetched by `request_uri`, `x509_hash` client identifier, `direct_post.jwt` responses encrypted (ECDH-ES P-256) to a fresh key per request, DCQL queries with claim sets, credential sets and `trusted_authorities`.
 - **Data minimization**: each policy decides which claims leave the service. Everything else the wallet disclosed is dropped. Results are encrypted at rest, retrievable once, and expire. The raw presentation is never stored.
+- **ETSI trusted lists**: issuer trust from signed TS 119 602 lists (such as the EU PID providers list) and TS 119 612 trusted lists, including the EU list of trusted lists, with pinned signers, freshness checks and rollback protection. Or configure anchor certificates directly.
 - **Multi-tenant**: tenants, client applications and policies come from configuration. The tenant is taken from the caller's OAuth 2.0 token, never from the request. Trust anchors and status caches are per policy.
 - **Fails closed**: unknown issuer, broken chain, revoked or unknown status, replayed or mismatched key binding, or a late response rejects the session with a coarse reason code.
 - **Same-device and cross-device flows**: deep link or QR code, with a one-time `response_code` that stops a same-device request from being relayed to someone else's wallet.
 - **Tested against an independent wallet**: the [eudi-dev](https://github.com/eudi-dev/eudi-dev) wallet in strict HAIP and ARF mode, plus RFC 9901 and OpenID4VP test vectors and a differential test against a second SD-JWT implementation.
 
-Not yet: ISO mdoc (`mso_mdoc`), ETSI trusted list ingestion (trust anchors are configured as certificates), issuer certificate revocation (CRL, OCSP), webhooks (poll for results), Digital Credentials API, credential issuance (OID4VCI). Work in progress is tracked in the [delivery plan](docs/pr-plan.md).
+Not yet: ISO mdoc (`mso_mdoc`), issuer certificate revocation (CRL, OCSP), webhooks (poll for results), Digital Credentials API, credential issuance (OID4VCI). Work in progress is tracked in the [delivery plan](docs/pr-plan.md).
 
 ## Standards
 

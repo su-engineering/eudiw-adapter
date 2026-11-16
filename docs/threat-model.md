@@ -25,7 +25,9 @@ Status: `planned`, `implemented` (code and a regression test exist), `partial`.
 
 | Threat | Control | Status | Regression test |
 | --- | --- | --- | --- |
-| Credential from an issuer outside the trust profile | Issuer chain to the policy's own anchors, `iss` bound to the certificate, optional issuer allow list | implemented (V-04 cross-tenant issuer test, demo rejection step); ETSI trusted lists planned | Signature-valid credential from unlisted issuer rejected |
+| Credential from an issuer outside the trust profile | Issuer chain to the policy's own anchors or to a service approved in a signed trusted list, `iss` bound to the certificate, optional issuer allow list | implemented (V-04 cross-tenant issuer test, trusted list flow test, demo rejection step) | Signature-valid credential from unlisted issuer rejected |
+| Forged, replayed or stale trusted list | Pinned list signers (from configuration or the LOTL pointer), strict XML signature profile (one enveloped signature covering the root, same-document references only, secure validation, no DTDs), JAdES without detached payloads, next update enforced, sequence number may not decrease, last good list dropped at its next update | implemented ([ADR-006](adr/0006-trusted-lists.md)) | Tampered, wrongly signed, partially signed, rolled back and expired lists rejected; XXE refused |
+| Status list key used to sign credentials | Revocation service types anchor status list tokens only, never credentials | implemented | Revocation-service certificate absent from issuance anchors |
 | SD-JWT replay or key-binding substitution | nonce per request instance, `aud` = client identifier, `sd_hash`, `iat` window, single-use request instance | implemented | Replay into a new session, the same session, another tenant |
 | Modified or injected disclosure | Digest of every disclosure must appear exactly once in the signed payload | implemented | Changed, duplicated and unreferenced disclosures rejected |
 | mdoc device authentication bypass | Session transcript, MSO validity and value digests, issuer and device signatures; device MAC rejected | planned | Swapped transcript and swapped device key rejected |
