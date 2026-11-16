@@ -4,7 +4,7 @@ Status: in development. Nothing here describes released features unless the [fea
 
 ## Goal
 
-An application with no wallet protocol code of its own calls a tenant-scoped REST API to request a credential presentation, sends the user to a wallet, and receives a verified, minimized result by polling or an authenticated webhook.
+An application with no wallet protocol code of its own calls a tenant-scoped REST API to request a credential presentation, sends the user to a wallet, and receives a verified, minimized result by polling (an authenticated webhook is planned).
 
 ```mermaid
 flowchart LR
@@ -31,7 +31,7 @@ flowchart LR
 | --- | --- | --- | --- |
 | Wallet to service | `request_uri` fetch, `direct_post.jwt` response | Untrusted, anonymous | Opaque request handles, per-request state, nonce and decryption key, single-use completion |
 | Application to service | Session create, read, result, cancel | Authenticated client, tenant-scoped | OAuth2 access token validated locally; tenant taken from the token, never from the path |
-| Service to the internet | Trust lists, VICAL, status lists, OCSP and CRL | Untrusted content, URLs partly attacker-influenced | Egress policy (no private, loopback or link-local addresses), size and time limits, signature checks |
+| Service to the internet | Status lists today; trusted lists, OCSP and CRL planned | Untrusted content, URLs partly attacker-influenced | Egress policy (no private, loopback or link-local addresses), size and time limits, signature checks |
 | Operator to service | Tenant, policy and key configuration | Trusted | Separate administrative credentials |
 
 ## Core design
