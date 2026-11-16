@@ -214,6 +214,14 @@ public final class ConfigLoader {
         if (production && statusPolicy == StatusPolicy.IGNORE) {
             throw new ConfigException(where + ": status_policy ignore is not allowed in production");
         }
+        boolean checkRevocation = false;
+        if (json.containsKey("certificate_revocation")) {
+            checkRevocation = switch (string(json, "certificate_revocation")) {
+                case "crl" -> true;
+                case "off" -> false;
+                default -> throw new ConfigException(where + ": certificate_revocation must be crl or off");
+            };
+        }
         boolean enforceAuthorities = !json.containsKey("enforce_trusted_authorities")
                 || Boolean.TRUE.equals(json.get("enforce_trusted_authorities"));
         Duration sessionTtl =
@@ -227,6 +235,7 @@ public final class ConfigLoader {
                 Set.copyOf(anchors),
                 List.copyOf(trustedLists),
                 Set.copyOf(allowedIssuers),
+                checkRevocation,
                 statusPolicy,
                 enforceAuthorities,
                 sessionTtl,

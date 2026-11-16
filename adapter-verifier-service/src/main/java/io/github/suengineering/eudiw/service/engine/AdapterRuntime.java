@@ -25,6 +25,7 @@ import io.github.suengineering.eudiw.core.sdjwt.SdJwtVcVerifier;
 import io.github.suengineering.eudiw.core.sdjwt.X5cIssuerKeyResolver;
 import io.github.suengineering.eudiw.core.status.StatusListChecker;
 import io.github.suengineering.eudiw.core.trust.TrustedLists;
+import io.github.suengineering.eudiw.core.x509.CrlRevocationChecker;
 import io.github.suengineering.eudiw.core.x509.TrustStore;
 import io.github.suengineering.eudiw.service.config.AdapterConfig;
 import io.github.suengineering.eudiw.service.config.AdapterConfig.Policy;
@@ -80,6 +81,7 @@ public class AdapterRuntime {
 
     private AdapterConfig config;
     private HttpFetcher listFetcher;
+    private HttpFetcher crlFetcher;
     private volatile boolean trustedListsAttempted;
     private DataProtection dataProtection;
     private static final Logger LOG = Logger.getLogger(AdapterRuntime.class);
@@ -122,6 +124,9 @@ public class AdapterRuntime {
             // National trusted lists run to several megabytes.
             listFetcher = new JdkHttpFetcher(
                     new EgressPolicy(allowHttp, allowPrivateAddresses, Set.of()), Duration.ofSeconds(30));
+            // CRLs are signed and usually published over plain HTTP; private addresses stay blocked.
+            crlFetcher =
+                    new JdkHttpFetcher(new EgressPolicy(true, allowPrivateAddresses, Set.of()), Duration.ofSeconds(10));
         }
         buildVerifiers();
     }
@@ -150,7 +155,15 @@ public class AdapterRuntime {
                         Duration.ofMinutes(15),
                         1000);
                 VpTokenVerifier verifier = new VpTokenVerifier(
-                        new SdJwtVcVerifier(X5cIssuerKeyResolver.withTrustStore(issuance, clock), false),
+                        new SdJwtVcVerifier(
+                                policy.checkCertificateRevocation()
+                                        ? X5cIssuerKeyResolver.withTrustStore(
+                                                issuance,
+                                                clock,
+                                                new CrlRevocationChecker(
+                                                        crlFetcher == null ? fetcher : crlFetcher, clock, 256))
+                                        : X5cIssuerKeyResolver.withTrustStore(issuance, clock),
+                                false),
                         policy.statusPolicy() == StatusPolicy.IGNORE ? Optional.empty() : Optional.of(checker),
                         new VpTokenVerifier.Settings(
                                 clock,
@@ -209,6 +222,7 @@ public class AdapterRuntime {
         this.clock = testClock;
         this.fetcher = testFetcher;
         this.listFetcher = testFetcher;
+        this.crlFetcher = testFetcher;
         buildVerifiers();
     }
 

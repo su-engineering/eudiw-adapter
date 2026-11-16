@@ -76,6 +76,7 @@ Relative paths resolve against the directory of the tenants file.
 - `trust_anchors_file`: PEM certificates that issuer and status list certificate chains must validate to. Scoped to this policy.
 - `trusted_lists`: signed ETSI trusted lists whose approved services become trust anchors for this policy, in addition to `trust_anchors_file`. A policy needs at least one of the two. See [Trusted lists](#trusted-lists).
 - `allowed_issuers`: optional allow list of issuer identifiers.
+- `certificate_revocation`: `crl` checks every issuer chain certificate except the anchor against its CRL, and rejects when a CRL is missing, stale or unreachable; `off` (default) does not check. CRLs are fetched over HTTP or HTTPS from public addresses only ([ADR-007](adr/0007-certificate-revocation.md)).
 - `status_policy`: `require_valid` (default; an unavailable status list rejects), `reject_known_invalid` (revoked or suspended rejects, unavailable is tolerated) or `ignore` (not allowed in production).
 - `enforce_trusted_authorities`: reject credentials that match none of the query's `trusted_authorities` (default `true`).
 - `session_ttl_seconds`: at most 900. `result_ttl_seconds`: at most 3600.

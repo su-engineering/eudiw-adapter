@@ -75,7 +75,9 @@ public record AdapterConfig(String revision, Map<String, Tenant> tenants) {
      * @param query the approved DCQL query; callers cannot change it
      * @param output result claim names mapped to a credential query id and claims path
      * @param trustAnchors issuer and status list trust anchors for this policy only
+     * @param trustedLists signed trusted lists whose approved services add trust anchors
      * @param allowedIssuers if non-empty, only these issuer identifiers are accepted
+     * @param checkCertificateRevocation check every issuer chain certificate against its CRL
      * @param statusPolicy how credential status is enforced
      * @param enforceTrustedAuthorities enforce DCQL {@code trusted_authorities} on responses
      * @param sessionTtl lifetime of an uncompleted session
@@ -88,6 +90,7 @@ public record AdapterConfig(String revision, Map<String, Tenant> tenants) {
             Set<TrustAnchor> trustAnchors,
             java.util.List<io.github.suengineering.eudiw.core.trust.TrustedListSource> trustedLists,
             Set<String> allowedIssuers,
+            boolean checkCertificateRevocation,
             StatusPolicy statusPolicy,
             boolean enforceTrustedAuthorities,
             Duration sessionTtl,

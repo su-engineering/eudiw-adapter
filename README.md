@@ -30,11 +30,12 @@ If you want wallet login inside Keycloak instead, see [keycloak-oid4vp](https://
 - **Data minimization**: each policy decides which claims leave the service. Everything else the wallet disclosed is dropped. Results are encrypted at rest, retrievable once, and expire. The raw presentation is never stored.
 - **ETSI trusted lists**: issuer trust from signed TS 119 602 lists (such as the EU PID providers list) and TS 119 612 trusted lists, including the EU list of trusted lists, with pinned signers, freshness checks and rollback protection. Tested with synthetic lists so far, not yet with a published list. Or configure anchor certificates directly.
 - **Multi-tenant**: tenants, client applications and policies come from configuration. The tenant is taken from the caller's OAuth 2.0 token, never from the request. Trust anchors and status caches are per policy.
+- **Issuer certificate revocation** with CRLs, opt-in per policy, fetched only after the chain validates.
 - **Fails closed**: unknown issuer, broken chain, revoked or unknown status, replayed or mismatched key binding, or a late response rejects the session with a coarse reason code.
 - **Same-device and cross-device flows**: deep link or QR code, with a one-time `response_code` that stops a same-device request from being relayed to someone else's wallet.
 - **Tested against an independent wallet**: the [eudi-dev](https://github.com/eudi-dev/eudi-dev) wallet in strict HAIP and ARF mode, plus RFC 9901 and OpenID4VP test vectors and a differential test against a second SD-JWT implementation.
 
-Not yet: ISO mdoc (`mso_mdoc`), issuer certificate revocation (CRL, OCSP), webhooks (poll for results), Digital Credentials API, credential issuance (OID4VCI). Work in progress is tracked in the [delivery plan](docs/pr-plan.md).
+Not yet: ISO mdoc (`mso_mdoc`), OCSP, webhooks (poll for results), Digital Credentials API, credential issuance (OID4VCI). Work in progress is tracked in the [delivery plan](docs/pr-plan.md).
 
 ## Standards
 

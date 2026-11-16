@@ -27,6 +27,7 @@ import java.util.Set;
 public final class CertificateIdentifiers {
 
     private static final String AUTHORITY_KEY_IDENTIFIER = "2.5.29.35";
+    private static final String CRL_DISTRIBUTION_POINTS = "2.5.29.31";
 
     private CertificateIdentifiers() {}
 
@@ -53,6 +54,70 @@ public final class CertificateIdentifiers {
         } catch (IllegalArgumentException e) {
             return Optional.empty();
         }
+    }
+
+    /**
+     * HTTP and HTTPS URIs from the full names of the CRLDistributionPoints extension (RFC 5280 section 4.2.1.13).
+     * Distribution points with a {@code cRLIssuer} (indirect CRLs) and other name forms are skipped.
+     */
+    public static List<String> crlDistributionPoints(X509Certificate certificate) {
+        byte[] extension = certificate.getExtensionValue(CRL_DISTRIBUTION_POINTS);
+        if (extension == null) {
+            return List.of();
+        }
+        List<String> uris = new java.util.ArrayList<>();
+        try {
+            Der octets = Der.read(extension, 0, 0x04);
+            Der points = Der.read(extension, octets.contentStart(), 0x30);
+            for (Der point : children(extension, points)) {
+                if (point.tag() != 0x30) {
+                    continue;
+                }
+                List<Der> fields = children(extension, point);
+                if (fields.stream().anyMatch(f -> f.tag() == 0xA2)) {
+                    continue;
+                }
+                for (Der field : fields) {
+                    if (field.tag() != 0xA0) {
+                        continue;
+                    }
+                    for (Der name : children(extension, field)) {
+                        if (name.tag() != 0xA0) {
+                            continue;
+                        }
+                        for (Der general : children(extension, name)) {
+                            if (general.tag() == 0x86) {
+                                String uri = new String(
+                                        extension,
+                                        general.contentStart(),
+                                        general.contentEnd() - general.contentStart(),
+                                        java.nio.charset.StandardCharsets.US_ASCII);
+                                if (uri.startsWith("http://") || uri.startsWith("https://")) {
+                                    uris.add(uri);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (IllegalArgumentException e) {
+            return List.of();
+        }
+        return uris;
+    }
+
+    private static List<Der> children(byte[] data, Der parent) {
+        List<Der> result = new java.util.ArrayList<>();
+        int position = parent.contentStart();
+        while (position < parent.contentEnd()) {
+            Der element = Der.read(data, position, -1);
+            if (element.contentEnd() > parent.contentEnd()) {
+                throw new IllegalArgumentException("DER element overruns its parent");
+            }
+            result.add(element);
+            position = element.contentEnd();
+        }
+        return result;
     }
 
     /** AuthorityKeyIdentifiers of every certificate in a chain. */

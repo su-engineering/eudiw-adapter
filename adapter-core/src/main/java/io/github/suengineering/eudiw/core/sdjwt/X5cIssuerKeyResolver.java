@@ -21,6 +21,7 @@ import io.github.suengineering.eudiw.core.VerificationFailure;
 import io.github.suengineering.eudiw.core.x509.CertificateChainValidator;
 import io.github.suengineering.eudiw.core.x509.CertificateKeys;
 import io.github.suengineering.eudiw.core.x509.CertificateNames;
+import io.github.suengineering.eudiw.core.x509.CrlRevocationChecker;
 import io.github.suengineering.eudiw.core.x509.TrustStore;
 import java.security.cert.TrustAnchor;
 import java.security.cert.X509Certificate;
@@ -43,6 +44,7 @@ public final class X5cIssuerKeyResolver implements IssuerKeyResolver {
 
     private final Supplier<TrustStore> trustStore;
     private final Clock clock;
+    private final CrlRevocationChecker revocation;
 
     /**
      * @param trustAnchors current trust anchors, consulted on every call so updates apply
@@ -52,11 +54,13 @@ public final class X5cIssuerKeyResolver implements IssuerKeyResolver {
         Objects.requireNonNull(trustAnchors, "trustAnchors");
         this.trustStore = () -> TrustStore.ofAnchors(trustAnchors.get());
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.revocation = null;
     }
 
-    private X5cIssuerKeyResolver(Clock clock, Supplier<TrustStore> trustStore) {
+    private X5cIssuerKeyResolver(Clock clock, Supplier<TrustStore> trustStore, CrlRevocationChecker revocation) {
         this.trustStore = Objects.requireNonNull(trustStore, "trustStore");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.revocation = revocation;
     }
 
     /**
@@ -65,7 +69,16 @@ public final class X5cIssuerKeyResolver implements IssuerKeyResolver {
      * @param clock time source
      */
     public static X5cIssuerKeyResolver withTrustStore(Supplier<TrustStore> trustStore, Clock clock) {
-        return new X5cIssuerKeyResolver(clock, trustStore);
+        return new X5cIssuerKeyResolver(clock, trustStore, null);
+    }
+
+    /**
+     * Like {@link #withTrustStore(Supplier, Clock)}, and also checks every certificate of the issuer chain against
+     * its CRL.
+     */
+    public static X5cIssuerKeyResolver withTrustStore(
+            Supplier<TrustStore> trustStore, Clock clock, CrlRevocationChecker revocation) {
+        return new X5cIssuerKeyResolver(clock, trustStore, Objects.requireNonNull(revocation, "revocation"));
     }
 
     @Override
@@ -80,6 +93,9 @@ public final class X5cIssuerKeyResolver implements IssuerKeyResolver {
         CertificateChainValidator.ValidatedPath path =
                 CertificateChainValidator.validatePath(chain, store.anchors(), clock.instant());
         X509Certificate leaf = path.leaf();
+        if (revocation != null) {
+            revocation.check(chain, path.anchor());
+        }
 
         Object iss = unverifiedPayload.get("iss");
         String issuer;

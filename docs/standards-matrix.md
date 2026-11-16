@@ -29,7 +29,7 @@ States: `not implemented`, `implemented` (code exists), `tested` (automated test
 | `x509_hash` client identifier, signed request objects | interop-tested: eudi-dev wallet v3.8.0 with `--haip --arf --mode strict` (2026-11-16): it accepts our access certificate chain under the configured relying-party CA and refuses it under a different CA. Over plain HTTP in tests |
 | ETSI TS 119 602 / 119 612 trusted lists, LOTL | tested with synthetic signed lists: JSON with compact JAdES and XML with enveloped signatures, LOTL pointer following, tampering, wrong signer, XXE, partial-coverage signature wrapping, external references, rollback, expiry, six-month limit. Not yet run against a published list |
 | Token Status List | JWT form tested: draft 14 section 4 and Appendix C vectors (1, 2, 4 and 8 bits), signed `x5c` status list tokens; CWT form not implemented |
-| Issuer certificate revocation (CRL, OCSP) | not implemented |
+| Issuer certificate revocation | CRL tested: revoked end-entity and intermediate, missing, stale, forged and unparsable CRLs, caching (CRLs from BouncyCastle, checked by the JDK). OCSP not implemented ([ADR-007](adr/0007-certificate-revocation.md)) |
 | Relying-party access and registration certificates | requires external onboarding |
 | Wallet and key attestation | not implemented |
 | DC API | not implemented |

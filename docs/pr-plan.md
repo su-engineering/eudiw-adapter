@@ -46,7 +46,8 @@ Not in the first release: ISO mdoc, ETSI trusted list ingestion, credential issu
 
 - [x] Compose demo with a test wallet and synthetic issuer (`deploy/compose/demo.sh`, run in CI)
 - [x] README, feature matrix, threat model and security policy reviewed against the code
-- [ ] Pending, recorded as such: OIDF conformance, a second independent wallet, real-device runs, external security review, issuer certificate revocation (CRL, OCSP)
+- [x] Issuer certificate revocation with CRLs ([ADR-007](adr/0007-certificate-revocation.md)); OCSP not implemented
+- [ ] Pending, recorded as such: OIDF conformance, a second independent wallet, real-device runs, external security review
 
 ## After the first release
 

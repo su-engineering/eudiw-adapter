@@ -31,7 +31,7 @@ flowchart LR
 | --- | --- | --- | --- |
 | Wallet to service | `request_uri` fetch, `direct_post.jwt` response | Untrusted, anonymous | Opaque request handles, per-request state, nonce and decryption key, single-use completion |
 | Application to service | Session create, read, result, cancel | Authenticated client, tenant-scoped | OAuth2 access token validated locally; tenant taken from the token, never from the path |
-| Service to the internet | Status lists and trusted lists; OCSP and CRL planned | Untrusted content, URLs partly attacker-influenced | Egress policy (no private, loopback or link-local addresses), size and time limits, signature checks |
+| Service to the internet | Status lists, trusted lists and CRLs; OCSP not implemented | Untrusted content, URLs partly attacker-influenced | Egress policy (no private, loopback or link-local addresses), size and time limits, signature checks |
 | Operator to service | Tenant, policy and key configuration | Trusted | Separate administrative credentials |
 
 ## Core design

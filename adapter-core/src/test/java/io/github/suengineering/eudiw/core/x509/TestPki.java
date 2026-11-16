@@ -173,6 +173,69 @@ public final class TestPki {
         }
     }
 
+    /** A certificate whose CRLDistributionPoints names {@code crlUri}. */
+    public static Issued withCrl(
+            String name, Issued parent, boolean ca, int keyUsage, Instant notBefore, Instant notAfter, String crlUri) {
+        try {
+            KeyPair keys = ecKeyPair();
+            X509v3CertificateBuilder builder = new JcaX509v3CertificateBuilder(
+                    parent.certificate(),
+                    BigInteger.valueOf(SERIAL.incrementAndGet()),
+                    Date.from(notBefore),
+                    Date.from(notAfter),
+                    new X500Name(name),
+                    keys.getPublic());
+            JcaX509ExtensionUtils utils = new JcaX509ExtensionUtils();
+            builder.addExtension(Extension.basicConstraints, true, new BasicConstraints(ca));
+            builder.addExtension(Extension.keyUsage, true, new KeyUsage(keyUsage));
+            builder.addExtension(
+                    Extension.subjectKeyIdentifier, false, utils.createSubjectKeyIdentifier(keys.getPublic()));
+            builder.addExtension(
+                    Extension.authorityKeyIdentifier, false, utils.createAuthorityKeyIdentifier(parent.certificate()));
+            GeneralNames names = new GeneralNames(new GeneralName(GeneralName.uniformResourceIdentifier, crlUri));
+            builder.addExtension(
+                    Extension.cRLDistributionPoints,
+                    false,
+                    new org.bouncycastle.asn1.x509.CRLDistPoint(new org.bouncycastle.asn1.x509.DistributionPoint[] {
+                        new org.bouncycastle.asn1.x509.DistributionPoint(
+                                new org.bouncycastle.asn1.x509.DistributionPointName(names), null, null)
+                    }));
+            X509Certificate cert = new JcaX509CertificateConverter()
+                    .getCertificate(builder.build(new JcaContentSignerBuilder("SHA256withECDSA")
+                            .build(parent.keyPair().getPrivate())));
+            return new Issued(cert, keys);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /** A CRL issued by {@code ca} listing {@code revoked}. */
+    public static byte[] crl(Issued ca, Instant thisUpdate, Instant nextUpdate, X509Certificate... revoked) {
+        try {
+            org.bouncycastle.cert.X509v2CRLBuilder builder = new org.bouncycastle.cert.jcajce.JcaX509v2CRLBuilder(
+                    ca.certificate().getSubjectX500Principal(), Date.from(thisUpdate));
+            if (nextUpdate != null) {
+                builder.setNextUpdate(Date.from(nextUpdate));
+            }
+            for (X509Certificate certificate : revoked) {
+                builder.addCRLEntry(
+                        certificate.getSerialNumber(),
+                        Date.from(thisUpdate),
+                        org.bouncycastle.asn1.x509.CRLReason.keyCompromise);
+            }
+            builder.addExtension(
+                    Extension.authorityKeyIdentifier,
+                    false,
+                    new JcaX509ExtensionUtils().createAuthorityKeyIdentifier(ca.certificate()));
+            builder.addExtension(Extension.cRLNumber, false, new org.bouncycastle.asn1.x509.CRLNumber(BigInteger.ONE));
+            return builder.build(new JcaContentSignerBuilder("SHA256withECDSA")
+                            .build(ca.keyPair().getPrivate()))
+                    .getEncoded();
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
     public static List<X509Certificate> chain(Issued... certificates) {
         List<X509Certificate> out = new ArrayList<>();
         for (Issued issued : certificates) {
