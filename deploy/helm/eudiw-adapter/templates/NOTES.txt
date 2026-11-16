@@ -1,0 +1,5 @@
+eudiw-adapter is deploying as {{ include "eudiw-adapter.fullname" . }}.
+
+The public port (Service {{ include "eudiw-adapter.fullname" . }}, port {{ .Values.service.port }}) serves the
+management API under /v1 and the wallet endpoints under /oid4vp. Expose it over HTTPS at {{ .Values.publicBaseUrl }}.
+The management port 9000 serves health checks only; do not expose it.

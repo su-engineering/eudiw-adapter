@@ -1,0 +1,13 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "eudiw-adapter.fullname" . }}
+  labels:
+    {{- include "eudiw-adapter.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "eudiw-adapter.selectorLabels" . | nindent 6 }}
+{{- end }}

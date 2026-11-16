@@ -90,6 +90,7 @@ Show `wallet_launch.launch_uri` as a link (same device) or a QR code (cross devi
 - [Threat model](docs/threat-model.md)
 - [Standards and feature status](docs/standards-matrix.md)
 - [Configuration](docs/configuration.md)
+- [Kubernetes and Helm](docs/kubernetes.md)
 
 ## Build
 

@@ -54,3 +54,30 @@ jobs:
       - name: Service logs
         if: always()
         run: docker compose -f deploy/compose/docker-compose.yml logs adapter | tail -200
+
+  helm:
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Tools on the runner image
+        run: kind version && helm version --short && kubectl version --client
+      - name: Lint the chart
+        run: >-
+          helm lint deploy/helm/eudiw-adapter --strict
+          --set image.repository=eudiw-adapter --set image.tag=ci --set publicBaseUrl=https://adapter.example
+          --set database.url=jdbc:postgresql://postgres:5432/eudiw --set database.existingSecret=db
+          --set dataKey.existingSecret=key --set config.existingSecret=config
+      - name: Build the service
+        run: ./mvnw -B -ntp -pl adapter-verifier-service -am package -DskipTests
+      - name: Install the chart on kind under the restricted Pod Security Standard
+        run: ./deploy/helm/smoke-test.sh
+      - name: Pod logs
+        if: failure()
+        run: kubectl -n eudiw logs -l app.kubernetes.io/name=eudiw-adapter --tail=200 || true

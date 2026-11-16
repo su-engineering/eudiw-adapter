@@ -1,0 +1,12 @@
+apiVersion: v2
+name: eudiw-adapter
+description: Self-hosted EUDI Wallet verifier (OpenID4VP, HAIP, SD-JWT VC) for relying parties
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+annotations:
+  licenses: Apache-2.0
+home: https://github.com/su-engineering/eudiw-adapter
+sources:
+  - https://github.com/su-engineering/eudiw-adapter
+keywords: [eudi-wallet, openid4vp, sd-jwt-vc, verifier]

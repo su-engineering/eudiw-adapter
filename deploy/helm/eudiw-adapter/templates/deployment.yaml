@@ -1,0 +1,136 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "eudiw-adapter.fullname" . }}
+  labels:
+    {{- include "eudiw-adapter.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "eudiw-adapter.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "eudiw-adapter.selectorLabels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "eudiw-adapter.fullname" . }}
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: adapter
+          image: "{{ required "image.repository is required: no image is published yet, build one from the repository" .Values.image.repository }}:{{ required "image.tag is required" .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: management
+              containerPort: 9000
+          env:
+            - name: EUDIW_CONFIG_FILE
+              value: /config/tenants.json
+            - name: EUDIW_PUBLIC_BASE_URL
+              value: {{ required "publicBaseUrl is required" .Values.publicBaseUrl | quote }}
+            - name: EUDIW_PRODUCTION
+              value: {{ .Values.production | quote }}
+            - name: EUDIW_OIDC_ISSUER
+              value: {{ .Values.oidc.issuer | quote }}
+            - name: EUDIW_OIDC_AUDIENCE
+              value: {{ .Values.oidc.audience | quote }}
+            - name: EUDIW_DB_URL
+              value: {{ required "database.url is required" .Values.database.url | quote }}
+            - name: EUDIW_DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "database.existingSecret is required" .Values.database.existingSecret }}
+                  key: username
+            - name: EUDIW_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.existingSecret }}
+                  key: password
+            - name: EUDIW_DATA_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "dataKey.existingSecret is required" .Values.dataKey.existingSecret }}
+                  key: data-key
+            - name: EUDIW_EGRESS_ALLOW_PRIVATE_ADDRESSES
+              value: {{ .Values.egress.allowPrivateAddresses | quote }}
+            - name: EUDIW_EGRESS_ALLOW_HTTP
+              value: {{ .Values.egress.allowHttp | quote }}
+            - name: EUDIW_TRUSTED_LISTS_REFRESH_INTERVAL
+              value: {{ .Values.trustedLists.refreshInterval | quote }}
+            - name: EUDIW_WEBHOOK_INTERVAL
+              value: {{ .Values.webhooks.interval | quote }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          startupProbe:
+            httpGet:
+              path: /health/started
+              port: management
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: management
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: management
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: config
+          secret:
+            secretName: {{ required "config.existingSecret is required" .Values.config.existingSecret }}
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 64Mi
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
