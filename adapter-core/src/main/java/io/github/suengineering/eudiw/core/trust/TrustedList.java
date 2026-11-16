@@ -35,6 +35,7 @@ import java.util.Optional;
  * @param nextUpdate the latest date by which an update is issued; empty for a closed list
  * @param services every listed service of every listed entity
  * @param pointers pointers to other lists
+ * @param signer the certificate whose signature over the list was verified
  */
 public record TrustedList(
         String location,
@@ -45,7 +46,8 @@ public record TrustedList(
         Instant issued,
         Optional<Instant> nextUpdate,
         List<Service> services,
-        List<Pointer> pointers) {
+        List<Pointer> pointers,
+        X509Certificate signer) {
 
     /** ETSI TS 119 612 type of the EU list of trusted lists. */
     public static final String TSL_TYPE_EU_LOTL = "http://uri.etsi.org/TrstSvc/TrustedList/TSLType/EUlistofthelists";
@@ -102,6 +104,7 @@ public record TrustedList(
         Objects.requireNonNull(nextUpdate, "nextUpdate");
         services = List.copyOf(services);
         pointers = List.copyOf(pointers);
+        Objects.requireNonNull(signer, "signer");
     }
 
     /** Whether the list may be relied on at {@code now}: not closed and its next update not yet passed. */

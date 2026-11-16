@@ -75,7 +75,12 @@ public class AdapterRuntime {
     @ConfigProperty(name = "eudiw.egress.allow-http", defaultValue = "false")
     boolean allowHttp;
 
+    @jakarta.inject.Inject
+    io.github.suengineering.eudiw.service.store.TrustedListSequenceStore sequenceStore;
+
     private AdapterConfig config;
+    private HttpFetcher listFetcher;
+    private volatile boolean trustedListsAttempted;
     private DataProtection dataProtection;
     private static final Logger LOG = Logger.getLogger(AdapterRuntime.class);
 
@@ -114,6 +119,9 @@ public class AdapterRuntime {
         if (fetcher == null) {
             fetcher = new JdkHttpFetcher(
                     new EgressPolicy(allowHttp, allowPrivateAddresses, Set.of()), Duration.ofSeconds(5));
+            // National trusted lists run to several megabytes.
+            listFetcher = new JdkHttpFetcher(
+                    new EgressPolicy(allowHttp, allowPrivateAddresses, Set.of()), Duration.ofSeconds(30));
         }
         buildVerifiers();
     }
@@ -124,12 +132,15 @@ public class AdapterRuntime {
         for (Tenant tenant : config.tenants().values()) {
             for (Policy policy : tenant.policies().values()) {
                 TrustStore configured = TrustStore.ofAnchors(policy.trustAnchors());
-                TrustedLists lists = new TrustedLists(policy.trustedLists(), fetcher, clock);
+                TrustedLists lists = new TrustedLists(
+                        policy.trustedLists(),
+                        listFetcher == null ? fetcher : listFetcher,
+                        clock,
+                        configured,
+                        sequenceStore);
                 trustedLists.put(key(tenant.id(), policy.id()), lists);
-                Supplier<TrustStore> issuance =
-                        lists.isEmpty() ? () -> configured : () -> configured.merge(lists.issuance());
-                Supplier<TrustStore> status =
-                        lists.isEmpty() ? () -> configured : () -> configured.merge(lists.status());
+                Supplier<TrustStore> issuance = lists::issuance;
+                Supplier<TrustStore> status = lists::status;
                 StatusListChecker checker = new StatusListChecker(
                         fetcher,
                         () -> status.get().anchors(),
@@ -155,23 +166,38 @@ public class AdapterRuntime {
 
     /** Fetches and verifies every configured trusted list. Failures are logged by location and code only. */
     public void refreshTrustedLists() {
-        for (Map.Entry<String, TrustedLists> entry : trustedLists.entrySet()) {
-            if (entry.getValue().isEmpty()) {
-                continue;
-            }
-            for (TrustedLists.LoadResult result : entry.getValue().refresh()) {
-                if (!result.ok()) {
-                    LOG.warnf("trusted list %s not updated: %s", result.location(), result.code());
+        try {
+            for (Map.Entry<String, TrustedLists> entry : trustedLists.entrySet()) {
+                if (entry.getValue().isEmpty()) {
+                    continue;
+                }
+                try {
+                    for (TrustedLists.LoadResult result : entry.getValue().refresh()) {
+                        if (!result.ok()) {
+                            LOG.warnf("trusted list %s not updated: %s", result.location(), result.code());
+                        }
+                    }
+                } catch (RuntimeException e) {
+                    LOG.warnf(
+                            "trusted lists of policy %s not updated: %s",
+                            entry.getKey().replace('\n', '/'), e.getClass().getSimpleName());
                 }
             }
+        } finally {
+            trustedListsAttempted = true;
         }
     }
 
-    /** Policies that use trusted lists but currently trust no certificate from them. */
+    /** Whether the first trusted list refresh has run (readiness waits for it). */
+    public boolean trustedListsAttempted() {
+        return trustedListsAttempted || trustedLists.values().stream().allMatch(TrustedLists::isEmpty);
+    }
+
+    /** Policies that use trusted lists but have no current list. Their verifications fail closed. */
     public List<String> policiesWithoutCurrentTrustedLists() {
         List<String> missing = new ArrayList<>();
         trustedLists.forEach((key, lists) -> {
-            if (!lists.isEmpty() && lists.issuance().isEmpty()) {
+            if (!lists.hasCurrentList()) {
                 missing.add(key.replace('\n', '/'));
             }
         });
@@ -182,6 +208,7 @@ public class AdapterRuntime {
     public void reconfigureForTests(Clock testClock, HttpFetcher testFetcher) {
         this.clock = testClock;
         this.fetcher = testFetcher;
+        this.listFetcher = testFetcher;
         buildVerifiers();
     }
 

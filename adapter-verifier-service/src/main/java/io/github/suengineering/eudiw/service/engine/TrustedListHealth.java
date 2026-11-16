@@ -23,8 +23,9 @@ import org.eclipse.microprofile.health.HealthCheckResponse;
 import org.eclipse.microprofile.health.Readiness;
 
 /**
- * Not ready while a policy that relies on trusted lists has no current list: its verifications would all fail.
- * Policies that also have configured anchors are reported the same way, since their list-based trust is missing.
+ * Not ready until the first trusted list refresh has run, so a node does not take traffic before its lists are
+ * loaded. After that it stays ready even when a policy has no current list: that policy's verifications fail closed
+ * and the policy is named here and in the log, while other tenants keep working.
  */
 @Readiness
 @ApplicationScoped
@@ -37,7 +38,7 @@ public class TrustedListHealth implements HealthCheck {
     public HealthCheckResponse call() {
         List<String> missing = runtime.policiesWithoutCurrentTrustedLists();
         return HealthCheckResponse.named("trusted-lists")
-                .status(missing.isEmpty())
+                .status(runtime.trustedListsAttempted())
                 .withData("policies_without_current_lists", String.join(",", missing))
                 .build();
     }

@@ -95,7 +95,7 @@ public final class TslXmlParser {
         Optional<Element> nextDate = optionalChild(next, TSL, "dateTime");
         Optional<Instant> nextUpdate = nextDate.map(e -> ListRules.instant(text(e)));
         ListRules.checkDates(issued, nextUpdate);
-        ListRules.checkSigner(signer, allowedSigners, issued);
+        ListRules.checkSignerValidity(signer, issued);
 
         List<TrustedList.Pointer> pointers = new ArrayList<>();
         Optional<Element> pointerList = optionalChild(scheme, TSL, "PointersToOtherTSL");
@@ -129,7 +129,8 @@ public final class TslXmlParser {
                 issued,
                 nextUpdate,
                 services,
-                pointers);
+                pointers,
+                signer);
     }
 
     private static Document parse(byte[] xml) {
@@ -173,7 +174,7 @@ public final class TslXmlParser {
         }
         markXadesIds(root);
 
-        SignerSelector selector = new SignerSelector();
+        SignerSelector selector = new SignerSelector(allowedSigners);
         DOMValidateContext context = new DOMValidateContext(selector, signatures.get(0));
         context.setProperty("org.jcp.xml.dsig.secureValidation", Boolean.TRUE);
         XMLSignatureFactory factory = XMLSignatureFactory.getInstance("DOM");
@@ -184,6 +185,10 @@ public final class TslXmlParser {
                 throw new VerificationFailure(ListRules.SIGNATURE_INVALID, "trusted list signature is invalid");
             }
         } catch (MarshalException | XMLSignatureException e) {
+            if (selector.unpinned) {
+                throw new VerificationFailure(
+                        ListRules.SIGNER_UNTRUSTED, "trusted list signed by an unexpected certificate", e);
+            }
             throw new VerificationFailure(ListRules.SIGNATURE_INVALID, "trusted list signature is invalid", e);
         }
         if (selector.signer == null) {
@@ -236,9 +241,18 @@ public final class TslXmlParser {
                 && EXCLUSIVE_C14N.equals(((Transform) transforms.get(1)).getAlgorithm());
     }
 
-    /** Takes the signing key from the first X.509 certificate in {@code ds:KeyInfo}. */
+    /**
+     * Takes the signing key from the first X.509 certificate in {@code ds:KeyInfo}, and only if that certificate
+     * is an allowed signer, so no signature is computed with an unpinned key.
+     */
     private static final class SignerSelector extends KeySelector {
+        private final Collection<X509Certificate> allowed;
         private X509Certificate signer;
+        private boolean unpinned;
+
+        SignerSelector(Collection<X509Certificate> allowed) {
+            this.allowed = allowed;
+        }
 
         @Override
         public KeySelectorResult select(
@@ -251,6 +265,10 @@ public final class TslXmlParser {
                 if (item instanceof X509Data data) {
                     for (Object content : data.getContent()) {
                         if (content instanceof X509Certificate certificate) {
+                            if (!allowed.contains(certificate)) {
+                                unpinned = true;
+                                throw new KeySelectorException("signing certificate is not an allowed signer");
+                            }
                             signer = certificate;
                             Key key = certificate.getPublicKey();
                             return () -> key;

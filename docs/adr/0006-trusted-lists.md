@@ -12,7 +12,7 @@ Status: accepted, implemented.
 ## Decision
 
 1. **Both bindings, one model.** `TslXmlParser` and `LoteJsonParser` produce the same `TrustedList`: issue time, next update, sequence number, services (type, status, certificates) and pointers. TS 119 602 Annex A.2.2 maps the fields.
-2. **The signer is pinned.** The signing certificate must equal one configured for that list. For a national list reached through the LOTL, it must equal one the LOTL pointer publishes. No PKIX path is built to a list signer. The TS 119 612 rule that the signer's subject `C` and `O` match the scheme territory and operator name is not enforced: pinning already authenticates the signer, and enforcing the name rule would only reject lists the operator chose to trust.
+2. **The signer is pinned.** The signing certificate must equal one configured for that list. For a national list reached through the LOTL, it must equal one the LOTL pointer publishes. The pin is checked before any signature computation with the certificate's key. No PKIX path is built to a list signer. The TS 119 612 rule that the signer's subject `C` and `O` match the scheme territory and operator name is not enforced: pinning already authenticates the signer, and enforcing the name rule would only reject lists the operator chose to trust.
 3. **XML signature handling is strict.**
    - The parser refuses DTDs and external entities.
    - There must be exactly one `ds:Signature`, and it must be a direct child of the root.
@@ -30,7 +30,9 @@ Status: accepted, implemented.
    - A list must be within its issue and next update times, and next update may be at most six months after issue.
    - A closed list (no next update) contributes nothing.
    - A list that fails to refresh keeps its last verified version only until that version's next update.
-   - A lower sequence number than the last accepted one is refused as a rollback.
+   - A national list is trusted only while a current LOTL still points to it and still publishes its signing certificate. When the LOTL drops the pointer or rotates the signer, or no current LOTL is left, the national list is dropped at once.
+   - A lower sequence number than the highest accepted one is refused as a rollback. The service keeps the highest sequence number per list in PostgreSQL, so a restart or another node does not accept an older list.
+   - A list that fails in any way, including an unexpected exception, is reported as failed without stopping the other lists or policies.
 6. **Services become anchors by type and status.**
    - Each list source names the service types whose certificates may anchor credential issuers, and optionally further types that may anchor status list tokens (for example `PID/Revocation`).
    - Issuance types may always anchor status lists. Revocation types never anchor credentials.
@@ -41,11 +43,12 @@ Status: accepted, implemented.
    - For lists reached through the LOTL, it also remembers the LOTL's identifier.
    - DCQL `trusted_authorities` of type `etsi_tl` match on these identifiers.
    - The identifier defaults to the list location and can be set separately when the operator serves a local mirror.
-9. **Refresh is per node** on a schedule (default hourly), through the same egress-checked `HttpFetcher` as status lists. A policy that relies on lists and has no current list makes the service not ready.
+9. **Refresh is per node** on a schedule (default hourly), through the same egress policy as status lists, with a 30 second timeout because national lists run to several megabytes. A node is not ready until its first refresh has run. After that it stays ready even when one policy has no current list: that policy's verifications fail closed and the health check and log name it, while other tenants keep working.
 
 ## Consequences
 
 - The tests use synthetic lists only. Real EU lists and the Official Journal signer certificates are not bundled; operators configure them. No real list has been run through the parser in this repository yet.
 - The JDK XML signature implementation creates and verifies the test lists, so those tests are not independent of the verifier. An external vector (a published list) is still needed.
+- The tests include the XAdES shape published lists use (a second reference to `SignedProperties` in a `ds:Object`), a forged root that wraps a genuine signed list, and 3,000 mutated lists that must fail only with coded errors.
 - Historical validation (service history, status at a past time) is not implemented: trust is evaluated at the current time only.
 - XAdES qualifying properties (signing time, signing certificate digest) are not evaluated beyond the core XML signature; the pinned `ds:KeyInfo` certificate is what authenticates the list.

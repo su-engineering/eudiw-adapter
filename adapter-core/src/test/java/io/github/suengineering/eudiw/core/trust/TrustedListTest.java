@@ -220,6 +220,94 @@ class TrustedListTest {
                 "trusted_list_invalid");
     }
 
+    @Test
+    void acceptsTheXadesShapeWithSignedPropertiesAndDetectsTheirTampering() {
+        byte[] signed = signXmlXades(nationalXml(3), TL_SIGNER);
+        assertThat(TslXmlParser.verify(signed, TL_AA, List.of(TL_SIGNER.certificate()))
+                        .services())
+                .hasSize(3);
+
+        String tampered = new String(signed, StandardCharsets.UTF_8)
+                .replace("2026-11-01T00:00:00Z</xades", "2026-11-02T00:00:00Z</xades");
+        assertThat(tampered).isNotEqualTo(new String(signed, StandardCharsets.UTF_8));
+        assertFailure(
+                () -> TslXmlParser.verify(
+                        tampered.getBytes(StandardCharsets.UTF_8), TL_AA, List.of(TL_SIGNER.certificate())),
+                "trusted_list_signature_invalid");
+    }
+
+    @Test
+    void rejectsAForgedRootWrappingAGenuineSignedList() {
+        String genuine = new String(signXml(nationalXml(3), TL_SIGNER, "#tsl"), StandardCharsets.UTF_8)
+                .replaceFirst("<\\?xml[^>]*>", "");
+        int start = genuine.indexOf("<ds:Signature");
+        int end = genuine.indexOf("</ds:Signature>") + "</ds:Signature>".length();
+        String signature = genuine.substring(start, end);
+        String unsignedGenuine = genuine.substring(0, start) + genuine.substring(end);
+        String forgedBody = nationalXml(3)
+                .replace(WITHDRAWN, GRANTED)
+                .replaceFirst("<tsl:TrustServiceStatusList [^>]*>", "")
+                .replace("</tsl:TrustServiceStatusList>", "");
+        for (String rootAttributes : List.of("", " Id=\"tsl\"")) {
+            String forged = "<tsl:TrustServiceStatusList xmlns:tsl=\"http://uri.etsi.org/02231/v2#\""
+                    + " xmlns:tslx=\"http://uri.etsi.org/02231/v2/additionaltypes#\"" + rootAttributes + ">"
+                    + forgedBody
+                    + signature
+                    + "<tsl:Hidden>" + unsignedGenuine + "</tsl:Hidden>"
+                    + "</tsl:TrustServiceStatusList>";
+            assertFailure(
+                    () -> TslXmlParser.verify(
+                            forged.getBytes(StandardCharsets.UTF_8), TL_AA, List.of(TL_SIGNER.certificate())),
+                    "trusted_list_signature_invalid");
+        }
+    }
+
+    @Test
+    void mutatedListsFailOnlyWithCodedFailures() {
+        java.util.Random random = new java.util.Random(20261117);
+        List<byte[]> seeds = List.of(
+                signXml(nationalXml(3), TL_SIGNER),
+                signLote(
+                        lote("t", 1, ISSUED, NEXT, List.of(entity("P", PID_ISSUANCE, EAA_CA.certificate()))),
+                        LOTL_SIGNER,
+                        Map.of()));
+        int accepted = 0;
+        for (int i = 0; i < 3000; i++) {
+            byte[] seed = seeds.get(i % 2);
+            byte[] mutated = mutate(seed, random);
+            try {
+                if (i % 2 == 0) {
+                    TslXmlParser.verify(mutated, TL_AA, List.of(TL_SIGNER.certificate()));
+                } else {
+                    LoteJsonParser.verify(mutated, "x", List.of(LOTL_SIGNER.certificate()));
+                }
+                accepted++;
+            } catch (VerificationFailure expected) {
+                assertThat(expected.code()).startsWith("trusted_list_");
+            }
+        }
+        // Some mutations land in insignificant whitespace or base64 padding and keep the list valid.
+        assertThat(accepted).isLessThan(300);
+    }
+
+    private static byte[] mutate(byte[] seed, java.util.Random random) {
+        byte[] copy = seed.clone();
+        switch (random.nextInt(3)) {
+            case 0 -> copy[random.nextInt(copy.length)] = (byte) random.nextInt(256);
+            case 1 -> copy = java.util.Arrays.copyOf(copy, random.nextInt(copy.length));
+            default -> {
+                int at = random.nextInt(copy.length);
+                byte[] longer = new byte[copy.length + 1];
+                System.arraycopy(copy, 0, longer, 0, at);
+                String pool = "<>&\"'{}[],:\\=.~";
+                longer[at] = (byte) pool.charAt(random.nextInt(pool.length()));
+                System.arraycopy(copy, at, longer, at + 1, copy.length - at);
+                copy = longer;
+            }
+        }
+        return copy;
+    }
+
     // ---- TS 119 602 JSON ----
 
     @Test
@@ -383,6 +471,116 @@ class TrustedListTest {
     }
 
     @Test
+    void anExpiredListOfListsStopsVouchingForTheListsItPointedTo() {
+        Instant lotlNext = NOW.plus(Duration.ofDays(10));
+        Map<String, byte[]> served = new HashMap<>();
+        served.put(LOTL, signXml(lotl(7, lotlNext, TL_SIGNER, true), LOTL_SIGNER));
+        served.put(TL_AA, signXml(nationalXml(3), TL_SIGNER));
+        AtomicReference<Instant> now = new AtomicReference<>(NOW);
+        TrustedLists lists = registry(served, movingClock(now));
+        lists.refresh();
+        assertThat(lists.issuance().certificates()).containsExactly(EAA_CA.certificate());
+
+        served.remove(LOTL);
+        now.set(lotlNext.plusSeconds(1));
+        lists.refresh();
+        assertThat(lists.issuance().isEmpty()).isTrue();
+    }
+
+    @Test
+    void aListOfListsThatDropsAPointerOrRotatesItsSignerEvictsThatList() {
+        Map<String, byte[]> served = new HashMap<>();
+        served.put(LOTL, signXml(lotl(7, NEXT, TL_SIGNER, true), LOTL_SIGNER));
+        served.put(TL_AA, signXml(nationalXml(3), TL_SIGNER));
+        TrustedLists lists = registry(served, Clock.fixed(NOW, ZoneOffset.UTC));
+        lists.refresh();
+        assertThat(lists.issuance().certificates()).containsExactly(EAA_CA.certificate());
+
+        served.put(LOTL, signXml(lotl(8, NEXT, OTHER_SIGNER, true), LOTL_SIGNER));
+        lists.refresh();
+        assertThat(lists.issuance().isEmpty()).isTrue();
+
+        served.put(LOTL, signXml(lotl(9, NEXT, TL_SIGNER, true), LOTL_SIGNER));
+        lists.refresh();
+        assertThat(lists.issuance().certificates()).containsExactly(EAA_CA.certificate());
+
+        served.put(LOTL, signXml(lotl(10, NEXT, TL_SIGNER, false), LOTL_SIGNER));
+        lists.refresh();
+        assertThat(lists.issuance().isEmpty()).isTrue();
+    }
+
+    @Test
+    void anUnexpectedErrorInOneListDoesNotStopTheOthers() {
+        Map<String, byte[]> served = new HashMap<>();
+        served.put(LOTL, signXml(lotlXml(), LOTL_SIGNER));
+        HttpFetcher failing = (uri, accept, max) -> {
+            if (uri.toString().equals(TL_AA)) {
+                throw new IllegalStateException("boom");
+            }
+            return fetcher(served).get(uri, accept, max);
+        };
+        TestPki.Issued pidSigner = signer("CN=PID List Signer");
+        String pidLocation = "https://pid.example/list.jwt";
+        served.put(
+                pidLocation,
+                signLote(
+                        lote("t", 1, ISSUED, NEXT, List.of(entity("P", PID_ISSUANCE, QC_CA.certificate()))),
+                        pidSigner,
+                        Map.of()));
+        TrustedLists lists = new TrustedLists(
+                List.of(
+                        lotlSource(),
+                        new TrustedListSource(
+                                pidLocation,
+                                URI.create(pidLocation),
+                                TrustedList.Format.LOTE_JSON,
+                                List.of(pidSigner.certificate()),
+                                false,
+                                Set.of(),
+                                Set.of(PID_ISSUANCE),
+                                Set.of(),
+                                TrustedListSource.DEFAULT_ACCEPTED_STATUSES)),
+                failing,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+
+        assertThat(lists.refresh())
+                .extracting(TrustedLists.LoadResult::location, TrustedLists.LoadResult::code)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(LOTL, "ok"),
+                        org.assertj.core.groups.Tuple.tuple(TL_AA, "trusted_list_invalid"),
+                        org.assertj.core.groups.Tuple.tuple(pidLocation, "ok"));
+        assertThat(lists.issuance().certificates()).containsExactly(QC_CA.certificate());
+    }
+
+    @Test
+    void aPersistedSequenceNumberRefusesRollbackAfterARestart() {
+        TrustedLists.SequenceStore store = TrustedLists.SequenceStore.inMemory();
+        Map<String, byte[]> served = new HashMap<>();
+        served.put(LOTL, signXml(lotlXml(), LOTL_SIGNER));
+        served.put(TL_AA, signXml(nationalXml(5), TL_SIGNER));
+        new TrustedLists(
+                        List.of(lotlSource()),
+                        fetcher(served),
+                        Clock.fixed(NOW, ZoneOffset.UTC),
+                        io.github.suengineering.eudiw.core.x509.TrustStore.empty(),
+                        store)
+                .refresh();
+
+        served.put(TL_AA, signXml(nationalXml(4), TL_SIGNER));
+        TrustedLists restarted = new TrustedLists(
+                List.of(lotlSource()),
+                fetcher(served),
+                Clock.fixed(NOW, ZoneOffset.UTC),
+                io.github.suengineering.eudiw.core.x509.TrustStore.empty(),
+                store);
+        assertThat(restarted.refresh())
+                .filteredOn(r -> r.location().equals(TL_AA))
+                .singleElement()
+                .satisfies(r -> assertThat(r.code()).isEqualTo("trusted_list_rollback"));
+        assertThat(restarted.issuance().isEmpty()).isTrue();
+    }
+
+    @Test
     void statusAnchorsAddStatusServicesButIssuanceAnchorsDoNot() {
         TestPki.Issued revocationCa =
                 TestPki.rootCa("CN=PID Status CA", NOW.minus(Duration.ofDays(1)), NOW.plus(Duration.ofDays(900)));
@@ -449,6 +647,28 @@ class TrustedListTest {
     }
 
     // ---- helpers ----
+
+    private static String lotl(long sequence, Instant next, TestPki.Issued aaSigner, boolean pointToAa) {
+        List<XmlPointer> pointers = new java.util.ArrayList<>();
+        pointers.add(new XmlPointer(LOTL, "EU", TrustedList.MIME_TSL_XML, LOTL_SIGNER.certificate()));
+        if (pointToAa) {
+            pointers.add(new XmlPointer(TL_AA, "AA", TrustedList.MIME_TSL_XML, aaSigner.certificate()));
+        }
+        return xml(TrustedList.TSL_TYPE_EU_LOTL, "EU", sequence, ISSUED, next, pointers, List.of());
+    }
+
+    private static TrustedListSource lotlSource() {
+        return new TrustedListSource(
+                LOTL,
+                URI.create(LOTL),
+                TrustedList.Format.TSL_XML,
+                List.of(LOTL_SIGNER.certificate()),
+                true,
+                Set.of(),
+                Set.of(EAA_Q),
+                Set.of(),
+                TrustedListSource.DEFAULT_ACCEPTED_STATUSES);
+    }
 
     private static TrustedLists registry(Map<String, byte[]> served, Clock clock) {
         TrustedListSource source = new TrustedListSource(

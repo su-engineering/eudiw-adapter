@@ -17,8 +17,8 @@ echo "Waiting for Keycloak and the adapter..."
 ready=""
 for _ in $(seq 1 120); do
   kc=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8081/realms/demo/.well-known/openid-configuration || true)
-  ad=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/oid4vp/requests/not-a-handle || true)
-  if [ "$kc" = "200" ] && [ "$ad" = "404" ]; then ready=yes; break; fi
+  ad=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:9000/health/ready || true)
+  if [ "$kc" = "200" ] && [ "$ad" = "200" ]; then ready=yes; break; fi
   sleep 2
 done
 [ -n "$ready" ] || { echo "services did not become ready; see: docker compose logs"; exit 1; }

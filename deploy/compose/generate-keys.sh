@@ -27,7 +27,21 @@ leaf issuer "/CN=Demo Issuer (synthetic)" issuer-root "subjectAltName=DNS:issuer
 ca verifier-root "/CN=Demo Relying Party Root (synthetic)"
 leaf verifier "/CN=Demo Verifier (synthetic)" verifier-root ""
 
+# A synthetic ETSI TS 119 602 PID providers list (JSON, compact JAdES with RS256) that names the issuer root.
+# The adapter trusts the demo issuer only through this signed list.
+b64url() { base64 | tr -d '\n=' | tr '/+' '_-'; }
+der64() { openssl x509 -in "$1" -outform DER | base64 | tr -d '\n'; }
+openssl req -x509 -newkey rsa:2048 -nodes -keyout list-signer-key.pem -out list-signer.pem -days 825 \
+  -subj "/CN=Demo List Signer (synthetic)/O=Demo Operator/C=EU" -addext "keyUsage=critical,digitalSignature"
+ISSUED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+NEXT=$(date -u -d "@$(( $(date +%s) + 90 * 86400 ))" +%Y-%m-%dT%H:%M:%SZ)
+HEADER=$(printf '{"alg":"RS256","x5c":["%s"]}' "$(der64 list-signer.pem)" | b64url)
+PAYLOAD=$(printf '{"LoTE":{"ListAndSchemeInformation":{"LoTEVersionIdentifier":1,"LoTESequenceNumber":1,"LoTEType":"http://uri.etsi.org/19602/LoTEType/EUPIDProvidersList","SchemeOperatorName":[{"lang":"en","value":"Demo Operator"}],"SchemeTerritory":"EU","ListIssueDateTime":"%s","NextUpdate":"%s"},"TrustedEntitiesList":[{"TrustedEntityInformation":{"TEName":[{"lang":"en","value":"Demo Issuer"}],"TEAddress":{},"TEInformationURI":[{"lang":"en","uriValue":"https://issuer.demo.example"}]},"TrustedEntityServices":[{"ServiceInformation":{"ServiceName":[{"lang":"en","value":"PID issuance"}],"ServiceTypeIdentifier":"http://uri.etsi.org/19602/SvcType/PID/Issuance","ServiceDigitalIdentity":{"X509Certificates":[{"val":"%s"}]}}}]}]}}' \
+  "$ISSUED" "$NEXT" "$(der64 issuer-root.pem)" | b64url)
+SIGNATURE=$(printf '%s.%s' "$HEADER" "$PAYLOAD" | openssl dgst -sha256 -sign list-signer-key.pem | b64url)
+printf '%s.%s.%s' "$HEADER" "$PAYLOAD" "$SIGNATURE" > pid-list.jwt
+
 openssl rand -base64 32 > data-key
-chmod 644 ./*.pem data-key
+chmod 644 ./*.pem data-key pid-list.jwt
 touch done
 echo "demo keys generated in $OUT"

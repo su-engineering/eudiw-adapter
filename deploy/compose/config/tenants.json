@@ -30,7 +30,15 @@
           "output": {
             "age_over_18": { "credential": "age", "path": ["age_over_18"] }
           },
-          "trust_anchors_file": "/keys/issuer-root.pem",
+          "trusted_lists": [
+            {
+              "identifier": "https://lists.demo.example/pid-providers.jwt",
+              "location": "/keys/pid-list.jwt",
+              "format": "lote_json",
+              "signer_certificates_file": "/keys/list-signer.pem",
+              "issuance_service_types": ["http://uri.etsi.org/19602/SvcType/PID/Issuance"]
+            }
+          ],
           "allowed_issuers": ["https://issuer.demo.example"],
           "status_policy": "reject_known_invalid",
           "session_ttl_seconds": 300,

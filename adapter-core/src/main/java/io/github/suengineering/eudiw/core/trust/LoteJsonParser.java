@@ -80,6 +80,7 @@ public final class LoteJsonParser {
             throw new VerificationFailure(ListRules.INVALID, "unencoded JWS payloads are not supported");
         }
         X509Certificate signer = signer(header, allowedSigners);
+        ListRules.checkPinned(signer, allowedSigners);
         try {
             JwsSignatureVerifier.verify(
                     jws, CertificateKeys.publicJwk(signer), AlgorithmPolicy.TRUSTED_LISTS, UNDERSTOOD_CRITICAL);
@@ -95,7 +96,7 @@ public final class LoteJsonParser {
                 ? Optional.empty()
                 : Optional.of(ListRules.instant(string(scheme, "NextUpdate")));
         ListRules.checkDates(issued, nextUpdate);
-        ListRules.checkSigner(signer, allowedSigners, issued);
+        ListRules.checkSignerValidity(signer, issued);
 
         List<TrustedList.Service> services = new ArrayList<>();
         for (Object entity : optionalArray(lote, "TrustedEntitiesList")) {
@@ -135,7 +136,8 @@ public final class LoteJsonParser {
                 issued,
                 nextUpdate,
                 services,
-                pointers);
+                pointers,
+                signer);
     }
 
     private static X509Certificate signer(JWSHeader header, Collection<X509Certificate> allowedSigners) {

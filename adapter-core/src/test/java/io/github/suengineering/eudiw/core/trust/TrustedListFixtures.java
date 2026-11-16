@@ -173,6 +173,65 @@ final class TrustedListFixtures {
         return signXml(xml, signer, "");
     }
 
+    /**
+     * Signs with the shape published lists have: the list reference plus a second reference to XAdES
+     * SignedProperties carried in a {@code ds:Object}.
+     */
+    static byte[] signXmlXades(String xml, TestPki.Issued signer) {
+        try {
+            DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+            dbf.setNamespaceAware(true);
+            Document document =
+                    dbf.newDocumentBuilder().parse(new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8)));
+            String xades = "http://uri.etsi.org/01903/v1.3.2#";
+            org.w3c.dom.Element qualifying = document.createElementNS(xades, "xades:QualifyingProperties");
+            qualifying.setAttribute("Target", "#sig");
+            org.w3c.dom.Element signed = document.createElementNS(xades, "xades:SignedProperties");
+            signed.setAttribute("Id", "xades-sp");
+            org.w3c.dom.Element time = document.createElementNS(xades, "xades:SigningTime");
+            time.setTextContent("2026-11-01T00:00:00Z");
+            org.w3c.dom.Element sigProps = document.createElementNS(xades, "xades:SignedSignatureProperties");
+            sigProps.appendChild(time);
+            signed.appendChild(sigProps);
+            qualifying.appendChild(signed);
+
+            XMLSignatureFactory factory = XMLSignatureFactory.getInstance("DOM");
+            Reference list = factory.newReference(
+                    "",
+                    factory.newDigestMethod(DigestMethod.SHA256, null),
+                    List.of(
+                            factory.newTransform(Transform.ENVELOPED, (TransformParameterSpec) null),
+                            factory.newTransform(CanonicalizationMethod.EXCLUSIVE, (TransformParameterSpec) null)),
+                    null,
+                    null);
+            Reference properties = factory.newReference(
+                    "#xades-sp",
+                    factory.newDigestMethod(DigestMethod.SHA256, null),
+                    List.of(factory.newTransform(CanonicalizationMethod.EXCLUSIVE, (TransformParameterSpec) null)),
+                    "http://uri.etsi.org/01903#SignedProperties",
+                    null);
+            SignedInfo signedInfo = factory.newSignedInfo(
+                    factory.newCanonicalizationMethod(CanonicalizationMethod.EXCLUSIVE, (C14NMethodParameterSpec) null),
+                    factory.newSignatureMethod(SignatureMethod.ECDSA_SHA256, null),
+                    List.of(list, properties));
+            KeyInfoFactory keyInfoFactory = factory.getKeyInfoFactory();
+            KeyInfo keyInfo =
+                    keyInfoFactory.newKeyInfo(List.of(keyInfoFactory.newX509Data(List.of(signer.certificate()))));
+            javax.xml.crypto.dsig.XMLObject object =
+                    factory.newXMLObject(List.of(new javax.xml.crypto.dom.DOMStructure(qualifying)), null, null, null);
+            DOMSignContext context = new DOMSignContext(signer.keyPair().getPrivate(), document.getDocumentElement());
+            context.setDefaultNamespacePrefix("ds");
+            context.setIdAttributeNS(signed, null, "Id");
+            factory.newXMLSignature(signedInfo, keyInfo, List.of(object), "sig", null)
+                    .sign(context);
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            TransformerFactory.newInstance().newTransformer().transform(new DOMSource(document), new StreamResult(out));
+            return out.toByteArray();
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
     /** A TS 119 602 list in the JSON binding. */
     static Map<String, Object> lote(
             String type, long sequence, Instant issued, Instant nextUpdate, List<Map<String, Object>> entities) {

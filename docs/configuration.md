@@ -106,7 +106,7 @@ Each entry of a policy's `trusted_lists`:
 ]
 ```
 
-Each node fetches the lists at startup and then every refresh interval. A list must be signed by one of its configured certificates and be within its issue and next update times, and its sequence number may not go backwards. If a refresh fails, the last verified version stays in use until its next update and is then dropped, so trust fails closed. While a policy that uses lists has no current list, `/health/ready` reports not ready.
+Each node fetches the lists at startup and then every refresh interval. A list must be signed by one of its configured certificates and be within its issue and next update times, and its sequence number may not go backwards. If a refresh fails, the last verified version stays in use until its next update and is then dropped, so trust fails closed. The highest accepted sequence number of each list is kept in the database. A node reports not ready on `/health/ready` until its first refresh has run. After that, a policy with no current list rejects every presentation and is named in the `trusted-lists` health check data and in the log, but the node stays ready for other policies.
 
 No list, list location or signer certificate is bundled with the service. Take them from the publishing body.
 

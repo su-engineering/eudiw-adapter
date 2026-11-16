@@ -41,12 +41,16 @@ final class ListRules {
 
     /**
      * The signing certificate must be one of the certificates configured, or published by a pointing list, for
-     * this list, and valid when the list was issued.
+     * this list. Checked before any signature computation with the certificate's key.
      */
-    static void checkSigner(X509Certificate signer, Collection<X509Certificate> allowedSigners, Instant issued) {
+    static void checkPinned(X509Certificate signer, Collection<X509Certificate> allowedSigners) {
         if (!allowedSigners.contains(signer)) {
             throw new VerificationFailure(SIGNER_UNTRUSTED, "trusted list signed by an unexpected certificate");
         }
+    }
+
+    /** The signing certificate must be valid when the list was issued. */
+    static void checkSignerValidity(X509Certificate signer, Instant issued) {
         try {
             signer.checkValidity(Date.from(issued));
         } catch (GeneralSecurityException e) {
