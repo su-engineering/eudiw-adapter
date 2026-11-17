@@ -26,7 +26,8 @@ import java.util.Set;
 /**
  * Which outbound URLs the verifier may fetch. By default only {@code https} to public addresses: loopback,
  * private, link-local (including cloud metadata endpoints), carrier-grade NAT, unique-local, multicast and
- * unspecified addresses are refused after DNS resolution.
+ * unspecified addresses are refused after DNS resolution, and so are IPv6 addresses outside global unicast or in a
+ * transition range that embeds an IPv4 address (NAT64, 6to4, Teredo).
  *
  * <p>The address check runs before the connection; it does not prevent DNS rebinding between check and connect.
  * Production deployments should also restrict egress at the network layer.
@@ -103,14 +104,27 @@ public record EgressPolicy(boolean allowHttp, boolean allowPrivateAddresses, Set
             }
             return true;
         }
-        if (address instanceof Inet6Address v6) {
-            if ((b[0] & 0xFE) == 0xFC) {
-                return false; // unique local fc00::/7
-            }
-            if (v6.isIPv4CompatibleAddress()) {
+        if (address instanceof Inet6Address) {
+            // IPv4-mapped ::ffff:a.b.c.d is normalized to Inet4Address by the JDK. Everything else must be global
+            // unicast 2000::/3, which already excludes NAT64 64:ff9b::/96 and 64:ff9b:1::/48, discard 100::/64,
+            // IPv4-compatible, unique local and link-local addresses.
+            if ((b[0] & 0xE0) != 0x20) {
                 return false;
             }
-            // IPv4-mapped ::ffff:a.b.c.d is normalized to Inet4Address by the JDK
+            int first = ((b[0] & 0xFF) << 8) | (b[1] & 0xFF);
+            int second = ((b[2] & 0xFF) << 8) | (b[3] & 0xFF);
+            if (first == 0x2002) {
+                return false; // 6to4 2002::/16 embeds an IPv4 address
+            }
+            if (first == 0x2001 && (second == 0x0000 || second == 0x0db8)) {
+                return false; // Teredo 2001::/32, documentation 2001:db8::/32
+            }
+            if (first == 0x2001 && second == 0x0002 && b[4] == 0 && b[5] == 0) {
+                return false; // benchmarking 2001:2::/48
+            }
+            if (first == 0x3FFF && (b[2] & 0xF0) == 0) {
+                return false; // documentation 3fff::/20
+            }
             return true;
         }
         return false;

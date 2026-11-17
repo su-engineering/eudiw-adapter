@@ -41,6 +41,20 @@ class EgressPolicyTest {
                 "https://[fd00::1]/x",
                 "https://[fe80::1]/x",
                 "https://[::ffff:127.0.0.1]/x",
+                "https://[::ffff:169.254.169.254]/x",
+                "https://[::]/x",
+                "https://[::127.0.0.1]/x",
+                "https://[64:ff9b::7f00:1]/x",
+                "https://[64:ff9b::a9fe:a9fe]/x",
+                "https://[64:ff9b:1::a00:1]/x",
+                "https://[2002:7f00:1::]/x",
+                "https://[2002:a9fe:a9fe::]/x",
+                "https://[2001:0:4136:e378:8000:63bf:3fff:fdd2]/x",
+                "https://[2001:db8::1]/x",
+                "https://[2001:2::1]/x",
+                "https://[3fff::1]/x",
+                "https://[100::1]/x",
+                "https://[ff02::1]/x",
                 "https://224.0.0.1/x",
                 "http://8.8.8.8/x",
                 "ftp://8.8.8.8/x",
@@ -54,6 +68,8 @@ class EgressPolicyTest {
     @Test
     void strictPolicyAcceptsPublicHttps() {
         assertThatCode(() -> EgressPolicy.STRICT.check(URI.create("https://8.8.8.8/list")))
+                .doesNotThrowAnyException();
+        assertThatCode(() -> EgressPolicy.STRICT.check(URI.create("https://[2001:4860:4860::8888]/list")))
                 .doesNotThrowAnyException();
     }
 
