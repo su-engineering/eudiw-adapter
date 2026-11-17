@@ -1,0 +1,43 @@
+{
+  "name": "@su-engineering/eudiw-request",
+  "version": "0.1.0",
+  "description": "<eudiw-request> web component: shows an EU Digital Identity Wallet request as a QR code and wallet link and follows the session. For eudiw-adapter.",
+  "type": "module",
+  "main": "./eudiw-request.js",
+  "module": "./eudiw-request.js",
+  "exports": {
+    ".": "./eudiw-request.js",
+    "./eudiw-request.js": "./eudiw-request.js",
+    "./vendor/qrcode.mjs": "./vendor/qrcode.mjs",
+    "./fonts/*": "./fonts/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "eudiw-request.js",
+    "vendor/qrcode.mjs",
+    "vendor/README.md",
+    "fonts/*.woff2",
+    "fonts/OFL.txt",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "sideEffects": true,
+  "license": "Apache-2.0",
+  "author": "su.engineering (https://su.engineering)",
+  "homepage": "https://github.com/su-engineering/eudiw-adapter/tree/main/clients/web",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/su-engineering/eudiw-adapter.git",
+    "directory": "clients/web"
+  },
+  "bugs": "https://github.com/su-engineering/eudiw-adapter/issues",
+  "keywords": ["eudi-wallet", "eudiw", "openid4vp", "web-component", "custom-element", "qr-code", "digital-identity"],
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

@@ -19,7 +19,7 @@
 </div>
 
 > [!NOTE]
-> **Early and unreleased.** The [feature matrix](docs/standards-matrix.md) lists exactly what is implemented and how it is tested. "Supported" means automated tests pass for a pinned version of a standard. It is not a conformance or certification claim.
+> **Early: v0.1.0 is the first release** ([changelog](CHANGELOG.md)). The [feature matrix](docs/standards-matrix.md) lists exactly what is implemented and how it is tested. "Supported" means automated tests pass for a pinned version of a standard. It is not a conformance or certification claim.
 
 ## Why
 

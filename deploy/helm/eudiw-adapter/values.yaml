@@ -1,6 +1,7 @@
-# No image is published yet. Build it from this repository and set image.repository and image.tag.
+# The signed release image (verify it with cosign, see docs/kubernetes.md). The tag defaults to the chart's
+# appVersion. To pin the digest, set tag to "<version>@sha256:<digest>".
 image:
-  repository: ""
+  repository: ghcr.io/su-engineering/eudiw-adapter
   tag: ""
   pullPolicy: IfNotPresent
 imagePullSecrets: []

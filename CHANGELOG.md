@@ -1,0 +1,40 @@
+# Changelog
+
+All notable changes to eudiw-adapter. Versions follow [Semantic Versioning](https://semver.org/); before 1.0.0, a minor version can change the API or the configuration format, and the notes say how.
+
+## [0.1.0] - 2026-11-17
+
+The first release.
+
+### Verification
+
+- SD-JWT VC (RFC 9901) presentations over OpenID4VP 1.0 as profiled by HAIP 1.0: signed request objects by `request_uri`, the `x509_hash` client identifier, `direct_post.jwt` responses encrypted to a fresh key per request, and DCQL with claim sets, credential sets and `trusted_authorities`.
+- Issuer signature, disclosure digests, key binding to the nonce and client identifier, X.509 chains, CRLs, and Token Status Lists (revocation and suspension). Anything unknown or late is rejected with a coarse reason code.
+- Issuer trust from signed ETSI TS 119 602 and TS 119 612 trusted lists, including the EU list of trusted lists, with pinned signers, freshness checks and rollback protection.
+- Relying-party registration: the registrar dataset and registration certificate are sent in `verifier_info` (ETSI TS 119 472-2), and a query that asks for more than was registered is refused at startup.
+
+### Service
+
+- Management API (OpenAPI 3.1) for sessions, with OAuth client credentials from your own authorization server, tenant scoping and idempotency keys.
+- Per-policy claim minimization. Results are encrypted at rest, retrievable once and expire; the raw presentation is never stored.
+- Standard Webhooks notifications, queued with the session's final state and retried with backoff. They carry no claims.
+- Request-signing keys in an HSM or KMS through PKCS#11.
+- Prometheus metrics, an audit trail, optional OpenTelemetry traces, per-client rate limits shared across replicas, and configuration reload without a restart.
+- PostgreSQL is the only state. Any number of replicas.
+
+### Deployment
+
+- Multi-arch image (linux/amd64, linux/arm64) on GitHub Container Registry, signed with cosign, with an SBOM and build provenance.
+- Helm chart that runs under the restricted Pod Security Standard, published as a signed OCI chart.
+- Docker Compose demo with SoftHSM, Keycloak and the independent eudi-dev test wallet.
+
+### Frontend
+
+- `@su-engineering/eudiw-request`: a dependency-free web component that shows the wallet request as a QR code and wallet link, counts down to expiry and follows the session. Themeable with CSS custom properties.
+- Node and Python example backends with webhook verification, tested end to end in CI.
+
+### Not in this release
+
+ISO mdoc, the Digital Credentials API, OCSP, wallet attestation and `transaction_data`. Interoperability is tested against the eudi-dev wallet and the OpenID Foundation HAIP verifier test plan run locally; there is no certification and no external security review yet. See the [roadmap](ROADMAP.md).
+
+[0.1.0]: https://github.com/su-engineering/eudiw-adapter/releases/tag/v0.1.0

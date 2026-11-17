@@ -20,7 +20,15 @@ Shows an EUDI Wallet request as a QR code with an "open wallet" link, says what 
 </script>
 ```
 
-Serve `eudiw-request.js`, `vendor/qrcode.mjs` and `fonts/*.woff2` from your own origin, keeping the relative paths. The font is registered once per page as `eudiw-jetbrains-mono`, so it does not clash with your own fonts.
+## Install
+
+```sh
+npm install @su-engineering/eudiw-request
+```
+
+With a bundler, `import '@su-engineering/eudiw-request';` defines the element, and the bundler picks up the QR encoder and the fonts from their relative URLs. Without one, copy `eudiw-request.js`, `vendor/qrcode.mjs` and `fonts/*.woff2` from the package (or from this directory) to your static files.
+
+Either way, serve `eudiw-request.js`, `vendor/qrcode.mjs` and `fonts/*.woff2` from your own origin, keeping the relative paths. The font is registered once per page as `eudiw-jetbrains-mono`, so it does not clash with your own fonts.
 
 ## How it fits
 
@@ -30,7 +38,7 @@ The browser never talks to the adapter. Your backend holds the client credential
 2. The component renders the launch URI and polls your status URL, which answers `{"status": "..."}` from the adapter's `GET /v1/verification-sessions/{id}`.
 3. When the status is `verified`, your backend retrieves the result once (`GET /v1/verification-sessions/{id}/result`) and acts on it.
 
-Give the browser a random id of your own rather than the adapter's session id. See [examples](../../examples) for complete backends in Node and Python.
+Give the browser a random id of your own rather than the adapter's session id. See [examples](https://github.com/su-engineering/eudiw-adapter/tree/main/examples) for complete backends in Node and Python.
 
 ## Attributes
 
@@ -60,5 +68,3 @@ The component uses a shadow root and adopted style sheets, so it works under a s
 ## Tests
 
 `node --test clients/web/test/*.test.mjs` encodes launch URIs as the component does and decodes the images back with `zbarimg` (skipped when zbar is not installed; CI requires it).
-
-Not published to npm yet.

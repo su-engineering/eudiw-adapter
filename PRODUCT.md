@@ -23,7 +23,7 @@ Built by su.engineering from the specifications, with data minimization and fail
 
 - The web component never talks to the adapter; it renders a launch URI and polls a status URL on the integrator's backend.
 - The component is embedded on third-party sites: it must work under strict CSP, make no third-party requests, and be themeable.
-- No npm package is published yet. Nothing is released or tagged.
+- v0.1.0 is the first release: image and chart on ghcr.io, the component on npm as `@su-engineering/eudiw-request`.
 - mdoc and the Digital Credentials API are not implemented.
 
 ## Brand Commitments

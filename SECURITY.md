@@ -10,4 +10,4 @@ Never send production private keys, access tokens, full real presentations, or p
 
 ## Supported versions
 
-No version has been released. Fixes land on `main`.
+Security fixes land on `main` and in a new release of the latest minor version (currently 0.1.x). Older versions are not patched before 1.0.
