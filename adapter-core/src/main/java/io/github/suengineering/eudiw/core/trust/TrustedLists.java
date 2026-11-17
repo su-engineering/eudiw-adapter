@@ -62,6 +62,22 @@ public final class TrustedLists {
 
         void record(String identifier, long sequenceNumber);
 
+        /**
+         * Records the sequence number unless a higher one is already recorded, as one atomic step. A store shared
+         * by several nodes should override this; the default is atomic only within one process.
+         *
+         * @return whether the number was recorded
+         */
+        default boolean advance(String identifier, long sequenceNumber) {
+            synchronized (this) {
+                if (sequenceNumber < highest(identifier)) {
+                    return false;
+                }
+                record(identifier, sequenceNumber);
+                return true;
+            }
+        }
+
         static SequenceStore inMemory() {
             Map<String, Long> map = new ConcurrentHashMap<>();
             return new SequenceStore() {
@@ -249,12 +265,9 @@ public final class TrustedLists {
     private void accept(String key, Loaded candidate) {
         long sequence = candidate.list().sequenceNumber();
         Loaded previous = loaded.get(key);
-        long highest = Math.max(
-                sequences.highest(key), previous == null ? -1 : previous.list().sequenceNumber());
-        if (sequence < highest) {
+        if ((previous != null && sequence < previous.list().sequenceNumber()) || !sequences.advance(key, sequence)) {
             throw new VerificationFailure("trusted_list_rollback", "trusted list sequence number went backwards");
         }
-        sequences.record(key, sequence);
         loaded.put(key, candidate);
         generation++;
     }

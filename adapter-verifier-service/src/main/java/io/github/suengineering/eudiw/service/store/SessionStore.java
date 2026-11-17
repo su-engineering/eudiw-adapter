@@ -122,27 +122,49 @@ public class SessionStore {
     }
 
     /**
-     * Stores a request instance unless the session already has {@code maxPerSession} of them.
+     * Stores a request instance unless the session already has {@code maxPerSession} of them. The session row is
+     * locked first, so concurrent fetches of one request URI are counted one after another; the count then runs in
+     * a new statement that sees the instances the previous lock holder committed.
      *
      * @return whether the instance was stored
      */
     public boolean insertInstance(InstanceRow row, Instant now, int maxPerSession) {
-        String sql = "INSERT INTO request_instance (kid, session_id, tenant_id, state, nonce, key_ciphertext,"
+        String lock = "SELECT 1 FROM verification_session WHERE id = ? FOR UPDATE";
+        String insert = "INSERT INTO request_instance (kid, session_id, tenant_id, state, nonce, key_ciphertext,"
                 + " created_at, expires_at) SELECT ?,?,?,?,?,?,?,?"
                 + " WHERE (SELECT count(*) FROM request_instance WHERE session_id = ?) < ?";
-        try (Connection c = dataSource.getConnection();
-                PreparedStatement ps = c.prepareStatement(sql)) {
-            ps.setString(1, row.kid());
-            ps.setString(2, row.sessionId());
-            ps.setString(3, row.tenantId());
-            ps.setString(4, row.state());
-            ps.setString(5, row.nonce());
-            ps.setBytes(6, row.keyCiphertext());
-            ps.setTimestamp(7, ts(now));
-            ps.setTimestamp(8, ts(row.expiresAt()));
-            ps.setString(9, row.sessionId());
-            ps.setInt(10, maxPerSession);
-            return ps.executeUpdate() == 1;
+        try (Connection c = dataSource.getConnection()) {
+            c.setAutoCommit(false);
+            try {
+                boolean stored = false;
+                try (PreparedStatement ps = c.prepareStatement(lock)) {
+                    ps.setString(1, row.sessionId());
+                    try (ResultSet rs = ps.executeQuery()) {
+                        if (rs.next()) {
+                            try (PreparedStatement in = c.prepareStatement(insert)) {
+                                in.setString(1, row.kid());
+                                in.setString(2, row.sessionId());
+                                in.setString(3, row.tenantId());
+                                in.setString(4, row.state());
+                                in.setString(5, row.nonce());
+                                in.setBytes(6, row.keyCiphertext());
+                                in.setTimestamp(7, ts(now));
+                                in.setTimestamp(8, ts(row.expiresAt()));
+                                in.setString(9, row.sessionId());
+                                in.setInt(10, maxPerSession);
+                                stored = in.executeUpdate() == 1;
+                            }
+                        }
+                    }
+                }
+                c.commit();
+                return stored;
+            } catch (SQLException | RuntimeException e) {
+                c.rollback();
+                throw e;
+            } finally {
+                c.setAutoCommit(true);
+            }
         } catch (SQLException e) {
             throw new StoreException(e);
         }

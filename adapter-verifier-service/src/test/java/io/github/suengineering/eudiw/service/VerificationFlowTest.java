@@ -393,6 +393,35 @@ class VerificationFlowTest {
     }
 
     @Test
+    void concurrentRequestFetchesStayWithinTheCap() throws Exception {
+        JsonPath session = create("portal-a", "cross_device");
+        String path = java.net
+                .URI
+                .create(session.getString("wallet_launch.request_uri"))
+                .getPath();
+        ExecutorService pool = Executors.newFixedThreadPool(16);
+        List<Callable<Integer>> calls = new ArrayList<>();
+        for (int i = 0; i < 16; i++) {
+            calls.add(() -> given().post(path).statusCode());
+        }
+        List<Integer> codes = new ArrayList<>();
+        for (Future<Integer> f : pool.invokeAll(calls)) {
+            codes.add(f.get());
+        }
+        pool.shutdown();
+        assertThat(codes).filteredOn(c -> c == 200).hasSize(5);
+        try (Connection c = dataSource.getConnection();
+                java.sql.PreparedStatement s =
+                        c.prepareStatement("SELECT count(*) FROM request_instance WHERE session_id = ?")) {
+            s.setString(1, session.getString("id"));
+            try (ResultSet rs = s.executeQuery()) {
+                rs.next();
+                assertThat(rs.getInt(1)).isEqualTo(5);
+            }
+        }
+    }
+
+    @Test
     void sameDeviceRequiresTheResponseCode() {
         JsonPath session = create("portal-a", "same_device");
         Map<String, Object> request = TestWallet.fetchRequest(session.getString("wallet_launch.request_uri"));

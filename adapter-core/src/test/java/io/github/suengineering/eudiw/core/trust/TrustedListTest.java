@@ -583,6 +583,41 @@ class TrustedListTest {
     }
 
     @Test
+    void aListIsRefusedWhenAnotherNodeRecordedAHigherNumberFirst() {
+        // highest() read before another node's write; only the atomic advance() sees the newer number.
+        TrustedLists.SequenceStore racing = new TrustedLists.SequenceStore() {
+            @Override
+            public long highest(String identifier) {
+                return -1;
+            }
+
+            @Override
+            public void record(String identifier, long sequenceNumber) {
+                throw new AssertionError("record() must not be used on its own");
+            }
+
+            @Override
+            public boolean advance(String identifier, long sequenceNumber) {
+                return !identifier.equals(TL_AA);
+            }
+        };
+        Map<String, byte[]> served = new HashMap<>();
+        served.put(LOTL, signXml(lotlXml(), LOTL_SIGNER));
+        served.put(TL_AA, signXml(nationalXml(5), TL_SIGNER));
+        TrustedLists lists = new TrustedLists(
+                List.of(lotlSource()),
+                fetcher(served),
+                Clock.fixed(NOW, ZoneOffset.UTC),
+                io.github.suengineering.eudiw.core.x509.TrustStore.empty(),
+                racing);
+        assertThat(lists.refresh())
+                .filteredOn(r -> r.location().equals(TL_AA))
+                .singleElement()
+                .satisfies(r -> assertThat(r.code()).isEqualTo("trusted_list_rollback"));
+        assertThat(lists.issuance().isEmpty()).isTrue();
+    }
+
+    @Test
     void statusAnchorsAddStatusServicesButIssuanceAnchorsDoNot() {
         TestPki.Issued revocationCa =
                 TestPki.rootCa("CN=PID Status CA", NOW.minus(Duration.ofDays(1)), NOW.plus(Duration.ofDays(900)));
