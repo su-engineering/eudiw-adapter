@@ -211,6 +211,34 @@ RFC 9901 and OpenID4VP worked examples, a differential test against a second SD-
 
 </td>
 </tr>
+<tr>
+<td valign="top">
+
+**Registered intended use**<br>
+Sends the registrar dataset and registration certificate in `verifier_info` as ETSI TS 119 472-2 requires, and refuses at startup a query that asks for more than was registered. Tested with synthetic certificates.
+
+</td>
+<td valign="top">
+
+**Built to operate**<br>
+Prometheus metrics, an audit trail, optional OpenTelemetry traces with request handles scrubbed, per-client rate limits shared across replicas, and configuration reload without a restart.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+**Drop-in frontend**<br>
+A dependency-free `<eudiw-request>` web component (QR code, wallet link, status) and small Node and Python backends, run end to end in CI.
+
+</td>
+<td valign="top">
+
+**Your OAuth, your database**<br>
+Backends authenticate with any OAuth 2.0 server's client credentials. State is PostgreSQL only: no message broker, cache or vendor service.
+
+</td>
+</tr>
 </table>
 
 ## Architecture
@@ -243,6 +271,7 @@ flowchart LR
 | SD-JWT-based Verifiable Credentials (SD-JWT VC) | version referenced by HAIP 1.0 |
 | Token Status List | version referenced by HAIP 1.0 |
 | ETSI TS 119 602 / TS 119 612 trusted lists | V1.1.1 / V2.4.1 |
+| ETSI TS 119 472-2 / TS 119 475 relying-party registration | V1.3.1 / V1.2.1 |
 | EUDI Wallet Architecture and Reference Framework (ARF) | reference |
 
 Test evidence per feature: [standards and feature status](docs/standards-matrix.md).
@@ -253,6 +282,9 @@ Test evidence per feature: [standards and feature status](docs/standards-matrix.
 - [x] ETSI trusted lists (TS 119 602, TS 119 612, EU LOTL)
 - [x] Token Status List and CRL revocation checks
 - [x] Signed webhooks, HSM/KMS request signing, Helm chart
+- [x] Relying-party registration in `verifier_info` (ETSI TS 119 472-2)
+- [x] Metrics, audit log, tracing, rate limits, configuration reload
+- [x] Web component and Node and Python examples
 - [ ] ISO mdoc (`mso_mdoc`)
 - [ ] OCSP
 - [x] OpenID Foundation HAIP verifier test plan, run locally (not certified)
@@ -264,7 +296,8 @@ Test evidence per feature: [standards and feature status](docs/standards-matrix.
 | | |
 | --- | --- |
 | [Architecture](docs/architecture.md) and [decisions](docs/adr/) | How it is built and why |
-| [Configuration](docs/configuration.md) | Tenants, policies, trusted lists, webhooks, HSM keys |
+| [Configuration](docs/configuration.md) | Tenants, policies, registration, trusted lists, webhooks, HSM keys, metrics and reload |
+| [Web component](clients/web) and [examples](examples) | Frontend and backend integration in Node and Python |
 | [Kubernetes and Helm](docs/kubernetes.md) | Deploying the chart |
 | [Threat model](docs/threat-model.md) | What it defends against, and what it doesn't |
 | [Standards and feature status](docs/standards-matrix.md) | Pinned versions and test evidence |

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Age check example</title>
+  <style>
+    :root { color-scheme: light dark; --bg: #f5f6f8; --fg: #10131a; --muted: #5b6475; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #0f1218; --fg: #e8ebf1; --muted: #9aa3b5; } }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg); color: var(--fg);
+      font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 16px; box-sizing: border-box; }
+    main { display: grid; gap: 16px; justify-items: center; max-width: 420px; text-align: center; }
+    h1 { font-size: 1.4rem; margin: 0; }
+    p { margin: 0; color: var(--muted); }
+    button { font: inherit; padding: 10px 20px; border-radius: 999px; border: 0; background: #1f4fd8; color: #fff;
+      font-weight: 600; cursor: pointer; }
+    pre { text-align: left; background: rgb(127 127 127 / 12%); padding: 12px; border-radius: 8px; max-width: 100%;
+      overflow-x: auto; }
+  </style>
+  <script type="module" src="/eudiw/eudiw-request.js"></script>
+</head>
+<body>
+  <main>
+    <h1>Confirm you are over 18</h1>
+    <p>Share one fact from your EU Digital Identity Wallet. Nothing else leaves your wallet.</p>
+    <button id="start" type="button">Verify with my wallet</button>
+    <div id="slot"></div>
+    <pre id="result" hidden></pre>
+  </main>
+  <script type="module">
+    const start = document.getElementById('start');
+    const slot = document.getElementById('slot');
+    const output = document.getElementById('result');
+    start.addEventListener('click', async () => {
+      start.disabled = true;
+      const response = await fetch('/verifications', { method: 'POST' });
+      if (!response.ok) {
+        start.disabled = false;
+        return;
+      }
+      const session = await response.json();
+      const request = document.createElement('eudiw-request');
+      request.setAttribute('launch-uri', session.launch_uri);
+      request.setAttribute('status-url', session.status_url);
+      request.addEventListener('eudiw-done', async (event) => {
+        if (event.detail.status !== 'verified') {
+          start.disabled = false;
+          return;
+        }
+        const result = await fetch(session.result_url, { method: 'POST' });
+        output.textContent = JSON.stringify(await result.json(), null, 2);
+        output.hidden = false;
+      });
+      slot.replaceChildren(request);
+      start.hidden = true;
+    });
+  </script>
+</body>
+</html>

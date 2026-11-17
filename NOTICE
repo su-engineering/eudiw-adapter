@@ -3,3 +3,6 @@ Copyright 2026 su-engineering
 
 This product is developed and maintained by su-engineering
 (https://github.com/su-engineering).
+
+This product includes qrcode-generator by Kazuhiko Arase (MIT License),
+in clients/web/vendor/qrcode.mjs. See clients/web/vendor/README.md.

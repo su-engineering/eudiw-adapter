@@ -1,0 +1,11 @@
+{
+  "description": "Standard Webhooks v1 signature as the adapter sends it, during a secret rotation. Synthetic secrets.",
+  "secret": "whsec_AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=",
+  "previous_secret": "whsec_ZWZnaGlqa2xtbm9wcXJzdHV2d3h5ent8fX5/gIGCg4Q=",
+  "headers": {
+    "webhook-id": "msg_0123456789abcdef0123456789abcdef",
+    "webhook-timestamp": "1795000000",
+    "webhook-signature": "v1,nFkD49GT967wkIH9Tc8WpdmX/uL/fP0uZb0CdRyuqvU= v1,9pzqgPgtwP6lWlAczL2LflgpLesdvcZ9mB5rgG7TV+g="
+  },
+  "body": "{\"id\":\"vrs_example\",\"status\":\"verified\",\"policy_id\":\"age-over-18\",\"client_reference\":\"order-42\"}"
+}

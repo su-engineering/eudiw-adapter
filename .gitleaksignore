@@ -2,3 +2,5 @@
 adapter-core/src/test/resources/rfc9901/appendix-a.3.txt:jwt:1
 adapter-core/src/test/resources/rfc9901/section-5.2.txt:jwt:1
 adapter-core/src/test/resources/rfc9901/appendix-a.4.txt:jwt:1
+# Synthetic webhook test vector secret (bytes 1..32), not a credential
+examples/shared/webhook-vector.json:generic-api-key:3
