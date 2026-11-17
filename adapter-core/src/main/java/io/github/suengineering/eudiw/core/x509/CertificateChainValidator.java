@@ -16,6 +16,7 @@
 package io.github.suengineering.eudiw.core.x509;
 
 import io.github.suengineering.eudiw.core.VerificationFailure;
+import io.github.suengineering.eudiw.core.crypto.Brainpool;
 import java.io.ByteArrayInputStream;
 import java.security.GeneralSecurityException;
 import java.security.cert.CertPath;
@@ -131,6 +132,10 @@ public final class CertificateChainValidator {
             PKIXParameters parameters = new PKIXParameters(anchors);
             parameters.setRevocationEnabled(false);
             parameters.setDate(Date.from(at));
+            Brainpool.applyTo(
+                    parameters,
+                    chain,
+                    anchors.stream().map(TrustAnchor::getTrustedCert).toList());
             PKIXCertPathValidatorResult result = (PKIXCertPathValidatorResult)
                     CertPathValidator.getInstance("PKIX").validate(path, parameters);
             return new ValidatedPath(leaf, result.getTrustAnchor().getTrustedCert());
@@ -145,7 +150,7 @@ public final class CertificateChainValidator {
             return false;
         }
         try {
-            certificate.verify(certificate.getPublicKey());
+            Brainpool.verify(certificate, certificate.getPublicKey());
             return true;
         } catch (GeneralSecurityException e) {
             return false;

@@ -31,6 +31,11 @@
       <artifactId>adapter-core</artifactId>
     </dependency>
     <dependency>
+      <!-- Inactive unless eudiw.crypto.brainpool=true (ADR-012) -->
+      <groupId>io.github.su-engineering</groupId>
+      <artifactId>adapter-crypto-brainpool</artifactId>
+    </dependency>
+    <dependency>
       <groupId>com.nimbusds</groupId>
       <artifactId>nimbus-jose-jwt</artifactId>
       <version>${nimbus-jose-jwt.version}</version>

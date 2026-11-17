@@ -16,6 +16,7 @@
 package io.github.suengineering.eudiw.core.x509;
 
 import io.github.suengineering.eudiw.core.VerificationFailure;
+import io.github.suengineering.eudiw.core.crypto.Brainpool;
 import io.github.suengineering.eudiw.core.net.HttpFetcher;
 import java.io.ByteArrayInputStream;
 import java.net.URI;
@@ -103,6 +104,7 @@ public final class CrlRevocationChecker {
             parameters.addCertStore(CertStore.getInstance("Collection", new CollectionCertStoreParameters(crls)));
             parameters.setRevocationEnabled(false);
             parameters.addCertPathChecker(revocation);
+            Brainpool.applyTo(parameters, chain, List.of(anchor));
             validator.validate(CertificateFactory.getInstance("X.509").generateCertPath(chain), parameters);
         } catch (CertPathValidatorException e) {
             if (e.getReason() == CertPathValidatorException.BasicReason.REVOKED) {

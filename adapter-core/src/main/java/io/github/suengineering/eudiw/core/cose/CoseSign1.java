@@ -20,6 +20,7 @@ import io.github.suengineering.eudiw.core.cbor.CborDecoder;
 import io.github.suengineering.eudiw.core.cbor.CborEncoder;
 import io.github.suengineering.eudiw.core.cbor.CborItem;
 import io.github.suengineering.eudiw.core.cose.CoseAlgorithm.Curve;
+import io.github.suengineering.eudiw.core.crypto.Brainpool;
 import java.security.GeneralSecurityException;
 import java.security.PublicKey;
 import java.security.Signature;
@@ -166,7 +167,10 @@ public record CoseSign1(
             throw new VerificationFailure("invalid_signature", "COSE signature has the wrong length");
         }
         try {
-            Signature verifier = Signature.getInstance(curve.jcaSignature);
+            Signature verifier = curve.brainpool()
+                    ? Signature.getInstance(
+                            curve.jcaSignature, Brainpool.provider().orElseThrow())
+                    : Signature.getInstance(curve.jcaSignature);
             verifier.initVerify(key);
             verifier.update(toBeSigned);
             if (!verifier.verify(signature)) {
