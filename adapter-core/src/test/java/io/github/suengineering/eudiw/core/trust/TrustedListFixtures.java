@@ -139,6 +139,11 @@ final class TrustedListFixtures {
 
     /** Signs as TS 119 612 Annex B requires: enveloped, exclusive c14n, the list certificate in KeyInfo. */
     static byte[] signXml(String xml, TestPki.Issued signer, String referenceUri) {
+        return signXml(xml, signer, referenceUri, DigestMethod.SHA256, SignatureMethod.ECDSA_SHA256);
+    }
+
+    static byte[] signXml(
+            String xml, TestPki.Issued signer, String referenceUri, String digestMethod, String signatureMethod) {
         try {
             DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
             dbf.setNamespaceAware(true);
@@ -150,10 +155,10 @@ final class TrustedListFixtures {
                     factory.newTransform(Transform.ENVELOPED, (TransformParameterSpec) null),
                     factory.newTransform(CanonicalizationMethod.EXCLUSIVE, (TransformParameterSpec) null));
             Reference reference = factory.newReference(
-                    referenceUri, factory.newDigestMethod(DigestMethod.SHA256, null), transforms, null, null);
+                    referenceUri, factory.newDigestMethod(digestMethod, null), transforms, null, null);
             SignedInfo signedInfo = factory.newSignedInfo(
                     factory.newCanonicalizationMethod(CanonicalizationMethod.EXCLUSIVE, (C14NMethodParameterSpec) null),
-                    factory.newSignatureMethod(SignatureMethod.ECDSA_SHA256, null),
+                    factory.newSignatureMethod(signatureMethod, null),
                     List.of(reference));
             KeyInfoFactory keyInfoFactory = factory.getKeyInfoFactory();
             KeyInfo keyInfo =

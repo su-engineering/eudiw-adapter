@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import javax.xml.XMLConstants;
 import javax.xml.crypto.AlgorithmMethod;
 import javax.xml.crypto.KeySelector;
@@ -33,6 +34,7 @@ import javax.xml.crypto.KeySelectorResult;
 import javax.xml.crypto.MarshalException;
 import javax.xml.crypto.XMLCryptoContext;
 import javax.xml.crypto.dsig.CanonicalizationMethod;
+import javax.xml.crypto.dsig.DigestMethod;
 import javax.xml.crypto.dsig.Reference;
 import javax.xml.crypto.dsig.SignatureMethod;
 import javax.xml.crypto.dsig.Transform;
@@ -212,7 +214,38 @@ public final class TslXmlParser {
         }
     }
 
+    /**
+     * Signature algorithms accepted on a list: RSA PKCS#1 v1.5, RSASSA-PSS with MGF1 and ECDSA, each with SHA-256,
+     * SHA-384 or SHA-512. SHA-1, HMAC and anything else are refused before any signature or digest is computed,
+     * instead of relying on the JDK's secure validation defaults.
+     */
+    static final Set<String> SIGNATURE_METHODS = Set.of(
+            SignatureMethod.RSA_SHA256,
+            SignatureMethod.RSA_SHA384,
+            SignatureMethod.RSA_SHA512,
+            SignatureMethod.SHA256_RSA_MGF1,
+            SignatureMethod.SHA384_RSA_MGF1,
+            SignatureMethod.SHA512_RSA_MGF1,
+            SignatureMethod.ECDSA_SHA256,
+            SignatureMethod.ECDSA_SHA384,
+            SignatureMethod.ECDSA_SHA512);
+
+    /** Digest algorithms accepted on a list's references. */
+    static final Set<String> DIGEST_METHODS = Set.of(DigestMethod.SHA256, DigestMethod.SHA384, DigestMethod.SHA512);
+
     private static void checkStructure(XMLSignature signature, String rootId) {
+        String signatureMethod = signature.getSignedInfo().getSignatureMethod().getAlgorithm();
+        if (!SIGNATURE_METHODS.contains(signatureMethod)) {
+            throw new VerificationFailure(
+                    ListRules.SIGNATURE_INVALID, "signature algorithm not allowed: " + signatureMethod);
+        }
+        for (Object item : signature.getSignedInfo().getReferences()) {
+            String digestMethod = ((Reference) item).getDigestMethod().getAlgorithm();
+            if (!DIGEST_METHODS.contains(digestMethod)) {
+                throw new VerificationFailure(
+                        ListRules.SIGNATURE_INVALID, "digest algorithm not allowed: " + digestMethod);
+            }
+        }
         if (!EXCLUSIVE_C14N.equals(
                 signature.getSignedInfo().getCanonicalizationMethod().getAlgorithm())) {
             throw new VerificationFailure(ListRules.SIGNATURE_INVALID, "canonicalization must be exclusive c14n");

@@ -108,6 +108,38 @@ class TrustedListTest {
     // ---- TS 119 612 XML ----
 
     @Test
+    void onlySha2SignatureAndDigestAlgorithmsAreAccepted() {
+        String sha1 = "http://www.w3.org/2000/09/xmldsig#sha1";
+        String sha224 = "http://www.w3.org/2001/04/xmldsig-more#sha224";
+        String ecdsaSha1 = "http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha1";
+        // SHA-1 is also refused by the JDK's secure validation; SHA-224 is not, so the allow-list refuses it.
+        for (String[] algorithms : List.of(
+                new String[] {sha1, javax.xml.crypto.dsig.SignatureMethod.ECDSA_SHA256, ""},
+                new String[] {javax.xml.crypto.dsig.DigestMethod.SHA256, ecdsaSha1, ""},
+                new String[] {sha224, javax.xml.crypto.dsig.SignatureMethod.ECDSA_SHA256, "not allowed"},
+                new String[] {
+                    javax.xml.crypto.dsig.DigestMethod.SHA256,
+                    "http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha224",
+                    "not allowed"
+                })) {
+            byte[] signed = TrustedListFixtures.signXml(nationalXml(3), TL_SIGNER, "", algorithms[0], algorithms[1]);
+            assertThatThrownBy(() -> TslXmlParser.verify(signed, TL_AA, List.of(TL_SIGNER.certificate())))
+                    .isInstanceOfSatisfying(VerificationFailure.class, f -> assertThat(f.code())
+                            .isEqualTo("trusted_list_signature_invalid"))
+                    .hasMessageContaining(algorithms[2]);
+        }
+        byte[] sha512 = TrustedListFixtures.signXml(
+                nationalXml(3),
+                TL_SIGNER,
+                "",
+                javax.xml.crypto.dsig.DigestMethod.SHA512,
+                javax.xml.crypto.dsig.SignatureMethod.ECDSA_SHA512);
+        assertThat(TslXmlParser.verify(sha512, TL_AA, List.of(TL_SIGNER.certificate()))
+                        .sequenceNumber())
+                .isEqualTo(3);
+    }
+
+    @Test
     void readsASignedXmlTrustedList() {
         TrustedList list =
                 TslXmlParser.verify(signXml(nationalXml(3), TL_SIGNER), TL_AA, List.of(TL_SIGNER.certificate()));
@@ -399,6 +431,26 @@ class TrustedListTest {
                 .isEqualTo(1);
     }
 
+    @Test
+    void aMalformedOrFutureJadesSigningTimeIsRefused() throws Exception {
+        for (Object value : List.of(
+                "2026-11-01T01:00:00+01:00",
+                "yesterday",
+                1_793_491_200L,
+                Instant.now().plus(Duration.ofHours(1)).toString())) {
+            JWSHeader header = new JWSHeader.Builder(JWSAlgorithm.ES256)
+                    .x509CertChain(
+                            List.of(Base64.encode(LOTL_SIGNER.certificate().getEncoded())))
+                    .criticalParams(Set.of("sigT"))
+                    .customParam("sigT", value)
+                    .build();
+            byte[] signed = sign(header, lote("t", 1, ISSUED, NEXT, List.of()), LOTL_SIGNER);
+            assertFailure(
+                    () -> LoteJsonParser.verify(signed, "x", List.of(LOTL_SIGNER.certificate())),
+                    "trusted_list_invalid");
+        }
+    }
+
     // ---- loading, pointers, freshness ----
 
     @Test
@@ -627,6 +679,114 @@ class TrustedListTest {
     }
 
     @Test
+    void pointersBeyondTheLimitAreSkippedAndKeepTheirLastVersion() {
+        Map<String, byte[]> served = new HashMap<>();
+        served.put(LOTL, signXml(lotlXml(), LOTL_SIGNER));
+        served.put(TL_AA, signXml(nationalXml(5), TL_SIGNER));
+        TrustedLists none = new TrustedLists(
+                List.of(lotlSource()),
+                fetcher(served),
+                Clock.fixed(NOW, ZoneOffset.UTC),
+                io.github.suengineering.eudiw.core.x509.TrustStore.empty(),
+                TrustedLists.SequenceStore.inMemory(),
+                new TrustedLists.Limits(0, Duration.ofMinutes(1)));
+        assertThat(none.refresh())
+                .extracting(TrustedLists.LoadResult::location, TrustedLists.LoadResult::code)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(LOTL, "ok"),
+                        org.assertj.core.groups.Tuple.tuple(TL_AA, TrustedLists.SKIPPED));
+        assertThat(none.issuance().isEmpty()).isTrue();
+    }
+
+    @Test
+    void aSlowRefreshStopsAtItsBudgetAndKeepsTheListsItHad() {
+        Map<String, byte[]> served = new HashMap<>();
+        served.put(LOTL, signXml(lotlXml(), LOTL_SIGNER));
+        served.put(TL_AA, signXml(nationalXml(5), TL_SIGNER));
+        java.util.concurrent.atomic.AtomicBoolean slow = new java.util.concurrent.atomic.AtomicBoolean();
+        java.util.concurrent.atomic.AtomicInteger fetches = new java.util.concurrent.atomic.AtomicInteger();
+        HttpFetcher fetcher = (uri, accept, maxBytes) -> {
+            fetches.incrementAndGet();
+            if (slow.get()) {
+                try {
+                    Thread.sleep(300);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            return fetcher(served).get(uri, accept, maxBytes);
+        };
+        TrustedLists lists = new TrustedLists(
+                List.of(lotlSource()),
+                fetcher,
+                Clock.fixed(NOW, ZoneOffset.UTC),
+                io.github.suengineering.eudiw.core.x509.TrustStore.empty(),
+                TrustedLists.SequenceStore.inMemory(),
+                new TrustedLists.Limits(64, Duration.ofMillis(100)));
+        assertThat(lists.refresh()).allSatisfy(r -> assertThat(r.ok()).isTrue());
+        var trusted = lists.issuance().certificates();
+        assertThat(trusted).isNotEmpty();
+
+        slow.set(true);
+        fetches.set(0);
+        assertThat(lists.refresh())
+                .extracting(TrustedLists.LoadResult::location, TrustedLists.LoadResult::code)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(LOTL, "ok"),
+                        org.assertj.core.groups.Tuple.tuple(TL_AA, TrustedLists.SKIPPED));
+        assertThat(fetches.get()).isEqualTo(1);
+        assertThat(lists.issuance().certificates()).isEqualTo(trusted);
+    }
+
+    @Test
+    void anEqualSequenceNumberIsAcceptedOnlyWithTheSameContent() {
+        TrustedLists.SequenceStore store = TrustedLists.SequenceStore.inMemory();
+        Map<String, byte[]> served = new HashMap<>();
+        served.put(LOTL, signXml(lotlXml(), LOTL_SIGNER));
+        served.put(TL_AA, signXml(nationalXml(5), TL_SIGNER));
+        TrustedLists lists = new TrustedLists(
+                List.of(lotlSource()),
+                fetcher(served),
+                Clock.fixed(NOW, ZoneOffset.UTC),
+                io.github.suengineering.eudiw.core.x509.TrustStore.empty(),
+                store);
+        lists.refresh();
+
+        // Re-signed with the same content and number: new signature bytes, same digest, still accepted.
+        served.put(TL_AA, signXml(nationalXml(5), TL_SIGNER));
+        assertThat(lists.refresh())
+                .filteredOn(r -> r.location().equals(TL_AA))
+                .singleElement()
+                .satisfies(r -> assertThat(r.ok()).isTrue());
+
+        // Same number, different services: refused by this node and, after a restart, by the stored digest.
+        String changed = xml(
+                "http://uri.etsi.org/TrstSvc/TrustedList/TSLType/EUgeneric",
+                "AA",
+                5,
+                ISSUED,
+                NEXT,
+                List.of(),
+                List.of(new XmlService("Rogue Provider", EAA_Q, GRANTED, WITHDRAWN_CA.certificate())));
+        served.put(TL_AA, signXml(changed, TL_SIGNER));
+        assertThat(lists.refresh())
+                .filteredOn(r -> r.location().equals(TL_AA))
+                .singleElement()
+                .satisfies(r -> assertThat(r.code()).isEqualTo("trusted_list_rollback"));
+        TrustedLists restarted = new TrustedLists(
+                List.of(lotlSource()),
+                fetcher(served),
+                Clock.fixed(NOW, ZoneOffset.UTC),
+                io.github.suengineering.eudiw.core.x509.TrustStore.empty(),
+                store);
+        assertThat(restarted.refresh())
+                .filteredOn(r -> r.location().equals(TL_AA))
+                .singleElement()
+                .satisfies(r -> assertThat(r.code()).isEqualTo("trusted_list_rollback"));
+        assertThat(restarted.issuance().certificates()).doesNotContain(WITHDRAWN_CA.certificate());
+    }
+
+    @Test
     void aListIsRefusedWhenAnotherNodeRecordedAHigherNumberFirst() {
         // highest() read before another node's write; only the atomic advance() sees the newer number.
         TrustedLists.SequenceStore racing = new TrustedLists.SequenceStore() {
@@ -641,7 +801,7 @@ class TrustedListTest {
             }
 
             @Override
-            public boolean advance(String identifier, long sequenceNumber) {
+            public boolean advance(String identifier, long sequenceNumber, String digest) {
                 return !identifier.equals(TL_AA);
             }
         };

@@ -107,6 +107,63 @@ public record TrustedList(
         Objects.requireNonNull(signer, "signer");
     }
 
+    /**
+     * SHA-256 over what the list says about trust: its type, territory, every service (entity, type, status,
+     * certificates) and every pointer (location, type, territory, media type, signer certificates), in list order.
+     * Dates and the signature are left out, so a list re-signed or re-dated under the same sequence number with the
+     * same content has the same digest, while a list that changes what it trusts does not.
+     *
+     * @return lowercase hex
+     */
+    public String contentDigest() {
+        try {
+            java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            java.io.DataOutputStream data = new java.io.DataOutputStream(out);
+            field(data, type.orElse(null));
+            field(data, territory.orElse(null));
+            data.writeInt(services.size());
+            for (Service service : services) {
+                field(data, service.entityName());
+                field(data, service.type().orElse(null));
+                field(data, service.status().orElse(null));
+                certificates(data, service.certificates());
+            }
+            data.writeInt(pointers.size());
+            for (Pointer pointer : pointers) {
+                field(data, pointer.location());
+                field(data, pointer.type().orElse(null));
+                field(data, pointer.territory().orElse(null));
+                field(data, pointer.mimeType().orElse(null));
+                certificates(data, pointer.signerCertificates());
+            }
+            data.flush();
+            return java.util.HexFormat.of().formatHex(digest.digest(out.toByteArray()));
+        } catch (java.io.IOException | java.security.GeneralSecurityException e) {
+            throw new IllegalStateException("cannot digest trusted list", e);
+        }
+    }
+
+    private static void field(java.io.DataOutputStream data, String value) throws java.io.IOException {
+        if (value == null) {
+            data.writeInt(-1);
+            return;
+        }
+        byte[] bytes = value.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        data.writeInt(bytes.length);
+        data.write(bytes);
+    }
+
+    private static void certificates(java.io.DataOutputStream data, List<X509Certificate> certificates)
+            throws java.io.IOException, java.security.cert.CertificateEncodingException {
+        data.writeInt(certificates.size());
+        for (X509Certificate certificate : certificates) {
+            byte[] der = certificate.getEncoded();
+            data.writeInt(der.length);
+            data.write(der);
+        }
+    }
+
     /** Whether the list may be relied on at {@code now}: not closed and its next update not yet passed. */
     public boolean isCurrentAt(Instant now) {
         return nextUpdate.isPresent() && now.isBefore(nextUpdate.get()) && !now.isBefore(issued.minusSeconds(300));
