@@ -173,8 +173,13 @@ public final class DcqlEvaluator {
 
     private static Optional<DisclosedClaim> select(ClaimQuery claim, PresentedCredential credential) {
         Optional<List<Object>> selected = claim.path().select(credential.claims());
-        if (selected.isEmpty() && DcqlQuery.FORMAT_MDOC.equals(credential.format())) {
-            selected = AgeOver.substitute(claim.path(), credential.claims());
+        if (DcqlQuery.FORMAT_MDOC.equals(credential.format())) {
+            if (AgeOver.contradicted(claim.path(), credential.claims())) {
+                return Optional.empty();
+            }
+            if (selected.isEmpty()) {
+                selected = AgeOver.substitute(claim.path(), credential.claims());
+            }
         }
         if (selected.isEmpty()) {
             return Optional.empty();
@@ -249,22 +254,59 @@ public final class DcqlEvaluator {
      * answer with the nearest attestation it holds instead: {@code age_over_MM: true} with MM at least NN proves
      * the holder is over NN, and {@code age_over_MM: false} with MM below NN proves they are not. The answer is
      * reported under the requested element, so nothing unrequested leaves the evaluator. Attestations that
-     * contradict each other answer nothing.
+     * contradict each other answer nothing, even when the requested element itself was disclosed: {@code
+     * age_over_21: true} next to {@code age_over_18: false} cannot both be true, so neither is reported.
      */
     static final class AgeOver {
         private static final java.util.regex.Pattern ELEMENT = java.util.regex.Pattern.compile("age_over_(\\d{2})");
 
         private AgeOver() {}
 
-        static Optional<List<Object>> substitute(ClaimsPath path, Map<String, Object> claims) {
-            if (!path.isMdocPath()) {
+        /**
+         * Whether the requested element is an age attestation and the namespace holds attestations that cannot
+         * all be true: {@code age_over_A: true} says the holder is at least A, {@code age_over_B: false} says
+         * they are under B, so A at least B is a contradiction.
+         */
+        static boolean contradicted(ClaimsPath path, Map<String, Object> claims) {
+            Optional<Map<?, ?>> ns = namespace(path, claims);
+            if (ns.isEmpty()) {
+                return false;
+            }
+            int highestTrue = -1;
+            int lowestFalse = Integer.MAX_VALUE;
+            for (Map.Entry<?, ?> e : ns.get().entrySet()) {
+                java.util.regex.Matcher m = ELEMENT.matcher(String.valueOf(e.getKey()));
+                if (!m.matches() || !(e.getValue() instanceof Boolean value)) {
+                    continue;
+                }
+                int held = Integer.parseInt(m.group(1));
+                if (value) {
+                    highestTrue = Math.max(highestTrue, held);
+                } else {
+                    lowestFalse = Math.min(lowestFalse, held);
+                }
+            }
+            return highestTrue >= lowestFalse;
+        }
+
+        private static Optional<Map<?, ?>> namespace(ClaimsPath path, Map<String, Object> claims) {
+            if (!path.isMdocPath()
+                    || !ELEMENT.matcher((String) path.components().get(1)).matches()
+                    || !(claims.get((String) path.components().get(0)) instanceof Map<?, ?> ns)) {
                 return Optional.empty();
             }
+            return Optional.of(ns);
+        }
+
+        static Optional<List<Object>> substitute(ClaimsPath path, Map<String, Object> claims) {
+            Optional<Map<?, ?>> found = namespace(path, claims);
+            if (found.isEmpty()) {
+                return Optional.empty();
+            }
+            Map<?, ?> ns = found.get();
             java.util.regex.Matcher requested =
                     ELEMENT.matcher((String) path.components().get(1));
-            if (!requested.matches() || !(claims.get((String) path.components().get(0)) instanceof Map<?, ?> ns)) {
-                return Optional.empty();
-            }
+            requested.matches();
             int wanted = Integer.parseInt(requested.group(1));
             boolean over = false;
             boolean notOver = false;
@@ -275,7 +317,7 @@ public final class DcqlEvaluator {
                 }
                 int held = Integer.parseInt(m.group(1));
                 over |= value && held >= wanted;
-                notOver |= !value && held < wanted;
+                notOver |= !value && held <= wanted;
             }
             if (over == notOver) {
                 return Optional.empty();
