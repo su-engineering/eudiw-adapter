@@ -5,7 +5,7 @@ import json
 import unittest
 from pathlib import Path
 
-from server import WebhookError, verify_webhook
+from server import SeenWebhooks, WebhookError, verify_webhook
 
 VECTOR = json.loads((Path(__file__).resolve().parent.parent / "shared" / "webhook-vector.json").read_text())
 BODY = VECTOR["body"].encode()
@@ -29,6 +29,19 @@ class WebhookTest(unittest.TestCase):
             verify_webhook(BODY, {**VECTOR["headers"], "webhook-signature": None}, secrets, AT)
         with self.assertRaises(WebhookError):
             verify_webhook(BODY, {**VECTOR["headers"], "webhook-id": "msg_" + "f" * 32}, secrets, AT)
+
+
+class SeenWebhooksTest(unittest.TestCase):
+    def test_a_replayed_webhook_id_is_recognised_until_it_ages_out(self):
+        seen = SeenWebhooks(ttl=600, limit=3)
+        t = 1_800_000_000
+        self.assertTrue(seen.first_time("msg_1", t))
+        self.assertFalse(seen.first_time("msg_1", t + 1))
+        self.assertTrue(seen.first_time("msg_2", t + 2))
+        self.assertTrue(seen.first_time("msg_1", t + 601))
+        for i in range(10):
+            seen.first_time(f"flood_{i}", t + 602)
+        self.assertLessEqual(len(seen.seen), 3)
 
 
 if __name__ == "__main__":

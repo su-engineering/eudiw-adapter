@@ -1,17 +1,31 @@
 version: 2
 updates:
+  # Weekly version updates as well as security updates, so fixes arrive as small reviewed bumps instead of one
+  # large catch-up. Minor and patch bumps come grouped in one pull request; major bumps come one at a time.
   - package-ecosystem: maven
     directory: /
     schedule:
       interval: weekly
-    # Security updates only; routine version bumps stay manual.
-    open-pull-requests-limit: 0
+    open-pull-requests-limit: 5
     groups:
       # bcprov, bcpkix and bcutil must move together: mixed versions fail at runtime.
       bouncycastle:
-        applies-to: security-updates
         patterns:
           - "org.bouncycastle:*"
+      maven-minor-and-patch:
+        update-types: [minor, patch]
+        exclude-patterns:
+          - "org.bouncycastle:*"
+  # Actions are pinned by commit; this proposes the new commit with its version comment.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns:
+          - "*"
   # The base image is pinned by digest; this proposes a new digest when the tag is rebuilt with OS fixes.
   - package-ecosystem: docker
     directory: /adapter-verifier-service/src/main/docker

@@ -17,6 +17,8 @@ package io.github.suengineering.eudiw.core.net;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.ProxySelector;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -24,6 +26,7 @@ import java.net.http.HttpResponse;
 import java.nio.ByteBuffer;
 import java.time.Duration;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -41,6 +44,10 @@ import java.util.concurrent.TimeoutException;
  * check), responses are read up to a size limit, and one deadline covers the whole fetch: the egress check with its
  * DNS lookup, the connection, the headers and the body. {@code HttpRequest.timeout} alone does not bound the body,
  * so a server that sends headers and then drips bytes would otherwise hold the caller.
+ *
+ * <p>With a forward proxy, every fetch goes through it (HTTPS with {@code CONNECT}). The egress policy still checks
+ * each URI here first; the proxy, which resolves the name again, is where a network-layer allow list closes the DNS
+ * rebinding window between that check and the connection.
  */
 public final class JdkHttpFetcher implements HttpFetcher {
 
@@ -57,12 +64,52 @@ public final class JdkHttpFetcher implements HttpFetcher {
     private final Duration timeout;
 
     public JdkHttpFetcher(EgressPolicy policy, Duration timeout) {
+        this(policy, timeout, null);
+    }
+
+    /**
+     * @param proxy forward proxy for every fetch, or {@code null} for the JVM default (direct unless the standard
+     *     {@code https.proxyHost} family of system properties is set)
+     */
+    public JdkHttpFetcher(EgressPolicy policy, Duration timeout, InetSocketAddress proxy) {
         this.policy = Objects.requireNonNull(policy, "policy");
         this.timeout = Objects.requireNonNull(timeout, "timeout");
-        this.client = HttpClient.newBuilder()
+        HttpClient.Builder builder = HttpClient.newBuilder()
                 .followRedirects(HttpClient.Redirect.NEVER)
-                .connectTimeout(timeout)
-                .build();
+                .connectTimeout(timeout);
+        if (proxy != null) {
+            builder.proxy(ProxySelector.of(proxy));
+        }
+        this.client = builder.build();
+    }
+
+    /**
+     * Parses a proxy setting: {@code host:port} or {@code http://host:port} (an HTTPS proxy URL, credentials, a path
+     * or a missing port are refused). The proxy host is not resolved here.
+     */
+    public static InetSocketAddress proxy(String value) {
+        String text = Objects.requireNonNull(value, "value").strip();
+        URI uri;
+        try {
+            uri = URI.create(text.contains("://") ? text : "http://" + text);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("proxy must be host:port or http://host:port", e);
+        }
+        String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
+        boolean bare = (uri.getPath() == null
+                        || uri.getPath().isEmpty()
+                        || uri.getPath().equals("/"))
+                && uri.getQuery() == null
+                && uri.getFragment() == null;
+        if (!scheme.equals("http")
+                || uri.getHost() == null
+                || uri.getPort() < 1
+                || uri.getPort() > 65535
+                || uri.getUserInfo() != null
+                || !bare) {
+            throw new IllegalArgumentException("proxy must be host:port or http://host:port");
+        }
+        return InetSocketAddress.createUnresolved(uri.getHost(), uri.getPort());
     }
 
     @Override

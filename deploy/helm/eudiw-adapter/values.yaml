@@ -37,6 +37,11 @@ config:
 egress:
   allowPrivateAddresses: false
   allowHttp: false
+  # Host names that list, status list and CRL fetches may reach; empty allows any public host.
+  allowedHosts: []
+  # Forward proxy for those fetches, host:port or http://host:port. With networkPolicy.egress enabled, add the
+  # proxy to networkPolicy.egress.cluster (or exceptCidrs) so the pod can reach it.
+  proxy: ""
 
 trustedLists:
   refreshInterval: 1h

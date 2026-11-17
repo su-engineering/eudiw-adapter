@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { verifyWebhook } from '../server.mjs';
+import { SeenWebhooks, verifyWebhook } from '../server.mjs';
 
 const vector = JSON.parse(readFileSync(new URL('../../shared/webhook-vector.json', import.meta.url), 'utf8'));
 const body = Buffer.from(vector.body, 'utf8');
@@ -21,4 +21,17 @@ test('rejects a changed body, a wrong secret, an old timestamp and missing heade
   assert.throws(() => verifyWebhook(body, { ...vector.headers, 'webhook-signature': undefined }, secrets, at));
   const otherId = { ...vector.headers, 'webhook-id': 'msg_ffffffffffffffffffffffffffffffff' };
   assert.throws(() => verifyWebhook(body, otherId, secrets, at));
+});
+
+test('a replayed webhook-id is recognised until it ages out', () => {
+  const seen = new SeenWebhooks(600, 3);
+  const t = 1_800_000_000_000;
+  assert.equal(seen.firstTime('msg_1', t), true);
+  assert.equal(seen.firstTime('msg_1', t + 1000), false);
+  assert.equal(seen.firstTime('msg_2', t + 2000), true);
+  assert.equal(seen.firstTime('msg_1', t + 601_000), true);
+  for (let i = 0; i < 10; i++) {
+    seen.firstTime(`flood_${i}`, t + 602_000);
+  }
+  assert.ok(seen.seen.size <= 3);
 });

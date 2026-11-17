@@ -14,13 +14,15 @@ The verifier service reads environment variables for deployment settings and one
 | `EUDIW_OIDC_AUDIENCE` | yes | Audience the access tokens must carry |
 | `EUDIW_PRODUCTION` | no, default `true` | `true` refuses HTTP public URLs, development egress settings, `status_policy: ignore` and non-HTTPS completion URIs |
 | `EUDIW_EGRESS_ALLOW_PRIVATE_ADDRESSES`, `EUDIW_EGRESS_ALLOW_HTTP` | no, default `false` | Development only: let status list and trusted list fetches reach private addresses or plain HTTP |
+| `EUDIW_EGRESS_PROXY` | no | Forward proxy for every trusted list, status list and CRL fetch, as `host:port` or `http://host:port`. HTTPS goes through it with `CONNECT`. The service still applies its own address and host checks; the proxy resolves the name again, so give it its own allow list and deny private ranges there. Without it, the JVM proxy system properties (`https.proxyHost` and so on) apply as before |
 | `EUDIW_EGRESS_ALLOWED_HOSTS` | no | Comma-separated host names. If set, trusted list, status list and CRL fetches may reach only these hosts, on top of the address checks. Every host the configured lists, their pointers, the credentials' status lists and the CRL distribution points name must be listed |
+| `EUDIW_MANAGEMENT_HOST` | no, default `0.0.0.0` | Address the management port (9000) listens on. Set `127.0.0.1` outside Kubernetes when only local monitoring needs it |
 | `EUDIW_TRUSTED_LISTS_REFRESH_INTERVAL` | no, default `1h` | How often each node fetches and verifies the configured trusted lists |
 | `EUDIW_WEBHOOK_INTERVAL` | no, default `5s` | How often each node sends due webhook notifications |
 | `EUDIW_CONFIG_RELOAD_INTERVAL` | no, default `30s` | How often each node checks the tenants file and the files under its directory for changes and reloads them. `off` disables. See [Reloading](#reloading) |
 | `QUARKUS_OTEL_SDK_DISABLED` | no, default `true` | `false` turns on OpenTelemetry tracing over OTLP. Set the collector with `QUARKUS_OTEL_EXPORTER_OTLP_ENDPOINT` |
 
-The public port (8080) serves the management API and the wallet endpoints. The management port (9000) serves health checks at `/health/live`, `/health/ready` and `/health/well` (registration certificates near expiry) and Prometheus metrics at `/metrics`; none of these are on the public port. Do not expose port 9000 publicly. See [Operations](#operations).
+The public port (8080) serves the management API and the wallet endpoints. The management port (9000) serves health checks at `/health/live`, `/health/ready` and `/health/well` (registration certificates near expiry) and Prometheus metrics at `/metrics`; none of these are on the public port. Do not expose port 9000 publicly. It listens on every interface, because Kubernetes probes and Prometheus reach it on the pod address; the chart's network policy limits who can connect, and the Compose file publishes it on `127.0.0.1` only. On a plain host or VM, set `EUDIW_MANAGEMENT_HOST=127.0.0.1` (or the address your monitoring uses) or block port 9000 in the host firewall. See [Operations](#operations).
 
 Access tokens must name the client in `azp` or `client_id` (a string, compared exactly) and list scopes in `scope`: `verification:create`, `verification:read`, `verification:result`, `verification:cancel`.
 
@@ -104,7 +106,7 @@ In the EUDI Wallet ecosystem a relying party registers each intended use with it
 ```
 
 - `registrar_dataset` (an object) or `registrar_dataset_file` (a JSON file): the data the registrar holds about this intended use, sent as the `registrar_dataset` element. It needs `identifier`, `srvDescription` and `purpose` (arrays of `{"lang", "content"}`), `registryURI`, `intendedUseIdentifier` and `policyURI`, and may list the registered `credential` entries. Use what your registrar publishes; the service does not change it.
-- `certificate_file`: optional. The registration certificate (a `rc-wrp+jwt` JWT) the registration certificate provider issued, sent base64url-encoded as the `registration_cert` element.
+- `certificate_file`: optional. The registration certificate (a `rc-wrp+jwt` JWT) the registration certificate provider issued, sent base64url-encoded as the `registration_cert` element. The adapter checks its form (`typ`, `x5c`, `sub`, `iat`) and expiry but does not verify its signature or its provider's trust; the wallet does that, so make sure the file comes from your registration certificate provider.
 
 At startup:
 
