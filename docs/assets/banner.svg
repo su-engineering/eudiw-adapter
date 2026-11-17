@@ -1,72 +1,36 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="400" viewBox="0 0 1280 400" role="img" aria-label="eudiw-adapter: verify EUDI Wallet credentials, return only the claims you asked for">
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#0b1220"/>
-      <stop offset="1" stop-color="#111c35"/>
-    </linearGradient>
-    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#38bdf8"/>
-      <stop offset="1" stop-color="#818cf8"/>
-    </linearGradient>
-    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="#6366f1" stop-opacity="0.35"/>
-      <stop offset="1" stop-color="#6366f1" stop-opacity="0"/>
-    </radialGradient>
-    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
-      <path d="M32 0H0V32" fill="none" stroke="#1e293b" stroke-width="1"/>
-    </pattern>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
-      <path d="M0 0L10 5L0 10z" fill="#94a3b8"/>
-    </marker>
-  </defs>
-  <rect width="1280" height="400" rx="20" fill="url(#bg)"/>
-  <rect width="1280" height="400" rx="20" fill="url(#grid)" opacity="0.6"/>
-  <circle cx="930" cy="200" r="260" fill="url(#glow)"/>
-
-  <g font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif">
-    <text x="72" y="150" font-size="64" font-weight="800" fill="#f8fafc" letter-spacing="-1.5">eudiw-adapter</text>
-    <rect x="74" y="172" width="120" height="5" rx="2.5" fill="url(#accent)"/>
-    <text x="72" y="228" font-size="24" fill="#cbd5e1">Accept EU Digital Identity Wallet credentials.</text>
-    <text x="72" y="262" font-size="24" fill="#cbd5e1">Get back only the claims you asked for.</text>
-    <g font-size="15" font-weight="600">
-      <rect x="72" y="296" width="118" height="32" rx="16" fill="#0f172a" stroke="#334155"/>
-      <text x="131" y="317" text-anchor="middle" fill="#7dd3fc">OpenID4VP 1.0</text>
-      <rect x="200" y="296" width="92" height="32" rx="16" fill="#0f172a" stroke="#334155"/>
-      <text x="246" y="317" text-anchor="middle" fill="#a5b4fc">HAIP 1.0</text>
-      <rect x="302" y="296" width="106" height="32" rx="16" fill="#0f172a" stroke="#334155"/>
-      <text x="355" y="317" text-anchor="middle" fill="#7dd3fc">SD-JWT VC</text>
-      <rect x="418" y="296" width="150" height="32" rx="16" fill="#0f172a" stroke="#334155"/>
-      <text x="493" y="317" text-anchor="middle" fill="#a5b4fc">ETSI trusted lists</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="400" viewBox="0 0 1280 400" role="img" aria-label="eudiw-adapter: accept EU Digital Identity Wallet credentials, get back only the claims you asked for">
+  <defs><pattern id="dots" width="28" height="28" patternUnits="userSpaceOnUse"><rect x="13" y="13" width="1.5" height="1.5" fill="#4d4c43"/></pattern></defs>
+  <rect width="1280" height="400" fill="#10110f"/>
+  <rect width="1280" height="400" fill="url(#dots)"/>
+  <rect x="12.5" y="12.5" width="1255" height="375" fill="none" stroke="#4d4c43"/>
+  <g font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+    <text x="48" y="52" font-size="9" fill="#eeeade" xml:space="preserve">                       _                 _</text><text x="48" y="61.5" font-size="9" fill="#eeeade" xml:space="preserve"> ___ _ _   ___ ___ ___|_|___ ___ ___ ___|_|___ ___</text><text x="48" y="71" font-size="9" fill="#eeeade" xml:space="preserve">|_ -| | |_| -_|   | . | |   | -_| -_|  _| |   | . |</text><text x="48" y="80.5" font-size="9" fill="#eeeade" xml:space="preserve">|___|___|_|___|_|_|_  |_|_|_|___|___|_| |_|_|_|_  |</text><text x="48" y="90" font-size="9" fill="#eeeade" xml:space="preserve">                  |___|                       |___|</text>
+    <text x="1232" y="64" font-size="12" fill="#aaa79d" text-anchor="end" letter-spacing="1.5">APACHE-2.0 · OPEN SOURCE</text>
+    <rect x="48" y="140" width="7" height="7" fill="#ff6538"/>
+    <text x="64" y="147" font-size="12" fill="#aaa79d" letter-spacing="2.5">EUDI WALLET VERIFIER</text>
+    <text x="46" y="206" font-size="52" fill="#eeeade" font-weight="700" letter-spacing="-1">eudiw-adapter<tspan fill="#ff6538">.</tspan></text>
+    <text x="48" y="246" font-size="18" fill="#eeeade">Accept EU Digital Identity Wallet credentials.</text><text x="48" y="272" font-size="18" fill="#aaa79d">Get back only the claims you asked for.</text>
+    <rect x="48" y="318" width="126" height="30" fill="none" stroke="#4d4c43"/><text x="111" y="338" font-size="13" fill="#eeeade" text-anchor="middle">OpenID4VP 1.0</text><rect x="182" y="318" width="87" height="30" fill="none" stroke="#4d4c43"/><text x="225.5" y="338" font-size="13" fill="#eeeade" text-anchor="middle">HAIP 1.0</text><rect x="277" y="318" width="95" height="30" fill="none" stroke="#4d4c43"/><text x="324.5" y="338" font-size="13" fill="#eeeade" text-anchor="middle">SD-JWT VC</text><rect x="380" y="318" width="165" height="30" fill="none" stroke="#4d4c43"/><text x="462.5" y="338" font-size="13" fill="#eeeade" text-anchor="middle">ETSI trusted lists</text>
+    <g transform="translate(632 150)">
+    <rect width="100" height="150" fill="#10110f" stroke="#4d4c43" stroke-width="1"/>
+    <rect x="18" y="22" width="64" height="37" fill="#171815" stroke="#4d4c43"/><rect x="28" y="32" width="8" height="8" fill="#ff6538"/><rect x="28" y="41" width="32" height="4" fill="#4d4c43"/><rect x="18" y="94" width="64" height="4" fill="#4d4c43"/><rect x="18" y="108" width="44.8" height="4" fill="#4d4c43"/><rect x="18" y="122" width="54.4" height="4" fill="#4d4c43"/>
+    <text x="50" y="180" font-size="13" fill="#aaa79d" text-anchor="middle">wallet</text>
     </g>
-
-    <!-- wallet -->
-    <g transform="translate(700 120)">
-      <rect width="96" height="160" rx="18" fill="#0f172a" stroke="#475569" stroke-width="2"/>
-      <rect x="12" y="22" width="72" height="44" rx="8" fill="url(#accent)" opacity="0.9"/>
-      <rect x="12" y="76" width="72" height="8" rx="4" fill="#334155"/>
-      <rect x="12" y="92" width="52" height="8" rx="4" fill="#334155"/>
-      <rect x="12" y="108" width="62" height="8" rx="4" fill="#334155"/>
-      <text x="48" y="188" text-anchor="middle" font-size="15" fill="#94a3b8">Wallet</text>
+    <line x1="742" y1="225" x2="808" y2="225" stroke="#aaa79d" stroke-width="1.5" stroke-dasharray="5 5"/>
+    <path d="M801 219L810 225L801 231" fill="none" stroke="#aaa79d" stroke-width="1.5"/>
+    <text x="776" y="213" font-size="11" fill="#aaa79d" text-anchor="middle">presents</text>
+    <g transform="translate(820 150)">
+    <rect width="124" height="150" fill="#10110f" stroke="#ff6538" stroke-width="1.5"/>
+    <rect x="32" y="39" width="60" height="60" fill="none" stroke="#ff6538" stroke-width="1.5"/><path d="M47 70l10 10l20 -22" fill="none" stroke="#ff6538" stroke-width="5" stroke-linecap="square"/><text x="62" y="132" font-size="11" fill="#aaa79d" text-anchor="middle" letter-spacing="2">verified</text>
+    <text x="62" y="180" font-size="13" fill="#aaa79d" text-anchor="middle">eudiw-adapter</text>
     </g>
-
-    <!-- adapter -->
-    <g transform="translate(890 130)">
-      <path d="M70 0L140 26V76C140 118 110 142 70 158C30 142 0 118 0 76V26Z" fill="#0f172a" stroke="url(#accent)" stroke-width="3"/>
-      <path d="M44 80L63 99L98 62" fill="none" stroke="#38bdf8" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
-      <text x="70" y="182" text-anchor="middle" font-size="15" fill="#94a3b8">eudiw-adapter</text>
+    <line x1="954" y1="225" x2="1020" y2="225" stroke="#aaa79d" stroke-width="1.5"/>
+    <path d="M1013 219L1022 225L1013 231" fill="none" stroke="#aaa79d" stroke-width="1.5"/>
+    <text x="988" y="213" font-size="11" fill="#aaa79d" text-anchor="middle">1 claim</text>
+    <g transform="translate(1032 150)">
+    <rect width="184" height="150" fill="#10110f" stroke="#4d4c43" stroke-width="1"/>
+    <line x1="0" y1="26" x2="184" y2="26" stroke="#4d4c43"/><rect x="12" y="10" width="6" height="6" fill="#ff6538"/><text x="16" y="67" font-size="13" fill="#eeeade" xml:space="preserve">{</text><text x="16" y="87" font-size="13" fill="#eeeade" xml:space="preserve">  &quot;age_over_18&quot;: <tspan fill="#ff6538">true</tspan></text><text x="16" y="107" font-size="13" fill="#eeeade" xml:space="preserve">}</text>
+    <text x="92" y="180" font-size="13" fill="#aaa79d" text-anchor="middle">your backend</text>
     </g>
-
-    <!-- app -->
-    <g transform="translate(1104 132)">
-      <rect width="120" height="96" rx="12" fill="#0f172a" stroke="#475569" stroke-width="2"/>
-      <rect width="120" height="22" rx="12" fill="#1e293b"/>
-      <circle cx="14" cy="11" r="4" fill="#f87171"/><circle cx="28" cy="11" r="4" fill="#fbbf24"/><circle cx="42" cy="11" r="4" fill="#34d399"/>
-      <text x="60" y="58" text-anchor="middle" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="11" fill="#86efac">age_over_18</text>
-      <text x="60" y="76" text-anchor="middle" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="13" font-weight="700" fill="#86efac">true</text>
-      <text x="60" y="122" text-anchor="middle" font-size="15" fill="#94a3b8">Your app</text>
-    </g>
-
-    <path d="M806 200H876" stroke="#94a3b8" stroke-width="2.5" stroke-dasharray="6 6" marker-end="url(#arrow)"/>
-    <path d="M1040 190H1094" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#arrow)"/>
   </g>
 </svg>

@@ -1,0 +1,17 @@
+{
+  "alt": "eudiw-adapter: accept EU Digital Identity Wallet credentials, get back only the claims you asked for",
+  "meta": "APACHE-2.0 · OPEN SOURCE",
+  "label": "EUDI Wallet verifier",
+  "title": "eudiw-adapter",
+  "tagline": ["Accept EU Digital Identity Wallet credentials.", "Get back only the claims you asked for."],
+  "chips": ["OpenID4VP 1.0", "HAIP 1.0", "SD-JWT VC", "ETSI trusted lists"],
+  "diagram": {
+    "height": 150,
+    "boxes": [
+      { "glyph": "wallet", "width": 100, "caption": "wallet" },
+      { "glyph": "verify", "width": 124, "caption": "eudiw-adapter", "accent": true },
+      { "glyph": "code", "width": 184, "caption": "your backend", "lines": ["{", "  \"age_over_18\": true", "}"] }
+    ],
+    "arrows": [{ "label": "presents", "dashed": true }, { "label": "1 claim" }]
+  }
+}
