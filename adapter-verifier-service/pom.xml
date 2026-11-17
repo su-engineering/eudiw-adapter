@@ -19,6 +19,23 @@
            Jackson GHSA-7hhh-6rmp-j9qf, GHSA-p6pp-m3f8-5c89, GHSA-cxp5-3px4-pw24, GHSA-wv8q-qhhj-9h54 and
            Guava GHSA-xxph-c9ww-hj94. Drop these when the Quarkus BOM catches up. -->
       <dependency>
+        <!-- GHSA-ccrj-gw8r-854m: quadratic tracestate parsing before opentelemetry-api 1.67.0. The instrumentation
+             BOM moves with it (2.33.1 is built on 1.67.0), because Quarkus' instrumentation 2.28 calls API internals
+             that 1.67 removed. Drop both once quarkus-bom ships opentelemetry-api 1.67 or later. -->
+        <groupId>io.opentelemetry</groupId>
+        <artifactId>opentelemetry-bom</artifactId>
+        <version>1.67.0</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>io.opentelemetry.instrumentation</groupId>
+        <artifactId>opentelemetry-instrumentation-bom-alpha</artifactId>
+        <version>2.33.1-alpha</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
         <groupId>com.fasterxml.jackson</groupId>
         <artifactId>jackson-bom</artifactId>
         <version>2.22.4</version>
