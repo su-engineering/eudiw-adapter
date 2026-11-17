@@ -12,3 +12,9 @@ updates:
         applies-to: security-updates
         patterns:
           - "org.bouncycastle:*"
+  # The base image is pinned by digest; this proposes a new digest when the tag is rebuilt with OS fixes.
+  - package-ecosystem: docker
+    directory: /adapter-verifier-service/src/main/docker
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2

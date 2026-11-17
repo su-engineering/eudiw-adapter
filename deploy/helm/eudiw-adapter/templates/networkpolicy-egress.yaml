@@ -1,0 +1,69 @@
+{{- if and .Values.networkPolicy.enabled .Values.networkPolicy.egress.enabled }}
+{{- $egress := .Values.networkPolicy.egress }}
+# Outbound traffic: DNS, the in-cluster destinations listed in networkPolicy.egress.cluster, and the public
+# internet on networkPolicy.egress.internetPorts only. Private, loopback, link-local (cloud metadata), carrier-grade
+# NAT and IPv6 transition ranges are excluded, which also closes the DNS rebinding window of the application's
+# egress check.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "eudiw-adapter.fullname" . }}-egress
+  labels:
+    {{- include "eudiw-adapter.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "eudiw-adapter.selectorLabels" . | nindent 6 }}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            {{- toYaml $egress.dns.namespaceSelector | nindent 12 }}
+          podSelector:
+            {{- toYaml $egress.dns.podSelector | nindent 12 }}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    {{- with $egress.cluster }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- if $egress.internetPorts }}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 0.0.0.0/8
+              - 10.0.0.0/8
+              - 100.64.0.0/10
+              - 127.0.0.0/8
+              - 169.254.0.0/16
+              - 172.16.0.0/12
+              - 192.0.0.0/24
+              - 192.168.0.0/16
+              - 198.18.0.0/15
+              - 224.0.0.0/3
+              {{- range $egress.exceptCidrs }}
+              {{- if not (contains ":" .) }}
+              - {{ . }}
+              {{- end }}
+              {{- end }}
+        - ipBlock:
+            cidr: 2000::/3
+            except:
+              - 2001::/32
+              - 2001:db8::/32
+              - 2002::/16
+              {{- range $egress.exceptCidrs }}
+              {{- if contains ":" . }}
+              - {{ . }}
+              {{- end }}
+              {{- end }}
+      ports:
+        {{- range $egress.internetPorts }}
+        - port: {{ . }}
+          protocol: TCP
+        {{- end }}
+    {{- end }}
+{{- end }}
