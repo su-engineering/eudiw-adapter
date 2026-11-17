@@ -57,6 +57,20 @@ public class AuditTrail {
             String revision,
             Instant now) {
         store.audit(tenantId, sessionId, clientId, action, outcome, code, revision, now);
+        announce(tenantId, sessionId, clientId, policyId, action, outcome, code, revision, now);
+    }
+
+    /** The log line and counter for an event whose row was already written, in the transaction it records. */
+    public void announce(
+            String tenantId,
+            String sessionId,
+            String clientId,
+            String policyId,
+            String action,
+            String outcome,
+            String code,
+            String revision,
+            Instant now) {
         AUDIT.infof(
                 "action=%s outcome=%s code=%s tenant=%s client=%s policy=%s session=%s revision=%s at=%s",
                 action, outcome, tag(code), tenantId, tag(clientId), tag(policyId), tag(sessionId), tag(revision), now);

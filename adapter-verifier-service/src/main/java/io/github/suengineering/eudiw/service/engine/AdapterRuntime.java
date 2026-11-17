@@ -71,6 +71,10 @@ public class AdapterRuntime {
     @ConfigProperty(name = "eudiw.data-key")
     String dataKey;
 
+    /** Keys from before a rotation: they decrypt what they wrote, but nothing new is encrypted with them. */
+    @ConfigProperty(name = "eudiw.previous-data-keys")
+    java.util.Optional<java.util.List<String>> previousDataKeys;
+
     @ConfigProperty(name = "eudiw.production", defaultValue = "true")
     boolean production;
 
@@ -106,6 +110,9 @@ public class AdapterRuntime {
 
     private String fingerprint;
     private String failedFingerprint;
+    /** Files read by the last load that failed, watched too so fixing one of them triggers a retry. */
+    private Set<Path> failedSources = Set.of();
+
     private HttpFetcher listFetcher;
     private HttpFetcher crlFetcher;
     private volatile boolean trustedListsAttempted;
@@ -139,14 +146,28 @@ public class AdapterRuntime {
             }
         }
         byte[] key;
+        java.util.List<byte[]> previous = new java.util.ArrayList<>();
         try {
             key = Base64.getDecoder().decode(dataKey);
+            for (String old : previousDataKeys.orElse(java.util.List.of())) {
+                if (!old.isBlank()) {
+                    previous.add(Base64.getDecoder().decode(old.strip()));
+                }
+            }
         } catch (IllegalArgumentException e) {
-            throw new ConfigLoader.ConfigException("eudiw.data-key must be base64", e);
+            throw new ConfigLoader.ConfigException("eudiw.data-key and eudiw.previous-data-keys must be base64", e);
         }
-        dataProtection = new DataProtection(key);
-        fingerprint = fingerprint();
+        try {
+            dataProtection = new DataProtection(key, previous);
+        } catch (IllegalArgumentException e) {
+            throw new ConfigLoader.ConfigException(
+                    "eudiw.data-key and eudiw.previous-data-keys must each be 32 bytes", e);
+        }
+        LOG.infof(
+                "data protection key %s encrypts; %d previous key(s) decrypt only",
+                dataProtection.keyId(), previous.size());
         AdapterConfig loaded = ConfigLoader.load(Path.of(configFile), production);
+        fingerprint = recorded(loaded);
         if (fetcher == null) {
             Set<String> hosts = allowedHosts.orElse(java.util.List.of()).stream()
                     .map(String::strip)
@@ -226,31 +247,38 @@ public class AdapterRuntime {
     }
 
     /**
-     * Reloads the configuration when the tenants file or any file under its directory changed. A configuration
-     * that fails validation is logged and ignored: the running one stays. The replaced configuration is kept for
-     * the longest session lifetime, so sessions started under it finish under the same rules. Safe to call often;
-     * an unchanged directory costs one walk over file sizes and modification times.
+     * Reloads the configuration when the tenants file or any file it references changed. A configuration that fails
+     * validation is logged and ignored: the running one stays. The replaced configuration is kept for the longest
+     * session lifetime, so sessions started under it finish under the same rules. Safe to call often; a check reads
+     * and hashes the tenants file and the key, certificate, secret and dataset files it names.
      *
      * @return whether a new configuration became active
      */
     public synchronized boolean reloadIfChanged() {
-        String now = fingerprint();
+        Set<Path> watched =
+                new java.util.LinkedHashSet<>(current.config().sources().keySet());
+        watched.addAll(failedSources);
+        String now = onDisk(watched);
         if (now.equals(fingerprint) || now.equals(failedFingerprint)) {
             return false;
         }
         AdapterConfig loaded;
+        Map<Path, String> attempted = new java.util.LinkedHashMap<>();
         try {
-            loaded = ConfigLoader.load(Path.of(configFile), production);
+            loaded = ConfigLoader.load(Path.of(configFile), production, attempted);
         } catch (RuntimeException e) {
-            failedFingerprint = now;
+            failedSources = Set.copyOf(attempted.keySet());
+            watched.addAll(failedSources);
+            failedFingerprint = onDisk(watched);
             count("failed");
             LOG.errorf(
                     "configuration not reloaded, keeping revision %s: %s",
                     current.config().revision(), e.getMessage());
             return false;
         }
-        fingerprint = now;
+        fingerprint = recorded(loaded);
         failedFingerprint = null;
+        failedSources = Set.of();
         if (loaded.revision().equals(current.config().revision())) {
             return false;
         }
@@ -274,27 +302,25 @@ public class AdapterRuntime {
         }
     }
 
-    /** Sizes and modification times of the tenants file's directory tree, plus the tenants file's content. */
-    private String fingerprint() {
-        Path file = Path.of(configFile).toAbsolutePath();
-        try {
-            java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
-            digest.update(java.nio.file.Files.readAllBytes(file));
-            try (var paths = java.nio.file.Files.walk(file.getParent(), 4)) {
-                for (Path path : paths.filter(java.nio.file.Files::isRegularFile)
-                        .sorted()
-                        .limit(2000)
-                        .toList()) {
-                    digest.update((path + "\n" + java.nio.file.Files.size(path) + "\n"
-                                    + java.nio.file.Files.getLastModifiedTime(path)
-                                            .toMillis() + "\n")
-                            .getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                }
-            }
-            return java.util.HexFormat.of().formatHex(digest.digest());
-        } catch (java.io.IOException | java.security.NoSuchAlgorithmException e) {
-            return "unreadable";
-        }
+    /** The content hashes of the files a configuration was built from, as they were when it was read. */
+    static String recorded(AdapterConfig config) {
+        return String.join(
+                "\n",
+                config.sources().entrySet().stream()
+                        .map(e -> e.getKey() + "=" + e.getValue())
+                        .toList());
+    }
+
+    /**
+     * The content hashes of files as they are now. A file that a new tenants file starts to reference needs no
+     * watching: naming it changes the tenants file.
+     */
+    static String onDisk(java.util.Collection<Path> files) {
+        return String.join(
+                "\n",
+                files.stream()
+                        .map(path -> path + "=" + ConfigLoader.contentHash(path))
+                        .toList());
     }
 
     private Generation generation(String revision) {

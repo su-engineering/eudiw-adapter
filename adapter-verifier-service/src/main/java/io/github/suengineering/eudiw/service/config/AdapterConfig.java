@@ -29,8 +29,15 @@ import java.util.Set;
 /**
  * The validated, immutable deployment configuration: tenants, their client applications, verification policies
  * and key material. Loaded once at startup; {@link #revision()} identifies it in sessions and audit events.
+ *
+ * @param sources every file read to build this configuration, the tenants file first, with the SHA-256 of the
+ *     content that was read; a reload is due when any of them changes
  */
-public record AdapterConfig(String revision, Map<String, Tenant> tenants) {
+public record AdapterConfig(String revision, Map<String, Tenant> tenants, Map<java.nio.file.Path, String> sources) {
+
+    public AdapterConfig(String revision, Map<String, Tenant> tenants) {
+        this(revision, tenants, Map.of());
+    }
 
     public Optional<Tenant> tenant(String id) {
         return Optional.ofNullable(tenants.get(id));

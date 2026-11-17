@@ -72,15 +72,60 @@ public final class ConfigLoader {
     private static final Pattern PEM_KEY =
             Pattern.compile("-----BEGIN PRIVATE KEY-----(.*?)-----END PRIVATE KEY-----", Pattern.DOTALL);
 
+    /** The files read by the load running on this thread, with the SHA-256 of what was read. */
+    private static final ThreadLocal<Map<Path, String>> SOURCES = new ThreadLocal<>();
+
     private ConfigLoader() {}
 
     public static AdapterConfig load(Path file, boolean production) {
+        return load(file, production, new LinkedHashMap<>());
+    }
+
+    /**
+     * Loads like {@link #load(Path, boolean)} and also fills {@code sources} with every file read, with the SHA-256
+     * of its content, even when the configuration turns out invalid.
+     */
+    public static AdapterConfig load(Path file, boolean production, Map<Path, String> sources) {
+        SOURCES.set(sources);
+        try {
+            return read(file, production, sources);
+        } finally {
+            SOURCES.remove();
+        }
+    }
+
+    /** The SHA-256 of a file's current content, as hex, or {@code "missing"} when it cannot be read. */
+    public static String contentHash(Path file) {
+        try {
+            return sha256(Files.readAllBytes(file));
+        } catch (IOException e) {
+            return "missing";
+        }
+    }
+
+    private static String sha256(byte[] content) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(content));
+        } catch (GeneralSecurityException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private static void track(Path path, byte[] content) {
+        Map<Path, String> sources = SOURCES.get();
+        if (sources != null) {
+            sources.put(path.toAbsolutePath().normalize(), sha256(content));
+        }
+    }
+
+    private static AdapterConfig read(Path file, boolean production, Map<Path, String> sources) {
         byte[] bytes;
         try {
             bytes = Files.readAllBytes(file);
         } catch (IOException e) {
             throw new ConfigException("cannot read configuration file " + file, e);
         }
+        track(file, bytes);
         Path base = file.toAbsolutePath().getParent();
         Map<String, Object> json = Json.parseObject(new String(bytes, StandardCharsets.UTF_8), "invalid_configuration");
         Map<String, Tenant> tenants = new LinkedHashMap<>();
@@ -99,7 +144,10 @@ public final class ConfigLoader {
         if (tenants.isEmpty()) {
             throw new ConfigException("no tenants configured");
         }
-        return new AdapterConfig(revision(bytes, tenants), Map.copyOf(tenants));
+        return new AdapterConfig(
+                revision(bytes, tenants, sources),
+                Map.copyOf(tenants),
+                java.util.Collections.unmodifiableMap(new LinkedHashMap<>(sources)));
     }
 
     private static Tenant tenant(Map<String, Object> json, Path base, boolean production) {
@@ -428,7 +476,9 @@ public final class ConfigLoader {
     private static String readUtf8(Path base, String relative) {
         Path path = base.resolve(relative).normalize();
         try {
-            return Files.readString(path, StandardCharsets.UTF_8);
+            byte[] content = Files.readAllBytes(path);
+            track(path, content);
+            return new String(content, StandardCharsets.UTF_8);
         } catch (IOException e) {
             throw new ConfigException("cannot read " + path, e);
         }
@@ -532,13 +582,19 @@ public final class ConfigLoader {
     private static String read(Path base, String relative) {
         Path path = base.resolve(relative).normalize();
         try {
-            return Files.readString(path, StandardCharsets.US_ASCII);
+            byte[] content = Files.readAllBytes(path);
+            track(path, content);
+            return new String(content, StandardCharsets.US_ASCII);
         } catch (IOException e) {
             throw new ConfigException("cannot read " + path, e);
         }
     }
 
-    private static String revision(byte[] config, Map<String, Tenant> tenants) {
+    /**
+     * The full SHA-256 over the tenants file, every file it references and the parsed key material, as 64 hex
+     * characters. Referenced files count, so rotating a webhook secret or a signing key is a new revision.
+     */
+    private static String revision(byte[] config, Map<String, Tenant> tenants, Map<Path, String> sources) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             digest.update(config);
@@ -574,7 +630,12 @@ public final class ConfigLoader {
                     }
                 }
             }
-            return HexFormat.of().formatHex(digest.digest()).substring(0, 16);
+            // By content, not by path: replicas mount the same files at different paths.
+            sources.values().stream()
+                    .skip(1)
+                    .sorted()
+                    .forEach(hash -> digest.update(hash.getBytes(StandardCharsets.US_ASCII)));
+            return HexFormat.of().formatHex(digest.digest());
         } catch (GeneralSecurityException e) {
             throw new IllegalStateException(e);
         }

@@ -73,6 +73,14 @@ spec:
                 secretKeyRef:
                   name: {{ required "dataKey.existingSecret is required" .Values.dataKey.existingSecret }}
                   key: data-key
+            - name: EUDIW_PREVIOUS_DATA_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.dataKey.existingSecret }}
+                  key: previous-data-keys
+                  optional: true
+            - name: EUDIW_WALLET_REQUESTS_PER_MINUTE
+              value: {{ .Values.walletRateLimit.requestsPerMinute | quote }}
             - name: EUDIW_EGRESS_ALLOW_PRIVATE_ADDRESSES
               value: {{ .Values.egress.allowPrivateAddresses | quote }}
             - name: EUDIW_EGRESS_ALLOW_HTTP

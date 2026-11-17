@@ -8,7 +8,8 @@ The verifier service reads environment variables for deployment settings and one
 | --- | --- | --- |
 | `EUDIW_CONFIG_FILE` | yes | Path to the tenants file below |
 | `EUDIW_PUBLIC_BASE_URL` | yes | Public HTTPS origin wallets reach, for example `https://adapter.example`. Request and response URIs are built from it |
-| `EUDIW_DATA_KEY` | yes | 32 random bytes, base64. Results and per-request keys are encrypted at rest with keys derived from it per tenant. Generate with `openssl rand -base64 32` and keep it in a secret store |
+| `EUDIW_DATA_KEY` | yes | 32 random bytes, base64. Results and per-request keys are encrypted at rest with keys derived from it per tenant. Generate with `openssl rand -base64 32` and keep it in a secret store. See [Rotating the data key](#rotating-the-data-key) |
+| `EUDIW_PREVIOUS_DATA_KEYS` | no | Comma-separated data keys from before a rotation. They decrypt what they wrote; nothing new is encrypted with them |
 | `EUDIW_DB_URL`, `EUDIW_DB_USER`, `EUDIW_DB_PASSWORD` | yes | PostgreSQL 16 or later. The schema is migrated at startup |
 | `EUDIW_OIDC_ISSUER` | yes | Issuer URL of the authorization server that issues client-credentials tokens |
 | `EUDIW_OIDC_AUDIENCE` | yes | Audience the access tokens must carry |
@@ -17,7 +18,8 @@ The verifier service reads environment variables for deployment settings and one
 | `EUDIW_EGRESS_ALLOWED_HOSTS` | no | Comma-separated host names. If set, trusted list, status list and CRL fetches may reach only these hosts, on top of the address checks. Every host the configured lists, their pointers, the credentials' status lists and the CRL distribution points name must be listed |
 | `EUDIW_TRUSTED_LISTS_REFRESH_INTERVAL` | no, default `1h` | How often each node fetches and verifies the configured trusted lists |
 | `EUDIW_WEBHOOK_INTERVAL` | no, default `5s` | How often each node sends due webhook notifications |
-| `EUDIW_CONFIG_RELOAD_INTERVAL` | no, default `30s` | How often each node checks the tenants file and the files under its directory for changes and reloads them. `off` disables. See [Reloading](#reloading) |
+| `EUDIW_WALLET_REQUESTS_PER_MINUTE` | no, default `0` (off) | Requests per minute one source address may make to the wallet endpoints (`/oid4vp/requests/*` and `/oid4vp/responses`), counted across nodes in PostgreSQL. IPv6 addresses count by their /64. Over the limit the endpoints return 429 with `Retry-After`. The address is the one the service sees: behind a load balancer or ingress, turn on proxy address forwarding (`QUARKUS_HTTP_PROXY_PROXY_ADDRESS_FORWARDING=true` with `QUARKUS_HTTP_PROXY_ALLOW_X_FORWARDED=true` or `..._ALLOW_FORWARDED=true`, and `QUARKUS_HTTP_PROXY_TRUSTED_PROXIES`), or every wallet shares the proxy's address and one limit. A wallet makes two or three requests per session, so leave room for many users behind one carrier NAT address; 600 is a reasonable start. Limiting at the ingress works too |
+| `EUDIW_CONFIG_RELOAD_INTERVAL` | no, default `30s` | How often each node checks the tenants file and the files it references for changes and reloads them. `off` disables. See [Reloading](#reloading) |
 | `QUARKUS_OTEL_SDK_DISABLED` | no, default `true` | `false` turns on OpenTelemetry tracing over OTLP. Set the collector with `QUARKUS_OTEL_EXPORTER_OTLP_ENDPOINT` |
 
 The public port (8080) serves the management API and the wallet endpoints. The management port (9000) serves health checks at `/health/live`, `/health/ready` and `/health/well` (registration certificates near expiry) and Prometheus metrics at `/metrics`; none of these are on the public port. Do not expose port 9000 publicly. See [Operations](#operations).
@@ -113,12 +115,24 @@ After a certificate expires, requests carry only the dataset, and `/health/well`
 
 ## Reloading
 
-Each node checks the tenants file every `EUDIW_CONFIG_RELOAD_INTERVAL` (and when a session arrives under a revision it does not know). When the file or anything under its directory changed, it loads and validates the new configuration:
+Each node checks the tenants file every `EUDIW_CONFIG_RELOAD_INTERVAL` (and when a session arrives under a revision it does not know). It compares the content of the tenants file and of every file it references (keys, certificate chains, trust anchors, webhook secrets, registration files, the HSM PIN file) with what it last loaded. Other files in the directory are not watched. When one changed, it loads and validates the new configuration:
 
 - If it is valid, it becomes active for new sessions. The previous configuration is kept for 15 minutes, the longest session lifetime, so sessions started under it finish under the rules they started with.
 - If it is not valid, the error is logged and counted (`eudiw_config_reloads_total{outcome="failed"}`) and the running configuration stays.
 
 Clients removed from the file lose access at once, also to their open sessions. Keys held in an HSM are reloaded with the configuration that references them; a change inside the token alone is not detected. In Kubernetes a mounted Secret is updated in place, so editing it is enough (not with `subPath` mounts).
+
+The revision is the SHA-256 of the tenants file and the content of every file it references, 64 hex characters. Rotating a webhook secret or a signing key therefore makes a new revision, like any other change. Before 0.2.1 the revision was 16 characters and did not cover keys and secrets. During a rolling upgrade from 0.2.0, old and new pods compute different revisions for the same files, so a session created on one version gets 404 for its wallet requests on the other. Upgrade outside busy hours, or let open sessions (at most 15 minutes) finish first.
+
+### Rotating the data key
+
+Results and per-request keys are encrypted with the current `EUDIW_DATA_KEY`. Each ciphertext names the key that wrote it.
+
+1. Generate a new key. Set it as `EUDIW_DATA_KEY` and move the old one to `EUDIW_PREVIOUS_DATA_KEYS` on every node.
+2. Wait until everything the old key wrote has expired: the longest `result_ttl` of any policy (results are deleted when retrieved or when they expire), and the longest session lifetime for per-request keys.
+3. Remove the old key from `EUDIW_PREVIOUS_DATA_KEYS`.
+
+With the Helm chart, put the old keys under `previous-data-keys` in the data key secret. Data written by 0.2.0, before key ids, is tried against every configured key.
 
 ## Operations
 

@@ -24,6 +24,7 @@ import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
+import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
@@ -40,11 +41,32 @@ public class WalletResource {
     @Inject
     VerificationEngine engine;
 
+    @Context
+    io.vertx.core.http.HttpServerRequest http;
+
     /** Request URI, GET method (RFC 9101). */
     @GET
     @Path("requests/{handle}")
     public Response requestObjectGet(@PathParam("handle") String handle) {
         return requestObject(handle, null);
+    }
+
+    /**
+     * 429 with {@code Retry-After} when this source address is over the wallet request limit, before any lookup.
+     * The address is the one Quarkus resolved, so a forwarded address counts only when proxy forwarding is on.
+     */
+    private Response refused() {
+        String address = http == null || http.remoteAddress() == null
+                ? null
+                : http.remoteAddress().hostAddress();
+        return engine.walletRequestRefused(address)
+                .map(seconds -> Response.status(429)
+                        .type(MediaType.APPLICATION_JSON)
+                        .header("Cache-Control", "no-store")
+                        .header("Retry-After", seconds)
+                        .entity(Map.of("error", "rate_limited"))
+                        .build())
+                .orElse(null);
     }
 
     /** Request URI, POST method (OpenID4VP 1.0 section 5.10). */
@@ -57,6 +79,10 @@ public class WalletResource {
     }
 
     private Response requestObject(String handle, String walletNonce) {
+        Response refused = refused();
+        if (refused != null) {
+            return refused;
+        }
         return engine.requestObject(handle, walletNonce)
                 .map(jwt -> Response.ok(jwt, AuthorizationRequests.REQUEST_OBJECT_MEDIA_TYPE))
                 .orElseGet(() -> Response.status(404))
@@ -69,6 +95,10 @@ public class WalletResource {
     @Path("responses")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response response(MultivaluedMap<String, String> form) {
+        Response refused = refused();
+        if (refused != null) {
+            return refused;
+        }
         Map<String, String> single = new HashMap<>();
         for (var entry : form.entrySet()) {
             if (entry.getValue().size() != 1) {
