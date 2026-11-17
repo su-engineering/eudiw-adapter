@@ -291,11 +291,12 @@ Test evidence per feature: [standards and feature status](docs/standards-matrix.
 - [x] Relying-party registration in `verifier_info` (ETSI TS 119 472-2)
 - [x] Metrics, audit log, tracing, rate limits, configuration reload
 - [x] Web component and Node and Python examples
-- [ ] ISO mdoc (`mso_mdoc`)
-- [ ] OCSP
 - [x] OpenID Foundation HAIP verifier test plan, run locally (not certified)
-- [ ] Certification, more wallets, real devices
-- [ ] Digital Credentials API
+- [ ] ISO mdoc (`mso_mdoc`) and the Digital Credentials API
+- [ ] The EU reference wallet on real devices, a second independent wallet, OCSP
+- [ ] Wallet attestation, `transaction_data`, certification, external review
+
+The full, ordered list is in [ROADMAP.md](ROADMAP.md).
 
 ## Documentation
 
