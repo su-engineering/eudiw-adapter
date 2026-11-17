@@ -60,6 +60,18 @@ public final class VpTokenVerifier {
         IGNORE
     }
 
+    /** Which trust anchors may sign a credential's status list. */
+    public enum StatusSigner {
+        /** Any status anchor of the policy. */
+        ANY_ANCHOR,
+        /**
+         * Only the trust anchor the credential's issuer chain validated to, so a status provider trusted for one
+         * issuer cannot speak for another issuer's credentials. A list signed under another anchor counts as an
+         * indeterminate status ({@code status_signer_not_issuer}).
+         */
+        CREDENTIAL_ISSUER
+    }
+
     /**
      * @param clock time source
      * @param keyBindingMaxAge oldest acceptable Key Binding JWT
@@ -67,6 +79,9 @@ public final class VpTokenVerifier {
      * @param algorithms accepted JWS algorithms
      * @param enforceTrustedAuthorities enforce DCQL {@code trusted_authorities} on responses
      * @param statusPolicy how credential status is enforced
+     * @param requireStatus refuse a credential that carries no status reference this verifier can check
+     *     ({@code credential_status_missing})
+     * @param statusSigner which trust anchors may sign a credential's status list
      */
     public record Settings(
             Clock clock,
@@ -74,7 +89,36 @@ public final class VpTokenVerifier {
             Duration clockSkew,
             AlgorithmPolicy algorithms,
             boolean enforceTrustedAuthorities,
-            StatusPolicy statusPolicy) {
+            StatusPolicy statusPolicy,
+            boolean requireStatus,
+            StatusSigner statusSigner) {
+
+        public Settings {
+            Objects.requireNonNull(statusPolicy, "statusPolicy");
+            Objects.requireNonNull(statusSigner, "statusSigner");
+            if (requireStatus && statusPolicy == StatusPolicy.IGNORE) {
+                throw new IllegalArgumentException("requireStatus needs a status policy other than IGNORE");
+            }
+        }
+
+        /** Settings that accept credentials without status and any status anchor as list signer. */
+        public Settings(
+                Clock clock,
+                Duration keyBindingMaxAge,
+                Duration clockSkew,
+                AlgorithmPolicy algorithms,
+                boolean enforceTrustedAuthorities,
+                StatusPolicy statusPolicy) {
+            this(
+                    clock,
+                    keyBindingMaxAge,
+                    clockSkew,
+                    algorithms,
+                    enforceTrustedAuthorities,
+                    statusPolicy,
+                    false,
+                    StatusSigner.ANY_ANCHOR);
+        }
 
         public static Settings defaults() {
             return new Settings(
@@ -258,12 +302,17 @@ public final class VpTokenVerifier {
         MobileSecurityObject mso = mdoc.issuerSigned().mso();
         if (mso.statusListReference().isPresent()) {
             if (settings.statusPolicy() != StatusPolicy.IGNORE) {
-                enforce(statusChecker
-                        .orElseThrow()
-                        .check(mso.statusListReference().get(), context.statusCacheScope(), true));
+                enforce(status(
+                        mso.statusListReference().get(),
+                        context,
+                        true,
+                        Optional.of(mdoc.issuerSigned().anchor())));
             }
-        } else if (mso.statusPresent() && settings.statusPolicy() == StatusPolicy.REQUIRE_VALID) {
+        } else if (mso.statusPresent()
+                && (settings.statusPolicy() == StatusPolicy.REQUIRE_VALID || settings.requireStatus())) {
             throw new VerificationFailure("credential_status_unknown", "mdoc status mechanism is not supported");
+        } else if (settings.requireStatus()) {
+            throw new VerificationFailure("credential_status_missing", "credential has no status");
         }
         List<java.security.cert.X509Certificate> chain = mdoc.issuerSigned().chain();
         // An mdoc has no issuer identifier of its own. It is named by its trust anchor, which outlives document
@@ -282,10 +331,32 @@ public final class VpTokenVerifier {
     }
 
     private void checkStatus(VerifiedSdJwtVc vc, Context context) {
+        if (vc.status().isEmpty() && settings.requireStatus()) {
+            throw new VerificationFailure("credential_status_missing", "credential has no status");
+        }
         if (settings.statusPolicy() == StatusPolicy.IGNORE || vc.status().isEmpty()) {
             return;
         }
-        enforce(statusChecker.orElseThrow().check(vc.status().get(), context.statusCacheScope()));
+        enforce(status(vc.status().get(), context, false, vc.sdJwt().issuerAnchor()));
+    }
+
+    /**
+     * Checks a status reference. Under {@link StatusSigner#CREDENTIAL_ISSUER} the list must be signed under the
+     * issuer's anchor; an issuer without one (a key-based issuer) has no list that can match, so its status is
+     * indeterminate.
+     */
+    private StatusDecision status(
+            Map<String, Object> reference,
+            Context context,
+            boolean preferCwt,
+            Optional<java.security.cert.X509Certificate> issuerAnchor) {
+        if (settings.statusSigner() == StatusSigner.ANY_ANCHOR) {
+            return statusChecker.orElseThrow().check(reference, context.statusCacheScope(), preferCwt);
+        }
+        if (issuerAnchor.isEmpty()) {
+            return StatusDecision.indeterminate("status_signer_not_issuer");
+        }
+        return statusChecker.orElseThrow().check(reference, context.statusCacheScope(), preferCwt, issuerAnchor);
     }
 
     private void enforce(StatusDecision decision) {

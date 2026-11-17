@@ -169,6 +169,52 @@ class SdJwtVcVerifierTest {
     }
 
     @Test
+    void theIssuerAnchorIsReported() {
+        SdJwtVcVerifier.VerifiedSdJwtVc result =
+                verifier(root).verify(present(validJwt(payload()), List.of(ageOver18)), options, Set.of(VCT));
+
+        assertThat(result.sdJwt().issuerAnchor()).contains(root.certificate());
+    }
+
+    @Test
+    void aRequiredExtendedKeyUsageRestrictsWhichCertificatesMaySign() {
+        // A private-arc OID made up for this test; deployments configure the OID of their issuer profile.
+        String issuerUsage = "1.3.6.1.4.1.55555.1.1";
+        Issued profiled = TestPki.endEntityWithExtendedKeyUsage(
+                "CN=Profiled Issuer",
+                intermediate,
+                from,
+                until,
+                List.of(dns("issuer.test.example")),
+                List.of(issuerUsage));
+        String profiledJwt =
+                sign(payload(), profiled.keyPair().getPrivate(), "dc+sd-jwt", TestPki.chain(profiled, intermediate));
+        Set<TrustAnchor> trust = Set.of(new TrustAnchor(root.certificate(), null));
+        SdJwtVcVerifier requiring = new SdJwtVcVerifier(
+                new X5cIssuerKeyResolver(() -> trust, clock).requiringExtendedKeyUsage(Set.of(issuerUsage)), false);
+        SdJwtVcVerifier requiringOther = new SdJwtVcVerifier(
+                new X5cIssuerKeyResolver(() -> trust, clock).requiringExtendedKeyUsage(Set.of("1.3.6.1.4.1.55555.1.2")),
+                false);
+
+        assertThat(requiring
+                        .verify(present(profiledJwt, List.of(ageOver18)), options, Set.of(VCT))
+                        .sdJwt()
+                        .issuer())
+                .isEqualTo(ISSUER);
+        assertFailure(
+                () -> requiring.verify(present(validJwt(payload()), List.of(ageOver18)), options, Set.of(VCT)),
+                "issuer_untrusted");
+        assertFailure(
+                () -> requiringOther.verify(present(profiledJwt, List.of(ageOver18)), options, Set.of(VCT)),
+                "issuer_untrusted");
+        // Without the requirement, a certificate without the usage still signs.
+        assertThat(verifier(root)
+                        .verify(present(validJwt(payload()), List.of(ageOver18)), options, Set.of(VCT))
+                        .vct())
+                .isEqualTo(VCT);
+    }
+
+    @Test
     void chainToUnknownRootIsRejected() {
         Issued otherRoot = TestPki.rootCa("CN=Other Root", from, until);
 

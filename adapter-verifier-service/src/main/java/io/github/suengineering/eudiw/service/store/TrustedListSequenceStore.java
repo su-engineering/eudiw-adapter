@@ -74,6 +74,48 @@ public class TrustedListSequenceStore implements TrustedLists.SequenceStore {
     }
 
     @Override
+    public String digest(String identifier) {
+        try (Connection c = dataSource.getConnection();
+                PreparedStatement s =
+                        c.prepareStatement("SELECT digest FROM trusted_list_sequence WHERE identifier = ?")) {
+            s.setString(1, identifier);
+            try (ResultSet r = s.executeQuery()) {
+                return r.next() ? r.getString(1) : null;
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("trusted list sequence unavailable", e);
+        }
+    }
+
+    /**
+     * One conditional upsert, as {@link #advance(String, long)}, that also refuses the stored number with a different
+     * content digest. A row with no digest yet (written before digests were kept) takes the new one.
+     */
+    @Override
+    public boolean advance(String identifier, long sequenceNumber, String digest) {
+        try (Connection c = dataSource.getConnection();
+                PreparedStatement s = c.prepareStatement(
+                        "INSERT INTO trusted_list_sequence (identifier, sequence, digest, updated_at) VALUES (?, ?, ?, ?) "
+                                + "ON CONFLICT (identifier) DO UPDATE SET sequence = EXCLUDED.sequence, "
+                                + "digest = EXCLUDED.digest, updated_at = EXCLUDED.updated_at "
+                                + "WHERE trusted_list_sequence.sequence < EXCLUDED.sequence "
+                                + "OR (trusted_list_sequence.sequence = EXCLUDED.sequence "
+                                + "AND (trusted_list_sequence.digest IS NULL "
+                                + "OR trusted_list_sequence.digest = EXCLUDED.digest)) "
+                                + "RETURNING sequence")) {
+            s.setString(1, identifier);
+            s.setLong(2, sequenceNumber);
+            s.setString(3, digest);
+            s.setTimestamp(4, Timestamp.from(Instant.now()));
+            try (ResultSet r = s.executeQuery()) {
+                return r.next();
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("trusted list sequence unavailable", e);
+        }
+    }
+
+    @Override
     public void record(String identifier, long sequenceNumber) {
         try (Connection c = dataSource.getConnection();
                 PreparedStatement s = c.prepareStatement(

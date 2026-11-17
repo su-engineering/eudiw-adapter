@@ -44,7 +44,8 @@ import java.util.Set;
  *
  * <p>The signing certificate is taken from {@code x5c} or matched by {@code x5t#S256} and must be one of the
  * allowed signer certificates. Detached payloads ({@code sigD}) and unencoded payloads ({@code b64}) are rejected;
- * {@code crit} may list only {@code sigT}.
+ * {@code crit} may list only {@code sigT}. A {@code sigT} claimed signing time must be a UTC date-time, not in
+ * the future, and inside the signing certificate's validity.
  */
 public final class LoteJsonParser {
 
@@ -52,6 +53,9 @@ public final class LoteJsonParser {
     public static final int MAX_BYTES = 16 * 1024 * 1024;
 
     private static final Set<String> UNDERSTOOD_CRITICAL = Set.of("sigT");
+
+    /** Clock difference tolerated between the list signer and this host for {@code sigT}. */
+    static final java.time.Duration SIGNING_TIME_SKEW = java.time.Duration.ofMinutes(5);
 
     private LoteJsonParser() {}
 
@@ -81,6 +85,7 @@ public final class LoteJsonParser {
         }
         X509Certificate signer = signer(header, allowedSigners);
         ListRules.checkPinned(signer, allowedSigners);
+        checkSigningTime(header.getCustomParam("sigT"), signer);
         try {
             JwsSignatureVerifier.verify(
                     jws, CertificateKeys.publicJwk(signer), AlgorithmPolicy.TRUSTED_LISTS, UNDERSTOOD_CRITICAL);
@@ -138,6 +143,21 @@ public final class LoteJsonParser {
                 services,
                 pointers,
                 signer);
+    }
+
+    /** ETSI TS 119 182-1 clause 5.2.1: {@code sigT} is the claimed signing time, a UTC date-time. */
+    private static void checkSigningTime(Object sigT, X509Certificate signer) {
+        if (sigT == null) {
+            return;
+        }
+        if (!(sigT instanceof String value)) {
+            throw new VerificationFailure(ListRules.INVALID, "sigT must be a date-time string");
+        }
+        Instant signed = ListRules.instant(value);
+        if (signed.isAfter(Instant.now().plus(SIGNING_TIME_SKEW))) {
+            throw new VerificationFailure(ListRules.INVALID, "sigT is in the future");
+        }
+        ListRules.checkSignerValidity(signer, signed);
     }
 
     private static X509Certificate signer(JWSHeader header, Collection<X509Certificate> allowedSigners) {

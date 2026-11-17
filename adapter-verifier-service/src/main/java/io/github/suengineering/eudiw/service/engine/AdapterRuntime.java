@@ -88,6 +88,10 @@ public class AdapterRuntime {
     @ConfigProperty(name = "eudiw.egress.allowed-hosts")
     java.util.Optional<java.util.List<String>> allowedHosts;
 
+    /** If set, list, status list and CRL fetches go through this forward proxy: host:port or http://host:port. */
+    @ConfigProperty(name = "eudiw.egress.proxy")
+    java.util.Optional<String> egressProxy;
+
     /** Verify mdoc signatures on brainpool curves, with BouncyCastle (ADR-012). Off unless set. */
     @ConfigProperty(name = "eudiw.crypto.brainpool", defaultValue = "false")
     boolean brainpool;
@@ -174,14 +178,23 @@ public class AdapterRuntime {
                     .filter(h -> !h.isEmpty())
                     .map(h -> h.toLowerCase(java.util.Locale.ROOT))
                     .collect(java.util.stream.Collectors.toUnmodifiableSet());
+            java.net.InetSocketAddress proxy;
+            try {
+                proxy = egressProxy
+                        .filter(p -> !p.isBlank())
+                        .map(JdkHttpFetcher::proxy)
+                        .orElse(null);
+            } catch (IllegalArgumentException e) {
+                throw new ConfigLoader.ConfigException("eudiw.egress.proxy: " + e.getMessage(), e);
+            }
             fetcher = new JdkHttpFetcher(
-                    new EgressPolicy(allowHttp, allowPrivateAddresses, hosts), Duration.ofSeconds(5));
+                    new EgressPolicy(allowHttp, allowPrivateAddresses, hosts), Duration.ofSeconds(5), proxy);
             // National trusted lists run to several megabytes.
             listFetcher = new JdkHttpFetcher(
-                    new EgressPolicy(allowHttp, allowPrivateAddresses, hosts), Duration.ofSeconds(30));
+                    new EgressPolicy(allowHttp, allowPrivateAddresses, hosts), Duration.ofSeconds(30), proxy);
             // CRLs are signed and usually published over plain HTTP; private addresses stay blocked.
-            crlFetcher =
-                    new JdkHttpFetcher(new EgressPolicy(true, allowPrivateAddresses, hosts), Duration.ofSeconds(10));
+            crlFetcher = new JdkHttpFetcher(
+                    new EgressPolicy(true, allowPrivateAddresses, hosts), Duration.ofSeconds(10), proxy);
         }
         current = build(loaded);
     }
@@ -221,16 +234,15 @@ public class AdapterRuntime {
                                     ? MdocDeviceAuthentication.STRICT_SIGNATURE
                                     : MdocDeviceAuthentication.SIGNATURE));
                 }
+                X5cIssuerKeyResolver issuerKeys = (policy.checkCertificateRevocation()
+                                ? X5cIssuerKeyResolver.withTrustStore(
+                                        issuance,
+                                        clock,
+                                        new CrlRevocationChecker(crlFetcher == null ? fetcher : crlFetcher, clock, 256))
+                                : X5cIssuerKeyResolver.withTrustStore(issuance, clock))
+                        .requiringExtendedKeyUsage(policy.issuerExtendedKeyUsages());
                 VpTokenVerifier verifier = new VpTokenVerifier(
-                        new SdJwtVcVerifier(
-                                policy.checkCertificateRevocation()
-                                        ? X5cIssuerKeyResolver.withTrustStore(
-                                                issuance,
-                                                clock,
-                                                new CrlRevocationChecker(
-                                                        crlFetcher == null ? fetcher : crlFetcher, clock, 256))
-                                        : X5cIssuerKeyResolver.withTrustStore(issuance, clock),
-                                false),
+                        new SdJwtVcVerifier(issuerKeys, false),
                         mdoc,
                         policy.statusPolicy() == StatusPolicy.IGNORE ? Optional.empty() : Optional.of(checker),
                         new VpTokenVerifier.Settings(
@@ -239,7 +251,9 @@ public class AdapterRuntime {
                                 Duration.ofSeconds(60),
                                 AlgorithmPolicy.DEFAULT,
                                 policy.enforceTrustedAuthorities(),
-                                policy.statusPolicy()));
+                                policy.statusPolicy(),
+                                policy.requireStatus(),
+                                policy.statusSigner()));
                 verifiers.put(key(tenant.id(), policy.id()), verifier);
             }
         }

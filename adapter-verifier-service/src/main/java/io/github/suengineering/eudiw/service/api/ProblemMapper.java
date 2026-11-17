@@ -15,6 +15,8 @@
  */
 package io.github.suengineering.eudiw.service.api;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.exc.MismatchedInputException;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.ext.ExceptionMapper;
@@ -43,6 +45,12 @@ public class ProblemMapper implements ExceptionMapper<Exception> {
             status = api.status();
             code = api.code();
             detail = api.getMessage();
+        } else if (exception instanceof JsonProcessingException) {
+            // Malformed JSON, a wrong type or a property the API does not define. The parser's message can echo
+            // the body, so it is not returned.
+            status = 400;
+            code = "invalid_request";
+            detail = "request body does not match the API schema";
         } else if (exception instanceof WebApplicationException web) {
             status = web.getResponse().getStatus();
             code = status == 401
@@ -72,5 +80,26 @@ public class ProblemMapper implements ExceptionMapper<Exception> {
             response.header("Retry-After", Long.toString(api.retryAfterSeconds()));
         }
         return response.build();
+    }
+
+    /**
+     * Request bodies that are not valid JSON or do not match the schema. Quarkus has its own mappers for these
+     * types, which would answer without the problem format; a mapper for the exact type takes precedence.
+     */
+    @Provider
+    public static class InvalidBody implements ExceptionMapper<JsonProcessingException> {
+        @Override
+        public Response toResponse(JsonProcessingException exception) {
+            return new ProblemMapper().toResponse(exception);
+        }
+    }
+
+    /** Wrong types and unknown properties ({@code quarkus.jackson.fail-on-unknown-properties}). */
+    @Provider
+    public static class MismatchedBody implements ExceptionMapper<MismatchedInputException> {
+        @Override
+        public Response toResponse(MismatchedInputException exception) {
+            return new ProblemMapper().toResponse(exception);
+        }
     }
 }

@@ -110,6 +110,30 @@ public final class TestPki {
         return new Issued(cert, keys);
     }
 
+    /** An end-entity certificate for digital signatures with these extended key usage OIDs. */
+    public static Issued endEntityWithExtendedKeyUsage(
+            String name,
+            Issued parent,
+            Instant notBefore,
+            Instant notAfter,
+            List<GeneralName> sans,
+            List<String> extendedKeyUsages) {
+        KeyPair keys = ecKeyPair();
+        X509Certificate cert = build(
+                name,
+                parent.certificate().getSubjectX500Principal().getName(),
+                keys.getPublic(),
+                parent.keyPair().getPrivate(),
+                parent.certificate(),
+                notBefore,
+                notAfter,
+                false,
+                KeyUsage.digitalSignature,
+                sans,
+                extendedKeyUsages);
+        return new Issued(cert, keys);
+    }
+
     /** A self-signed end-entity certificate (not a CA). */
     public static Issued selfSignedEndEntity(String name, Instant notBefore, Instant notAfter) {
         KeyPair keys = ecKeyPair();
@@ -146,6 +170,22 @@ public final class TestPki {
             boolean ca,
             int keyUsage,
             List<GeneralName> sans) {
+        return build(
+                subject, issuer, publicKey, signingKey, issuerCert, notBefore, notAfter, ca, keyUsage, sans, List.of());
+    }
+
+    private static X509Certificate build(
+            String subject,
+            String issuer,
+            PublicKey publicKey,
+            PrivateKey signingKey,
+            X509Certificate issuerCert,
+            Instant notBefore,
+            Instant notAfter,
+            boolean ca,
+            int keyUsage,
+            List<GeneralName> sans,
+            List<String> extendedKeyUsages) {
         try {
             X509v3CertificateBuilder builder = new JcaX509v3CertificateBuilder(
                     new X500Name(issuer),
@@ -165,6 +205,15 @@ public final class TestPki {
             if (!sans.isEmpty()) {
                 builder.addExtension(
                         Extension.subjectAlternativeName, false, new GeneralNames(sans.toArray(new GeneralName[0])));
+            }
+            if (!extendedKeyUsages.isEmpty()) {
+                builder.addExtension(
+                        Extension.extendedKeyUsage,
+                        false,
+                        new org.bouncycastle.asn1.x509.ExtendedKeyUsage(extendedKeyUsages.stream()
+                                .map(oid -> org.bouncycastle.asn1.x509.KeyPurposeId.getInstance(
+                                        new org.bouncycastle.asn1.ASN1ObjectIdentifier(oid)))
+                                .toArray(org.bouncycastle.asn1.x509.KeyPurposeId[]::new)));
             }
             return new JcaX509CertificateConverter()
                     .getCertificate(builder.build(new JcaContentSignerBuilder("SHA256withECDSA").build(signingKey)));

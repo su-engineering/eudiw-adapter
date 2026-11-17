@@ -68,6 +68,9 @@ class VerificationFlowTest {
     AgroalDataSource dataSource;
 
     @Inject
+    io.github.suengineering.eudiw.service.store.TrustedListSequenceStore sequenceStore;
+
+    @Inject
     io.github.suengineering.eudiw.service.engine.VerificationEngine engine;
 
     @Inject
@@ -396,6 +399,26 @@ class VerificationFlowTest {
         }
         given().post(path).then().statusCode(404);
         given().get(path).then().statusCode(404);
+    }
+
+    @Test
+    void theSequenceStoreRefusesAReusedNumberWithOtherContent() throws Exception {
+        String id = "https://tl.test.example/digest-" + java.util.UUID.randomUUID();
+        assertThat(sequenceStore.advance(id, 3, "aa")).isTrue();
+        assertThat(sequenceStore.advance(id, 3, "aa")).isTrue();
+        assertThat(sequenceStore.advance(id, 3, "bb")).isFalse();
+        assertThat(sequenceStore.advance(id, 2, "aa")).isFalse();
+        assertThat(sequenceStore.digest(id)).isEqualTo("aa");
+        assertThat(sequenceStore.advance(id, 4, "bb")).isTrue();
+        assertThat(sequenceStore.highest(id)).isEqualTo(4);
+        assertThat(sequenceStore.digest(id)).isEqualTo("bb");
+
+        // A row written before digests were kept takes the first digest offered under its number.
+        String legacy = "https://tl.test.example/legacy-" + java.util.UUID.randomUUID();
+        sequenceStore.record(legacy, 9);
+        assertThat(sequenceStore.digest(legacy)).isNull();
+        assertThat(sequenceStore.advance(legacy, 9, "cc")).isTrue();
+        assertThat(sequenceStore.advance(legacy, 9, "dd")).isFalse();
     }
 
     @Test

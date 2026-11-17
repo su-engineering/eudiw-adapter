@@ -36,6 +36,7 @@ import io.github.suengineering.eudiw.core.jose.AlgorithmPolicy;
 import io.github.suengineering.eudiw.core.json.Json;
 import io.github.suengineering.eudiw.core.net.HttpFetcher;
 import io.github.suengineering.eudiw.core.oid4vp.VpTokenVerifier.StatusPolicy;
+import io.github.suengineering.eudiw.core.oid4vp.VpTokenVerifier.StatusSigner;
 import io.github.suengineering.eudiw.core.sdjwt.SdJwtVcVerifier;
 import io.github.suengineering.eudiw.core.sdjwt.X5cIssuerKeyResolver;
 import io.github.suengineering.eudiw.core.status.StatusListChecker;
@@ -89,7 +90,20 @@ class VpTokenVerifierTest {
               "claims":[{"path":["age_over_18"]}]}]}""".formatted(VCT), "test"));
 
     private VpTokenVerifier verifier(StatusPolicy policy, boolean enforceAuthorities) {
-        Set<TrustAnchor> anchors = Set.of(new TrustAnchor(root.certificate(), null));
+        return verifier(
+                policy,
+                enforceAuthorities,
+                false,
+                StatusSigner.ANY_ANCHOR,
+                Set.of(new TrustAnchor(root.certificate(), null)));
+    }
+
+    private VpTokenVerifier verifier(
+            StatusPolicy policy,
+            boolean enforceAuthorities,
+            boolean requireStatus,
+            StatusSigner statusSigner,
+            Set<TrustAnchor> anchors) {
         HttpFetcher fetcher = (uri, accept, max) -> {
             if (statusToken.get() == null) {
                 throw new HttpFetcher.FetchException("unavailable");
@@ -113,7 +127,9 @@ class VpTokenVerifierTest {
                         Duration.ofSeconds(60),
                         AlgorithmPolicy.DEFAULT,
                         enforceAuthorities,
-                        policy));
+                        policy,
+                        requireStatus,
+                        statusSigner));
     }
 
     private final VpTokenVerifier.Context context = new VpTokenVerifier.Context(CLIENT_ID, NONCE, "tenant-1");
@@ -210,6 +226,101 @@ class VpTokenVerifierTest {
                 "untrusted_authority");
     }
 
+    @Test
+    void requireStatusRefusesACredentialWithoutStatus() {
+        statusToken.set(statusListToken());
+        Map<String, Object> withoutStatus = Map.of("age", List.of(presentation(-1, NONCE)));
+        Set<TrustAnchor> anchors = Set.of(new TrustAnchor(root.certificate(), null));
+
+        assertThat(verifier(StatusPolicy.REQUIRE_VALID, true)
+                        .verify(withoutStatus, query, context)
+                        .credentials())
+                .containsKey("age");
+        for (StatusPolicy policy : List.of(StatusPolicy.REQUIRE_VALID, StatusPolicy.REJECT_KNOWN_INVALID)) {
+            VpTokenVerifier strict = verifier(policy, true, true, StatusSigner.ANY_ANCHOR, anchors);
+            assertFailure(() -> strict.verify(withoutStatus, query, context), "credential_status_missing");
+            assertThat(strict.verify(Map.of("age", List.of(presentation(1, NONCE))), query, context)
+                            .credentials())
+                    .containsKey("age");
+        }
+        assertThatThrownBy(() -> verifier(StatusPolicy.IGNORE, true, true, StatusSigner.ANY_ANCHOR, anchors))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void statusSignerCredentialIssuerRefusesAListSignedUnderAnotherAnchor() {
+        Issued statusRoot = TestPki.rootCa("CN=Status Root", now.minusSeconds(86400), now.plusSeconds(86400 * 365));
+        Issued statusProvider = TestPki.endEntity(
+                "CN=Status Provider",
+                statusRoot,
+                now.minusSeconds(86400),
+                now.plusSeconds(86400 * 30),
+                KeyUsage.digitalSignature,
+                List.of());
+        Set<TrustAnchor> anchors =
+                Set.of(new TrustAnchor(root.certificate(), null), new TrustAnchor(statusRoot.certificate(), null));
+        Map<String, Object> token = Map.of("age", List.of(presentation(1, NONCE)));
+
+        statusToken.set(statusListToken(statusProvider));
+        assertThat(verifier(StatusPolicy.REQUIRE_VALID, true, false, StatusSigner.ANY_ANCHOR, anchors)
+                        .verify(token, query, context)
+                        .credentials())
+                .containsKey("age");
+        assertFailure(
+                () -> verifier(StatusPolicy.REQUIRE_VALID, true, false, StatusSigner.CREDENTIAL_ISSUER, anchors)
+                        .verify(token, query, context),
+                "credential_status_unknown");
+        // Under reject_known_invalid an unbound list is unusable, so like an unavailable one it is tolerated.
+        assertThat(verifier(StatusPolicy.REJECT_KNOWN_INVALID, true, false, StatusSigner.CREDENTIAL_ISSUER, anchors)
+                        .verify(token, query, context)
+                        .credentials())
+                .containsKey("age");
+
+        statusToken.set(statusListToken(issuer));
+        VpTokenVerifier bound =
+                verifier(StatusPolicy.REQUIRE_VALID, true, false, StatusSigner.CREDENTIAL_ISSUER, anchors);
+        assertThat(bound.verify(token, query, context).credentials()).containsKey("age");
+        assertFailure(
+                () -> bound.verify(Map.of("age", List.of(presentation(0, NONCE))), query, context),
+                "credential_revoked");
+    }
+
+    /**
+     * OpenID4VP 1.0 section 6.1.1.1: an {@code aki} value matches the AuthorityKeyIdentifier of any certificate in
+     * the chain the credential presents. The chain may omit the root, so the root's key identifier matches through
+     * the AuthorityKeyIdentifier of the certificate it issued.
+     */
+    @Test
+    void akiMatchesTheAnchorKeyThroughTheCertificateItIssued() {
+        statusToken.set(statusListToken());
+        Issued unrelatedRoot = TestPki.rootCa("CN=Unrelated", now.minusSeconds(86400), now.plusSeconds(86400));
+        Map<String, Object> token = Map.of("age", List.of(presentation(1, NONCE)));
+
+        assertThat(verifier(StatusPolicy.REQUIRE_VALID, true)
+                        .verify(token, akiQuery(subjectKeyId(root.certificate())), context)
+                        .credentials())
+                .containsKey("age");
+        assertFailure(
+                () -> verifier(StatusPolicy.REQUIRE_VALID, true)
+                        .verify(token, akiQuery(subjectKeyId(unrelatedRoot.certificate())), context),
+                "untrusted_authority");
+    }
+
+    private static String subjectKeyId(X509Certificate certificate) {
+        byte[] id = org.bouncycastle.asn1.x509.SubjectKeyIdentifier.getInstance(
+                        org.bouncycastle.asn1.ASN1OctetString.getInstance(certificate.getExtensionValue("2.5.29.14"))
+                                .getOctets())
+                .getKeyIdentifier();
+        return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(id);
+    }
+
+    private static DcqlQuery akiQuery(String aki) {
+        return DcqlQuery.parse(Json.parseObject("""
+                {"credentials":[{"id":"age","format":"dc+sd-jwt","meta":{"vct_values":["%s"]},
+                  "trusted_authorities":[{"type":"aki","values":["%s"]}],
+                  "claims":[{"path":["age_over_18"]}]}]}""".formatted(VCT, aki), "test"));
+    }
+
     private String presentation(int statusIndex, String nonce) {
         String disclosure = b64(Json.toJson(Map.of("a", List.of("salt-1", "age_over_18", true)))
                 .replaceFirst("^\\{\"a\":", "")
@@ -220,7 +331,9 @@ class VpTokenVerifierTest {
         payload.put("exp", now.plusSeconds(3600).getEpochSecond());
         payload.put("_sd", List.of(sha256(disclosure)));
         payload.put("cnf", Map.of("jwk", holder.toPublicJWK().toJSONObject()));
-        payload.put("status", Map.of("status_list", Map.of("idx", statusIndex, "uri", STATUS_URI)));
+        if (statusIndex >= 0) {
+            payload.put("status", Map.of("status_list", Map.of("idx", statusIndex, "uri", STATUS_URI)));
+        }
         String jwt = sign(payload, issuer.keyPair().getPrivate(), "dc+sd-jwt", List.of(issuer.certificate()));
         String sdJwt = jwt + "~" + disclosure + "~";
         Map<String, Object> kb = new LinkedHashMap<>();
@@ -242,11 +355,15 @@ class VpTokenVerifierTest {
     }
 
     private String statusListToken() {
+        return statusListToken(issuer);
+    }
+
+    private String statusListToken(Issued signer) {
         Map<String, Object> claims = new LinkedHashMap<>();
         claims.put("sub", STATUS_URI);
         claims.put("iat", now.getEpochSecond());
         claims.put("status_list", Map.of("bits", 1, "lst", ONE_BIT));
-        return sign(claims, issuer.keyPair().getPrivate(), "statuslist+jwt", List.of(issuer.certificate()));
+        return sign(claims, signer.keyPair().getPrivate(), "statuslist+jwt", List.of(signer.certificate()));
     }
 
     private static String sign(Map<String, Object> payload, PrivateKey key, String typ, List<X509Certificate> x5c) {

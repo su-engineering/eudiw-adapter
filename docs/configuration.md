@@ -15,14 +15,16 @@ The verifier service reads environment variables for deployment settings and one
 | `EUDIW_OIDC_AUDIENCE` | yes | Audience the access tokens must carry |
 | `EUDIW_PRODUCTION` | no, default `true` | `true` refuses HTTP public URLs, development egress settings, `status_policy: ignore` and non-HTTPS completion URIs |
 | `EUDIW_EGRESS_ALLOW_PRIVATE_ADDRESSES`, `EUDIW_EGRESS_ALLOW_HTTP` | no, default `false` | Development only: let status list and trusted list fetches reach private addresses or plain HTTP |
+| `EUDIW_EGRESS_PROXY` | no | Forward proxy for every trusted list, status list and CRL fetch, as `host:port` or `http://host:port`. HTTPS goes through it with `CONNECT`. The service still applies its own address and host checks; the proxy resolves the name again, so give it its own allow list and deny private ranges there. Without it, the JVM proxy system properties (`https.proxyHost` and so on) apply as before |
 | `EUDIW_EGRESS_ALLOWED_HOSTS` | no | Comma-separated host names. If set, trusted list, status list and CRL fetches may reach only these hosts, on top of the address checks. Every host the configured lists, their pointers, the credentials' status lists and the CRL distribution points name must be listed |
+| `EUDIW_MANAGEMENT_HOST` | no, default `0.0.0.0` | Address the management port (9000) listens on. Set `127.0.0.1` outside Kubernetes when only local monitoring needs it |
 | `EUDIW_TRUSTED_LISTS_REFRESH_INTERVAL` | no, default `1h` | How often each node fetches and verifies the configured trusted lists |
 | `EUDIW_WEBHOOK_INTERVAL` | no, default `5s` | How often each node sends due webhook notifications |
 | `EUDIW_WALLET_REQUESTS_PER_MINUTE` | no, default `0` (off) | Requests per minute one source address may make to the wallet endpoints (`/oid4vp/requests/*` and `/oid4vp/responses`), counted across nodes in PostgreSQL. IPv6 addresses count by their /64. Over the limit the endpoints return 429 with `Retry-After`. The address is the one the service sees: behind a load balancer or ingress, turn on proxy address forwarding (`QUARKUS_HTTP_PROXY_PROXY_ADDRESS_FORWARDING=true` with `QUARKUS_HTTP_PROXY_ALLOW_X_FORWARDED=true` or `..._ALLOW_FORWARDED=true`, and `QUARKUS_HTTP_PROXY_TRUSTED_PROXIES`), or every wallet shares the proxy's address and one limit. A wallet makes two or three requests per session, so leave room for many users behind one carrier NAT address; 600 is a reasonable start. Limiting at the ingress works too |
 | `EUDIW_CONFIG_RELOAD_INTERVAL` | no, default `30s` | How often each node checks the tenants file and the files it references for changes and reloads them. `off` disables. See [Reloading](#reloading) |
 | `QUARKUS_OTEL_SDK_DISABLED` | no, default `true` | `false` turns on OpenTelemetry tracing over OTLP. Set the collector with `QUARKUS_OTEL_EXPORTER_OTLP_ENDPOINT` |
 
-The public port (8080) serves the management API and the wallet endpoints. The management port (9000) serves health checks at `/health/live`, `/health/ready` and `/health/well` (registration certificates near expiry) and Prometheus metrics at `/metrics`; none of these are on the public port. Do not expose port 9000 publicly. See [Operations](#operations).
+The public port (8080) serves the management API and the wallet endpoints. The management port (9000) serves health checks at `/health/live`, `/health/ready` and `/health/well` (registration certificates near expiry) and Prometheus metrics at `/metrics`; none of these are on the public port. Do not expose port 9000 publicly. It listens on every interface, because Kubernetes probes and Prometheus reach it on the pod address; the chart's network policy limits who can connect, and the Compose file publishes it on `127.0.0.1` only. On a plain host or VM, set `EUDIW_MANAGEMENT_HOST=127.0.0.1` (or the address your monitoring uses) or block port 9000 in the host firewall. See [Operations](#operations).
 
 Access tokens must name the client in `azp` or `client_id` (a string, compared exactly) and list scopes in `scope`: `verification:create`, `verification:read`, `verification:result`, `verification:cancel`.
 
@@ -81,12 +83,15 @@ Relative paths resolve against the directory of the tenants file.
 **Policy**
 - `dcql`: the DCQL query sent to wallets (OpenID4VP 1.0 section 6). Callers cannot change it. Formats: `dc+sd-jwt`, and `mso_mdoc` (see [mdoc](#mdoc)).
 - `output`: result claim names mapped to a credential query id and a claims path. Every path must be requested by the query, so a result can never contain more than the policy asks for.
-- `trust_anchors_file`: PEM certificates that issuer and status list certificate chains must validate to. Scoped to this policy.
+- `trust_anchors_file`: PEM certificates that issuer and status list certificate chains must validate to. Scoped to this policy. Prefer the issuer's own CA over a broad CA that also certifies other purposes: any certificate under an anchor that can bind the credential's `iss` can sign credentials. `issuer_extended_key_usages` narrows this.
 - `trusted_lists`: signed ETSI trusted lists whose approved services become trust anchors for this policy, in addition to `trust_anchors_file`. A policy needs at least one of the two. See [Trusted lists](#trusted-lists).
 - `allowed_issuers`: optional allow list of issuer identifiers.
 - `certificate_revocation`: `crl` checks every issuer chain certificate except the anchor against its CRL, and rejects when a CRL is missing, stale or unreachable; `off` (default) does not check. CRLs are fetched over HTTP or HTTPS from public addresses only ([ADR-007](adr/0007-certificate-revocation.md)).
 - `status_policy`: `require_valid` (default; an unavailable status list rejects), `reject_known_invalid` (revoked or suspended rejects, unavailable is tolerated) or `ignore` (not allowed in production).
-- `enforce_trusted_authorities`: reject credentials that match none of the query's `trusted_authorities` (default `true`). Must be a JSON boolean; `"true"` is a configuration error.
+- `require_status`: refuse a credential that carries no status reference the adapter can check, with `credential_status_missing` (default `false`: under every `status_policy`, a credential without status is accepted). An mdoc whose MSO status uses a mechanism other than a Token Status List is refused with `credential_status_unknown`. Set it when revocation must be possible for every accepted credential. Not allowed with `status_policy: ignore`. Must be a JSON boolean.
+- `status_signer`: which trust anchors may sign a credential's status list. `any_anchor` (default) accepts a list whose signer chains to any status anchor of the policy. `credential_issuer` accepts only a list signed under the same trust anchor as the credential's issuer, so a status provider trusted for one issuer cannot report on another issuer's credentials. A list signed under another anchor counts as an unavailable status (`status_signer_not_issuer`): `require_valid` rejects the credential with `credential_status_unknown`, `reject_known_invalid` accepts it.
+- `issuer_extended_key_usages`: optional list of dotted extended key usage OIDs. When set, an SD-JWT VC is accepted only if its issuer (end-entity) certificate carries at least one of them; otherwise it is rejected with `issuer_untrusted`. Use the OID your issuer certificate profile defines. Default: no requirement.
+- `enforce_trusted_authorities`: reject credentials that match none of the query's `trusted_authorities` (default `true`). Must be a JSON boolean; `"true"` is a configuration error. An `aki` value matches the AuthorityKeyIdentifier of any certificate in the chain the credential presents (OpenID4VP 1.0 section 6.1.1.1). Use the key identifier of the CA that issued a certificate in that chain; a root's key identifier matches through the certificate it issued, even when the chain omits the root.
 - `mdoc_strict_conformance`: refuse mdoc departures from ISO/IEC 18013-5 that are otherwise accepted with a conformance warning; today, a P-384 device key (default `false`, see [mdoc](#mdoc)).
 - `session_ttl_seconds`: at most 900. `result_ttl_seconds`: at most 3600.
 - `registration`: optional. What the relying party registered for this intended use, sent to wallets in `verifier_info` as ETSI TS 119 472-2 requires. See [Registration](#registration).
@@ -103,7 +108,7 @@ In the EUDI Wallet ecosystem a relying party registers each intended use with it
 ```
 
 - `registrar_dataset` (an object) or `registrar_dataset_file` (a JSON file): the data the registrar holds about this intended use, sent as the `registrar_dataset` element. It needs `identifier`, `srvDescription` and `purpose` (arrays of `{"lang", "content"}`), `registryURI`, `intendedUseIdentifier` and `policyURI`, and may list the registered `credential` entries. Use what your registrar publishes; the service does not change it.
-- `certificate_file`: optional. The registration certificate (a `rc-wrp+jwt` JWT) the registration certificate provider issued, sent base64url-encoded as the `registration_cert` element.
+- `certificate_file`: optional. The registration certificate (a `rc-wrp+jwt` JWT) the registration certificate provider issued, sent base64url-encoded as the `registration_cert` element. The adapter checks its form (`typ`, `x5c`, `sub`, `iat`) and expiry but does not verify its signature or its provider's trust; the wallet does that, so make sure the file comes from your registration certificate provider.
 
 At startup:
 
@@ -193,7 +198,7 @@ A policy that asks for `mso_mdoc` adds `mso_mdoc` to `vp_formats_supported` in i
 **What comes back**
 - Only issuer-signed elements. Device-signed elements are checked against the MSO's key authorizations but never returned.
 - Values as JSON: dates as their text, byte strings (such as a portrait) as base64url.
-- A request for `age_over_NN` is also answered by a nearby attestation, as ISO/IEC 18013-5 intends. `age_over_21: true` satisfies `age_over_18`, and `age_over_16: false` answers it with false. The value is reported under the requested name.
+- A request for `age_over_NN` is also answered by a nearby attestation, as ISO/IEC 18013-5 intends. `age_over_21: true` satisfies `age_over_18`, and `age_over_16: false` answers it with false. The value is reported under the requested name. If the disclosed attestations contradict each other, for example `age_over_18: false` with `age_over_21: true`, the request gets no answer.
 
 **Naming the issuer.** An mdoc has no issuer identifier of its own. `allowed_issuers` matches either:
 - the subject name of the trust anchor the chain validated to (the IACA), in RFC 4514 form such as `CN=Test IACA,C=EU`;
@@ -251,7 +256,7 @@ Each entry of a policy's `trusted_lists`:
 ]
 ```
 
-Each node fetches the lists at startup and then every refresh interval. A list must be signed by one of its configured certificates and be within its issue and next update times, and its sequence number may not go backwards. If a refresh fails, the last verified version stays in use until its next update and is then dropped, so trust fails closed. The highest accepted sequence number of each list is kept in the database. A node reports not ready on `/health/ready` until its first refresh has run. After that, a policy with no current list rejects every presentation and is named in the `trusted-lists` health check data and in the log, but the node stays ready for other policies.
+Each node fetches the lists at startup and then every refresh interval. A list must be signed by one of its configured certificates and be within its issue and next update times, and its sequence number may not go backwards. The same sequence number is accepted again only if the list's services and pointers are unchanged. One refresh follows at most 64 pointers from a list of lists and stops fetching after five minutes; a list skipped this way keeps its last verified version until its next update. If a refresh fails, the last verified version stays in use until its next update and is then dropped, so trust fails closed. The highest accepted sequence number of each list is kept in the database. A node reports not ready on `/health/ready` until its first refresh has run. After that, a policy with no current list rejects every presentation and is named in the `trusted-lists` health check data and in the log, but the node stays ready for other policies.
 
 No list, list location or signer certificate is bundled with the service. Take them from the publishing body.
 

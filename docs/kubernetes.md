@@ -69,7 +69,7 @@ Expose the Service's port 8080 over HTTPS at `publicBaseUrl`, for example with y
           ports: [{port: 5432, protocol: TCP}]
   ```
 
-  To fetch lists, status lists and CRLs only from known hosts, also set `EUDIW_EGRESS_ALLOWED_HOSTS` ([configuration](configuration.md)).
+  To fetch lists, status lists and CRLs only from known hosts, also set `egress.allowedHosts` (`EUDIW_EGRESS_ALLOWED_HOSTS`, see [configuration](configuration.md)). To send those fetches through a forward proxy instead of straight to the internet, set `egress.proxy` (`EUDIW_EGRESS_PROXY`) and allow the proxy in `networkPolicy.egress.cluster`; you can then set `networkPolicy.egress.internetPorts` to `[]`.
 - **Configuration changes.** Update the configuration secret. Each pod picks it up within `configReload.interval` (30 seconds by default), keeps the previous configuration for open sessions, and keeps running on the old one if the new one does not validate ([Reloading](configuration.md#reloading)). Kubernetes updates mounted Secrets after a short delay, so pods can briefly serve different revisions; a session that reaches a pod without its revision makes that pod check for the new file first.
 - **Metrics.** `:9000/metrics` in Prometheus format. Set `metrics.serviceMonitor.enabled` for the Prometheus Operator, and `networkPolicy.managementNamespaceSelector` so the scraper's namespace can reach port 9000. Alert on `eudiw_trusted_lists_current == 0`, `eudiw_registration_certificate_expiry_seconds < 2592000` and `rate(eudiw_config_reloads_total{outcome="failed"}[5m]) > 0`.
 - **Tracing.** Set `tracing.enabled` and `tracing.endpoint` (an OTLP collector).

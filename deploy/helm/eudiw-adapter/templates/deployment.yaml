@@ -85,6 +85,14 @@ spec:
               value: {{ .Values.egress.allowPrivateAddresses | quote }}
             - name: EUDIW_EGRESS_ALLOW_HTTP
               value: {{ .Values.egress.allowHttp | quote }}
+            {{- with .Values.egress.allowedHosts }}
+            - name: EUDIW_EGRESS_ALLOWED_HOSTS
+              value: {{ join "," . | quote }}
+            {{- end }}
+            {{- with .Values.egress.proxy }}
+            - name: EUDIW_EGRESS_PROXY
+              value: {{ . | quote }}
+            {{- end }}
             - name: EUDIW_TRUSTED_LISTS_REFRESH_INTERVAL
               value: {{ .Values.trustedLists.refreshInterval | quote }}
             - name: EUDIW_WEBHOOK_INTERVAL

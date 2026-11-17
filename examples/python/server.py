@@ -80,6 +80,33 @@ def verify_webhook(raw_body: bytes, headers, secrets_: list, now: float | None =
     raise WebhookError("no valid webhook signature")
 
 
+class SeenWebhooks:
+    """Remembers webhook-id values for longer than the timestamp tolerance, so a delivery replayed inside that window
+    is recognised. The adapter retries with the same webhook-id, so a duplicate is acknowledged without being processed
+    again. Kept in memory here; with several backend instances, use a shared store with an expiry."""
+
+    def __init__(self, ttl: int = 600, limit: int = 100_000):
+        self.ttl = ttl
+        self.limit = limit
+        self.seen: dict[str, float] = {}
+        self.lock = threading.Lock()
+
+    def first_time(self, msg_id: str, now: float | None = None) -> bool:
+        now = time.time() if now is None else now
+        with self.lock:
+            for key, expires in list(self.seen.items()):
+                if expires > now and len(self.seen) < self.limit:
+                    break
+                del self.seen[key]
+            if msg_id in self.seen:
+                return False
+            self.seen[msg_id] = now + self.ttl
+            return True
+
+
+SEEN_WEBHOOKS = SeenWebhooks()
+
+
 _token = {"value": None, "expires_at": 0.0}
 _token_lock = threading.Lock()
 
@@ -203,6 +230,10 @@ class Handler(BaseHTTPRequestHandler):
                 event = verify_webhook(raw, headers, CONFIG["webhook_secrets"])
             except (WebhookError, ValueError, KeyError, TypeError):
                 return self.send(401, {"error": "invalid_signature"})
+            if not SEEN_WEBHOOKS.first_time(headers["webhook-id"]):
+                self.send_response(204)
+                self.end_headers()
+                return None
             # {type, timestamp, data: {id, status, policy_id, reason?, client_reference?}}, never claims.
             data = event["data"]
             print(f"webhook: session {data['id']} is {data['status']}", flush=True)

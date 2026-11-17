@@ -56,12 +56,53 @@ public final class TrustedLists {
     /** Outcome of loading one list. */
     public record LoadResult(String location, boolean ok, String code) {}
 
-    /** Remembers the highest accepted sequence number per list identifier. */
+    /** Result code of a list not fetched in this refresh because a {@link Limits limit} was reached. */
+    public static final String SKIPPED = "trusted_list_skipped";
+
+    /**
+     * Bounds on one {@link #refresh()}, so a list of lists with many pointers or a slow host cannot hold the refresh
+     * thread. A list skipped because of a limit keeps its last verified version until that version's next update.
+     *
+     * @param maxPointers most pointers followed from one list of lists, in list order
+     * @param refreshBudget time after which a refresh fetches no further list
+     */
+    public record Limits(int maxPointers, java.time.Duration refreshBudget) {
+        /** 64 pointers (the EU list of lists has about 30) and five minutes. */
+        public static final Limits DEFAULT = new Limits(64, java.time.Duration.ofMinutes(5));
+
+        public Limits {
+            if (maxPointers < 0) {
+                throw new IllegalArgumentException("maxPointers must not be negative");
+            }
+            Objects.requireNonNull(refreshBudget, "refreshBudget");
+            if (refreshBudget.isNegative()) {
+                throw new IllegalArgumentException("refreshBudget must not be negative");
+            }
+        }
+    }
+
+    /**
+     * Remembers the highest accepted sequence number per list identifier and the {@link TrustedList#contentDigest()
+     * content digest} accepted under it.
+     */
     public interface SequenceStore {
         /** The highest sequence number accepted for the list, or -1 when none was. */
         long highest(String identifier);
 
         void record(String identifier, long sequenceNumber);
+
+        /**
+         * The content digest recorded with the highest sequence number, or null when none was recorded (for
+         * example a row written before digests were kept). Stores that keep no digests return null.
+         */
+        default String digest(String identifier) {
+            return null;
+        }
+
+        /** Records the sequence number and the content digest accepted under it. */
+        default void record(String identifier, long sequenceNumber, String digest) {
+            record(identifier, sequenceNumber);
+        }
 
         /**
          * Records the sequence number unless a higher one is already recorded, as one atomic step. A store shared
@@ -79,8 +120,33 @@ public final class TrustedLists {
             }
         }
 
+        /**
+         * Records the sequence number and digest unless a higher number is recorded, or the same number is recorded
+         * with a different digest, as one atomic step. A store shared by several nodes should override this; the
+         * default is atomic only within one process.
+         *
+         * @return whether the list may be accepted
+         */
+        default boolean advance(String identifier, long sequenceNumber, String digest) {
+            synchronized (this) {
+                long highest = highest(identifier);
+                if (sequenceNumber < highest) {
+                    return false;
+                }
+                if (sequenceNumber == highest) {
+                    String recorded = digest(identifier);
+                    if (recorded != null && !recorded.equals(digest)) {
+                        return false;
+                    }
+                }
+                record(identifier, sequenceNumber, digest);
+                return true;
+            }
+        }
+
         static SequenceStore inMemory() {
             Map<String, Long> map = new ConcurrentHashMap<>();
+            Map<String, String> digests = new ConcurrentHashMap<>();
             return new SequenceStore() {
                 @Override
                 public long highest(String identifier) {
@@ -90,6 +156,20 @@ public final class TrustedLists {
                 @Override
                 public void record(String identifier, long sequenceNumber) {
                     map.merge(identifier, sequenceNumber, Math::max);
+                }
+
+                @Override
+                public String digest(String identifier) {
+                    return digests.get(identifier);
+                }
+
+                @Override
+                public synchronized void record(String identifier, long sequenceNumber, String digest) {
+                    long before = highest(identifier);
+                    record(identifier, sequenceNumber);
+                    if (sequenceNumber >= before && digest != null) {
+                        digests.put(identifier, digest);
+                    }
                 }
             };
         }
@@ -105,6 +185,7 @@ public final class TrustedLists {
     private final Clock clock;
     private final TrustStore base;
     private final SequenceStore sequences;
+    private final Limits limits;
     private final Map<String, Loaded> loaded = new ConcurrentHashMap<>();
     private volatile long generation;
     private volatile Snapshot issuanceSnapshot;
@@ -124,6 +205,18 @@ public final class TrustedLists {
             Clock clock,
             TrustStore base,
             SequenceStore sequences) {
+        this(sources, fetcher, clock, base, sequences, Limits.DEFAULT);
+    }
+
+    /** @param limits bounds on the pointers followed and the time spent in one refresh */
+    public TrustedLists(
+            List<TrustedListSource> sources,
+            HttpFetcher fetcher,
+            Clock clock,
+            TrustStore base,
+            SequenceStore sequences,
+            Limits limits) {
+        this.limits = Objects.requireNonNull(limits, "limits");
         this.sources = List.copyOf(sources);
         this.fetcher = Objects.requireNonNull(fetcher, "fetcher");
         this.clock = Objects.requireNonNull(clock, "clock");
@@ -137,17 +230,23 @@ public final class TrustedLists {
 
     /** Fetches and verifies every list now. Never throws because of a list; the result reports each one. */
     public synchronized List<LoadResult> refresh() {
+        long deadline = System.nanoTime() + limits.refreshBudget().toNanos();
         List<LoadResult> results = new ArrayList<>();
         for (TrustedListSource source : sources) {
             String id = source.identifier();
             TrustedList list;
-            try {
-                list = load(source.location(), source.format(), source.signers());
-                accept(id, new Loaded(list, source, Set.of(id), null));
-                results.add(new LoadResult(id, true, "ok"));
-            } catch (RuntimeException e) {
+            if (System.nanoTime() - deadline >= 0) {
                 list = null;
-                results.add(new LoadResult(id, false, code(e)));
+                results.add(new LoadResult(id, false, SKIPPED));
+            } else {
+                try {
+                    list = load(source.location(), source.format(), source.signers());
+                    accept(id, new Loaded(list, source, Set.of(id), null));
+                    results.add(new LoadResult(id, true, "ok"));
+                } catch (RuntimeException e) {
+                    list = null;
+                    results.add(new LoadResult(id, false, code(e)));
+                }
             }
             if (list == null) {
                 Loaded previous = loaded.get(id);
@@ -157,7 +256,7 @@ public final class TrustedLists {
             }
             if (source.followPointers()) {
                 if (list != null) {
-                    results.addAll(followPointers(source, list));
+                    results.addAll(followPointers(source, list, deadline));
                 }
                 evictUnpointed(id, list == null ? List.of() : followable(source, list));
             }
@@ -165,10 +264,21 @@ public final class TrustedLists {
         return results;
     }
 
-    private List<LoadResult> followPointers(TrustedListSource source, TrustedList listOfLists) {
+    /**
+     * Follows at most {@link Limits#maxPointers()} pointers and none once the refresh deadline has passed. A skipped
+     * pointer is reported and its list, if loaded before, is kept: eviction looks at every followable pointer, not
+     * only those fetched now.
+     */
+    private List<LoadResult> followPointers(TrustedListSource source, TrustedList listOfLists, long deadline) {
         List<LoadResult> results = new ArrayList<>();
         String lotlId = source.identifier();
+        int followed = 0;
         for (TrustedList.Pointer pointer : followable(source, listOfLists)) {
+            if (followed >= limits.maxPointers() || System.nanoTime() - deadline >= 0) {
+                results.add(new LoadResult(pointer.location(), false, SKIPPED));
+                continue;
+            }
+            followed++;
             try {
                 URI location = URI.create(pointer.location());
                 if (!"https".equalsIgnoreCase(location.getScheme()) && !"http".equalsIgnoreCase(location.getScheme())) {
@@ -263,11 +373,27 @@ public final class TrustedLists {
         }
     }
 
+    /**
+     * Accepts a list unless its sequence number is lower than the highest accepted, or equal to it with different
+     * content: a publisher that changes what a list trusts must raise the number, so an equal number with other
+     * content is a replay or a mistake either way.
+     */
     private void accept(String key, Loaded candidate) {
         long sequence = candidate.list().sequenceNumber();
+        String digest = candidate.list().contentDigest();
         Loaded previous = loaded.get(key);
-        if ((previous != null && sequence < previous.list().sequenceNumber()) || !sequences.advance(key, sequence)) {
+        if (previous != null && sequence < previous.list().sequenceNumber()) {
             throw new VerificationFailure("trusted_list_rollback", "trusted list sequence number went backwards");
+        }
+        if (previous != null
+                && sequence == previous.list().sequenceNumber()
+                && !digest.equals(previous.list().contentDigest())) {
+            throw new VerificationFailure(
+                    "trusted_list_rollback", "trusted list content changed without a new sequence number");
+        }
+        if (!sequences.advance(key, sequence, digest)) {
+            throw new VerificationFailure(
+                    "trusted_list_rollback", "trusted list sequence number went backwards or was reused");
         }
         loaded.put(key, candidate);
         generation++;

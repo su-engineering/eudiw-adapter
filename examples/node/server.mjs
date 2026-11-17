@@ -57,6 +57,36 @@ export function verifyWebhook(rawBody, headers, secrets, now = Date.now(), toler
   throw new Error('no valid webhook signature');
 }
 
+/**
+ * Remembers webhook-id values for longer than the timestamp tolerance, so a captured delivery replayed inside that
+ * window is recognised. The adapter retries with the same webhook-id, so a duplicate is acknowledged without being
+ * processed again. Kept in memory here; with several backend instances, use a shared store with an expiry.
+ */
+export class SeenWebhooks {
+  constructor(ttlSeconds = 600, limit = 100_000) {
+    this.ttlMs = ttlSeconds * 1000;
+    this.limit = limit;
+    this.seen = new Map();
+  }
+
+  /** True the first time an id is offered, false for a repeat within the time to live. */
+  firstTime(id, now = Date.now()) {
+    for (const [key, expires] of this.seen) {
+      if (expires > now && this.seen.size < this.limit) {
+        break;
+      }
+      this.seen.delete(key);
+    }
+    if (this.seen.has(id)) {
+      return false;
+    }
+    this.seen.set(id, now + this.ttlMs);
+    return true;
+  }
+}
+
+const seenWebhooks = new SeenWebhooks();
+
 let token = null;
 async function accessToken(trace) {
   if (token && token.expiresAt > Date.now() + 30_000) {
@@ -187,6 +217,10 @@ async function handle(req, res) {
     try {
       // { type, timestamp, data: { id, status, policy_id, reason?, client_reference? } }, never claims.
       const { data } = verifyWebhook(await readBody(req), req.headers, config.webhookSecrets);
+      if (!seenWebhooks.firstTime(req.headers['webhook-id'])) {
+        res.writeHead(204).end();
+        return;
+      }
       console.log(`webhook: session ${data.id} is ${data.status}`);
       // A real application would update its own record here. The example adds it to the session's trace.
       const session = [...sessions.values()].find((s) => s.id === data.id);
