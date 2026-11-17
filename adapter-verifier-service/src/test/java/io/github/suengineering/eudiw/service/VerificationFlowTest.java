@@ -444,6 +444,10 @@ class VerificationFlowTest {
                 .get("/v1/verification-sessions/" + session.getString("id"))
                 .then()
                 .body("status", org.hamcrest.Matchers.equalTo("verified"));
+        // The test signer is long-lived and has no CRL distribution point: accepted, and both recorded as conformance
+        // warnings.
+        assertThat(auditCodes(session.getString("id"), "conformance_warning"))
+                .containsExactly("mdoc_signer_validity_over_457_days", "mdoc_signer_without_crl_distribution_point");
     }
 
     @Test
@@ -835,6 +839,22 @@ class VerificationFlowTest {
             }
         }
         return sb.toString();
+    }
+
+    private List<String> auditCodes(String sessionId, String action) throws Exception {
+        try (Connection c = dataSource.getConnection();
+                var ps = c.prepareStatement(
+                        "SELECT code FROM audit_event WHERE session_id = ? AND action = ? ORDER BY code")) {
+            ps.setString(1, sessionId);
+            ps.setString(2, action);
+            List<String> codes = new java.util.ArrayList<>();
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    codes.add(rs.getString(1));
+                }
+            }
+            return codes;
+        }
     }
 
     private int auditCount(String sessionId, String outcome) throws Exception {

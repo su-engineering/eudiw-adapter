@@ -15,7 +15,9 @@
  */
 package io.github.suengineering.eudiw.core.mdoc;
 
+import io.github.suengineering.eudiw.core.ConformanceWarning;
 import io.github.suengineering.eudiw.core.cbor.CborItem;
+import java.util.List;
 
 /**
  * mdoc authentication: proof that the presenting device holds the key the MSO binds, over this session's
@@ -29,10 +31,18 @@ public interface MdocDeviceAuthentication {
      * @param document the Document of the DeviceResponse
      * @param issuerSigned the issuer-verified part, carrying the device key
      * @param sessionTranscript the session transcript of this request
+     * @return tolerated departures from the standard, such as a device key curve it does not list
      * @throws VerificationFailure when the device authentication is missing or does not verify
      */
-    void authenticate(CborItem.MapItem document, VerifiedIssuerSigned issuerSigned, CborItem sessionTranscript);
+    List<ConformanceWarning> authenticate(
+            CborItem.MapItem document, VerifiedIssuerSigned issuerSigned, CborItem sessionTranscript);
 
-    /** Device signature over the session transcript; device MAC is refused (ADR-012). */
-    MdocDeviceAuthentication SIGNATURE = new DeviceSignatureAuthentication();
+    /**
+     * Device signature over the session transcript; device MAC is refused (ADR-012). A device key on a curve that
+     * Table 22 does not list is accepted with a warning.
+     */
+    MdocDeviceAuthentication SIGNATURE = new DeviceSignatureAuthentication(false);
+
+    /** As {@link #SIGNATURE}, but a device key on a curve that Table 22 does not list is refused. */
+    MdocDeviceAuthentication STRICT_SIGNATURE = new DeviceSignatureAuthentication(true);
 }

@@ -15,12 +15,15 @@
  */
 package io.github.suengineering.eudiw.core.mdoc;
 
+import io.github.suengineering.eudiw.core.ConformanceWarning;
 import io.github.suengineering.eudiw.core.VerificationFailure;
 import io.github.suengineering.eudiw.core.cbor.CborEncoder;
 import io.github.suengineering.eudiw.core.cbor.CborItem;
 import io.github.suengineering.eudiw.core.cose.CoseKeys;
 import io.github.suengineering.eudiw.core.cose.CoseSign1;
 import java.security.PublicKey;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -40,8 +43,22 @@ public final class DeviceSignatureAuthentication implements MdocDeviceAuthentica
     /** The context string of the DeviceAuthentication structure (clause 9.1.3.4). */
     static final String CONTEXT = "DeviceAuthentication";
 
+    /** COSE curve identifier of P-384, which ISO/IEC 18013-5:2021 Table 22 does not list for device keys. */
+    private static final long P384 = 2;
+
+    private final boolean strict;
+
+    /**
+     * @param strict refuse a device key on a curve that Table 22 does not list, instead of warning. The standard is
+     *     not consistent here: it allows P-384 for issuer signatures but does not list it for device keys.
+     */
+    public DeviceSignatureAuthentication(boolean strict) {
+        this.strict = strict;
+    }
+
     @Override
-    public void authenticate(CborItem.MapItem document, VerifiedIssuerSigned issuerSigned, CborItem sessionTranscript) {
+    public List<ConformanceWarning> authenticate(
+            CborItem.MapItem document, VerifiedIssuerSigned issuerSigned, CborItem sessionTranscript) {
         CborItem.MapItem deviceSigned = MdocCbor.map(MdocCbor.field(document, "deviceSigned"), "deviceSigned");
         // DeviceNameSpacesBytes: mandatory, even when the map inside is empty.
         CborItem nameSpacesBytes = MdocCbor.field(deviceSigned, "nameSpaces");
@@ -62,6 +79,17 @@ public final class DeviceSignatureAuthentication implements MdocDeviceAuthentica
         requireAuthorized(nameSpaces, issuerSigned.mso());
 
         PublicKey deviceKey = CoseKeys.publicKey(issuerSigned.mso().deviceKey());
+        List<ConformanceWarning> warnings = new ArrayList<>();
+        if (issuerSigned.mso().deviceKey() instanceof CborItem.MapItem key
+                && key.get(-1).orElse(null) instanceof CborItem.Int crv
+                && crv.asLong().orElse(0L) == P384) {
+            if (strict) {
+                throw new VerificationFailure(
+                        "unsupported_key", "device key curve P-384 is not listed for device keys (Table 22)");
+            }
+            warnings.add(new ConformanceWarning(
+                    ConformanceWarning.DEVICE_KEY_CURVE, "device key on P-384, which Table 22 does not list"));
+        }
         CoseSign1 deviceSignature = CoseSign1.parse(MdocCbor.field(deviceAuth, "deviceSignature"));
         // The namespaces go in exactly as received; the structure around them has no maps, so it encodes one way.
         byte[] content = CborEncoder.embedded(CborEncoder.array(
@@ -78,6 +106,7 @@ public final class DeviceSignatureAuthentication implements MdocDeviceAuthentica
             }
             throw new VerificationFailure("holder_binding_invalid", "device signature does not verify", e);
         }
+        return warnings;
     }
 
     /**

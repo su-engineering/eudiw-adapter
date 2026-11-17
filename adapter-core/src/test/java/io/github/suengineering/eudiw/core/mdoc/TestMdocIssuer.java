@@ -62,6 +62,9 @@ public final class TestMdocIssuer {
     /** The {@code deviceKey} put into the next MSO instead of {@link #deviceKeys}, or {@code null}. */
     public CborItem deviceKeyOverride;
 
+    /** Whether the next x5chain also carries the IACA root, which the standard says it should not. */
+    public boolean rootInChain;
+
     /**
      * @param iacaSubject subject of the IACA, for example {@code "CN=Test IACA,C=DE"}
      * @param signerSubject subject of the document signer
@@ -150,7 +153,12 @@ public final class TestMdocIssuer {
         s.initSign(signerKeys.getPrivate());
         s.update(toBeSigned);
         Map<CborItem, CborItem> unprotected = new LinkedHashMap<>();
-        unprotected.put(CborEncoder.integer(33), CborEncoder.bytes(signer.getEncoded()));
+        unprotected.put(
+                CborEncoder.integer(33),
+                rootInChain
+                        ? CborEncoder.array(
+                                CborEncoder.bytes(signer.getEncoded()), CborEncoder.bytes(iaca.getEncoded()))
+                        : CborEncoder.bytes(signer.getEncoded()));
         CborItem issuerAuth = CborEncoder.array(
                 CborEncoder.bytes(protectedBytes),
                 CborEncoder.map(unprotected),
@@ -202,7 +210,8 @@ public final class TestMdocIssuer {
                         CborEncoder.bytes(new byte[0]),
                         CborEncoder.bytes(content))
                 .encoded();
-        Signature s = Signature.getInstance("SHA256withECDSAinP1363Format");
+        Signature s =
+                Signature.getInstance(alg == -35 ? "SHA384withECDSAinP1363Format" : "SHA256withECDSAinP1363Format");
         s.initSign(key);
         s.update(toBeSigned);
         return CborEncoder.array(
@@ -210,6 +219,17 @@ public final class TestMdocIssuer {
                 CborEncoder.map(Map.of()),
                 attach ? CborEncoder.bytes(content) : CborEncoder.nil(),
                 CborEncoder.bytes(s.sign()));
+    }
+
+    /** An EC2 COSE_Key for a P-256 ({@code crv} 1) or P-384 ({@code crv} 2) public key. */
+    public static CborItem coseKey(ECPublicKey key, int crv) {
+        int size = crv == 2 ? 48 : 32;
+        Map<CborItem, CborItem> k = new LinkedHashMap<>();
+        k.put(CborEncoder.integer(1), CborEncoder.integer(2));
+        k.put(CborEncoder.integer(-1), CborEncoder.integer(crv));
+        k.put(CborEncoder.integer(-2), CborEncoder.bytes(fixed(key.getW().getAffineX(), size)));
+        k.put(CborEncoder.integer(-3), CborEncoder.bytes(fixed(key.getW().getAffineY(), size)));
+        return CborEncoder.map(k);
     }
 
     private CborItem deviceKey() {
@@ -227,10 +247,14 @@ public final class TestMdocIssuer {
     }
 
     private static byte[] fixed(BigInteger value) {
+        return fixed(value, 32);
+    }
+
+    private static byte[] fixed(BigInteger value, int size) {
         byte[] raw = value.toByteArray();
-        byte[] out = new byte[32];
-        int n = Math.min(raw.length, 32);
-        System.arraycopy(raw, raw.length - n, out, 32 - n, n);
+        byte[] out = new byte[size];
+        int n = Math.min(raw.length, size);
+        System.arraycopy(raw, raw.length - n, out, size - n, n);
         return out;
     }
 

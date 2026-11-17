@@ -326,7 +326,19 @@ public final class ConfigLoader {
                 enforceAuthorities,
                 sessionTtl,
                 resultTtl,
-                registration);
+                registration,
+                flag(json, "mdoc_strict_conformance", where));
+    }
+
+    private static boolean flag(Map<String, Object> json, String name, String where) {
+        Object value = json.get(name);
+        if (value == null) {
+            return false;
+        }
+        if (!(value instanceof Boolean b)) {
+            throw new ConfigException(where + ": " + name + " must be true or false");
+        }
+        return b;
     }
 
     /**

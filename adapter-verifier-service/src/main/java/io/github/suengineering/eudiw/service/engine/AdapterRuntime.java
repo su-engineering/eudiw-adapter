@@ -179,7 +179,9 @@ public class AdapterRuntime {
                     mdoc = Optional.of(new MdocPresentationVerifier(
                             new MdocIssuerVerifier(
                                     issuance, clock, Duration.ofSeconds(60), crls, MdocIssuerVerifier.mdlOnly()),
-                            MdocDeviceAuthentication.SIGNATURE));
+                            policy.mdocStrictConformance()
+                                    ? MdocDeviceAuthentication.STRICT_SIGNATURE
+                                    : MdocDeviceAuthentication.SIGNATURE));
                 }
                 VpTokenVerifier verifier = new VpTokenVerifier(
                         new SdJwtVcVerifier(

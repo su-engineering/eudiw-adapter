@@ -139,7 +139,8 @@ public final class CertificateChainValidator {
         }
     }
 
-    static boolean isSelfSigned(X509Certificate certificate) {
+    /** Whether the certificate names itself as issuer and verifies under its own key. */
+    public static boolean isSelfSigned(X509Certificate certificate) {
         if (!certificate.getSubjectX500Principal().equals(certificate.getIssuerX500Principal())) {
             return false;
         }

@@ -15,6 +15,7 @@
  */
 package io.github.suengineering.eudiw.core.mdoc;
 
+import io.github.suengineering.eudiw.core.ConformanceWarning;
 import io.github.suengineering.eudiw.core.VerificationFailure;
 import io.github.suengineering.eudiw.core.cbor.CborItem;
 import io.github.suengineering.eudiw.core.cose.CoseSign1;
@@ -28,6 +29,7 @@ import java.security.cert.X509Certificate;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -111,6 +113,15 @@ public final class MdocIssuerVerifier {
 
         // 1. Certificate path.
         List<X509Certificate> chain = CertificateChainValidator.parse(issuerAuth.x5chain());
+        List<ConformanceWarning> warnings = new ArrayList<>();
+        // A root sent in the x5chain is ignored: trust comes only from the configured anchors (clause 9.1.2.4 says the
+        // chain should not carry it, but rejecting the credential for it gains nothing).
+        if (chain.size() > 1 && CertificateChainValidator.isSelfSigned(chain.get(chain.size() - 1))) {
+            chain = chain.subList(0, chain.size() - 1);
+            warnings.add(new ConformanceWarning(
+                    ConformanceWarning.X5CHAIN_INCLUDES_ROOT,
+                    "the x5chain includes a root certificate, which was ignored"));
+        }
         Instant now = clock.instant();
         TrustStore store = trustStore.get();
         CertificateChainValidator.ValidatedPath path =
@@ -133,6 +144,7 @@ public final class MdocIssuerVerifier {
         Map<String, Map<String, CborItem>> elements = issuerSignedElements(issuerSigned, mso);
         if (iacaProfile.test(docType)) {
             requireIacaProfile(path.leaf(), path.anchor());
+            signerProfileWarnings(path.leaf(), warnings);
             requireIssuingCountry(path.leaf(), elements.getOrDefault(MDL_NAMESPACE, Map.of()));
         }
 
@@ -155,7 +167,8 @@ public final class MdocIssuerVerifier {
                 chain,
                 store.sourcesOf(path.anchor()),
                 path.anchor(),
-                store.entityNamesOf(path.anchor()));
+                store.entityNamesOf(path.anchor()),
+                warnings);
     }
 
     private static Map<String, Map<String, CborItem>> issuerSignedElements(
@@ -234,6 +247,25 @@ public final class MdocIssuerVerifier {
         if (usage == null || !usage[0]) {
             throw new VerificationFailure(
                     "certificate_chain_invalid", "document signer lacks the digitalSignature key usage");
+        }
+    }
+
+    /**
+     * Annex B profile rules that are the issuer's duty: a document signer valid for at most 457 days, with a CRL
+     * distribution point. A reader that rejected for them would refuse credentials it can verify, so they only warn.
+     */
+    private static void signerProfileWarnings(X509Certificate signer, List<ConformanceWarning> warnings) {
+        Duration validity = Duration.between(
+                signer.getNotBefore().toInstant(), signer.getNotAfter().toInstant());
+        if (validity.compareTo(Duration.ofDays(457)) > 0) {
+            warnings.add(new ConformanceWarning(
+                    ConformanceWarning.SIGNER_VALIDITY,
+                    "document signer certificate is valid for " + validity.toDays() + " days"));
+        }
+        if (signer.getExtensionValue("2.5.29.31") == null) {
+            warnings.add(new ConformanceWarning(
+                    ConformanceWarning.SIGNER_WITHOUT_CRL_DP,
+                    "document signer certificate has no CRL distribution point"));
         }
     }
 

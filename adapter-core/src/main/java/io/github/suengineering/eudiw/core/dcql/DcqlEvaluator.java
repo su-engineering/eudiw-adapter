@@ -15,6 +15,7 @@
  */
 package io.github.suengineering.eudiw.core.dcql;
 
+import io.github.suengineering.eudiw.core.ConformanceWarning;
 import io.github.suengineering.eudiw.core.VerificationFailure;
 import io.github.suengineering.eudiw.core.dcql.DcqlQuery.ClaimQuery;
 import io.github.suengineering.eudiw.core.dcql.DcqlQuery.CredentialQuery;
@@ -59,16 +60,23 @@ public final class DcqlEvaluator {
      * @param issuer issuer identifier established during verification
      * @param claims the requested claims and their values
      * @param issuerNames further authenticated issuer names an allow list may match
+     * @param warnings tolerated departures from the standard found while verifying
      */
     public record SelectedCredential(
-            String format, String type, String issuer, List<DisclosedClaim> claims, Set<String> issuerNames) {
+            String format,
+            String type,
+            String issuer,
+            List<DisclosedClaim> claims,
+            Set<String> issuerNames,
+            List<ConformanceWarning> warnings) {
         public SelectedCredential {
             claims = List.copyOf(claims);
             issuerNames = Set.copyOf(issuerNames);
+            warnings = List.copyOf(warnings);
         }
 
         public SelectedCredential(String format, String type, String issuer, List<DisclosedClaim> claims) {
-            this(format, type, issuer, claims, Set.of());
+            this(format, type, issuer, claims, Set.of(), List.of());
         }
 
         /** Whether the issuer, or one of its other names, is in the allow list. */
@@ -78,7 +86,12 @@ public final class DcqlEvaluator {
 
         static SelectedCredential of(PresentedCredential credential, List<DisclosedClaim> claims) {
             return new SelectedCredential(
-                    credential.format(), credential.type(), credential.issuer(), claims, credential.issuerNames());
+                    credential.format(),
+                    credential.type(),
+                    credential.issuer(),
+                    claims,
+                    credential.issuerNames(),
+                    credential.warnings());
         }
     }
 

@@ -322,7 +322,7 @@ public class TestEnvironment implements QuarkusTestResourceLifecycleManager {
                        "claims":[{"path":["org.iso.18013.5.1","age_over_18"],"intent_to_retain":false}]}]},
                      "output":{"age_over_18":{"credential":"mdl","path":["org.iso.18013.5.1","age_over_18"]}},
                      "trust_anchors_file":"mdoc-iaca.pem","status_policy":"reject_known_invalid",
-                     "allowed_issuers":["CN=Test IACA,C=EU"]},
+                     "allowed_issuers":["CN=Test IACA,C=EU"],"mdoc_strict_conformance":true},
                     {"id":"mdl-age-signer-name","dcql":{"credentials":[{"id":"mdl","format":"mso_mdoc",
                        "meta":{"doctype_value":"org.iso.18013.5.1.mDL"},
                        "claims":[{"path":["org.iso.18013.5.1","age_over_18"]}]}]},
