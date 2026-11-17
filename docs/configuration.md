@@ -151,13 +151,13 @@ A policy can request an ISO mdoc with `"format": "mso_mdoc"`, a `meta.doctype_va
 "output": { "age_over_18": { "credential": "mdl", "path": ["org.iso.18013.5.1", "age_over_18"] } }
 ```
 
-- Document signer certificates validate to the policy's `trust_anchors_file` and `trusted_lists`, as for SD-JWT VC, with CRLs when `certificate_revocation` is `crl`. For the mDL doctype the IACA rules also apply: the document signer carries the mDL document signer extended key usage and the same country (and state) as the IACA.
+- Document signer certificates validate to the policy's `trust_anchors_file` and `trusted_lists`, as for SD-JWT VC, with CRLs when `certificate_revocation` is `crl`. For the mDL doctype the IACA rules also apply: the document signer carries the mDL document signer extended key usage and the digitalSignature key usage, the IACA's country (and state, when it has one), and a returned `issuing_country` or `issuing_jurisdiction` must match it.
 - `allowed_issuers` compares against the document signer certificate's subject name.
 - Values come back as JSON: dates as their text, byte strings (such as a portrait) as base64url.
+- The wallet proves possession of the device key bound in the MSO by signing this request's session transcript. A device MAC is not accepted, because the OpenID4VP flow has no reader key to derive it from.
+- A request for `age_over_NN` is also answered by a nearby attestation: `age_over_21: true` satisfies `age_over_18`.
+- Only issuer-signed elements are returned; device-signed elements are checked but never returned.
 - An MSO status reference cannot be checked yet ([ADR-012](adr/0012-mdoc.md)): `require_valid` rejects such an mdoc, `reject_known_invalid` accepts it.
-
-> [!WARNING]
-> **mdoc device authentication is not implemented yet.** Until it is, every mdoc presentation is rejected with `unsupported_format`, and the service logs a warning at startup for each policy that requests `mso_mdoc`. Issuer verification, the session transcript and the request metadata are in place.
 
 ## Trusted lists
 

@@ -264,7 +264,7 @@ flowchart LR
 
 | Module | What it is |
 | --- | --- |
-| [`adapter-core`](adapter-core) | Verification library: SD-JWT VC, DCQL, X.509 chains, trusted lists, status lists, CRLs, request objects, response decryption. Java 21 with Nimbus JOSE+JWT, no framework, usable without the service |
+| [`adapter-core`](adapter-core) | Verification library: SD-JWT VC, ISO mdoc, DCQL, X.509 chains, trusted lists, status lists, CRLs, request objects, response decryption. Java 21 with Nimbus JOSE+JWT, no framework, usable without the service |
 | [`adapter-verifier-service`](adapter-verifier-service) | Quarkus service: management API, wallet endpoints, PostgreSQL state, webhooks, audit |
 
 ## Standards
@@ -292,7 +292,8 @@ Test evidence per feature: [standards and feature status](docs/standards-matrix.
 - [x] Metrics, audit log, tracing, rate limits, configuration reload
 - [x] Web component and Node and Python examples
 - [x] OpenID Foundation HAIP verifier test plan, run locally (not certified)
-- [ ] ISO mdoc (`mso_mdoc`) and the Digital Credentials API
+- [x] ISO mdoc (`mso_mdoc`): issuer and device authentication, on `main`, not yet released
+- [ ] MSO revocation (ISO/IEC 18013-5 second edition) and the Digital Credentials API
 - [ ] The EU reference wallet on real devices, a second independent wallet, OCSP
 - [ ] Wallet attestation, `transaction_data`, certification, external review
 

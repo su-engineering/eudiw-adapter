@@ -57,4 +57,25 @@ echo "$STATUS" | jq .
 echo "$STATUS" | jq -e '.status == "rejected" and .result_available == false' > /dev/null \
   || { echo "expected the untrusted credential to be rejected"; exit 1; }
 
+echo "7. The same check with an ISO mdoc: the wallet signs the session transcript with its device key"
+SESSION=$(curl -sf -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: demo-mdoc-$(date +%s)" \
+  -H 'Content-Type: application/json' -d '{"policy_id":"age-over-18-mdoc","mode":"cross_device"}' \
+  http://localhost:8080/v1/verification-sessions)
+ID=$(echo "$SESSION" | jq -r .id)
+docker compose run --rm wallet "$(echo "$SESSION" | jq -r .wallet_launch.launch_uri)" mdoc
+RESULT=$(curl -sf -H "Authorization: Bearer $TOKEN" "http://localhost:8080/v1/verification-sessions/$ID/result")
+echo "$RESULT" | jq .
+echo "$RESULT" | jq -e '.claims == {"age_over_18": true}' > /dev/null || { echo "unexpected mdoc result"; exit 1; }
+
+echo "8. An mdoc signed over another session transcript (ISO/IEC 18013-7 instead of OpenID4VP) is rejected"
+SESSION=$(curl -sf -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: demo-mdoc-iso-$(date +%s)" \
+  -H 'Content-Type: application/json' -d '{"policy_id":"age-over-18-mdoc","mode":"cross_device"}' \
+  http://localhost:8080/v1/verification-sessions)
+ID=$(echo "$SESSION" | jq -r .id)
+docker compose run --rm wallet "$(echo "$SESSION" | jq -r .wallet_launch.launch_uri)" mdoc-iso || true
+STATUS=$(curl -sf -H "Authorization: Bearer $TOKEN" "http://localhost:8080/v1/verification-sessions/$ID")
+echo "$STATUS" | jq .
+echo "$STATUS" | jq -e '.status == "rejected" and .reason == "holder_binding_invalid"' > /dev/null \
+  || { echo "expected the mdoc with the wrong transcript to be rejected"; exit 1; }
+
 echo "Done. To stop and delete the demo data: docker compose down --volumes"

@@ -67,11 +67,11 @@ class MdocVpTokenTest {
             new VpTokenVerifier.Context(CLIENT_ID, NONCE, "tenant-1", RESPONSE_URI, Optional.of(THUMBPRINT));
 
     @Test
-    void anMdocIsRejectedWhileDeviceAuthenticationIsMissing() {
-        assertThatThrownBy(() -> verifier(MdocDeviceAuthentication.NOT_IMPLEMENTED, StatusPolicy.IGNORE)
+    void anMdocWithoutDeviceAuthenticationIsRejected() {
+        assertThatThrownBy(() -> verifier(MdocDeviceAuthentication.SIGNATURE, StatusPolicy.IGNORE)
                         .verify(vpToken(deviceResponse(document())), query, context))
                 .isInstanceOfSatisfying(
-                        VerificationFailure.class, f -> assertThat(f.code()).isEqualTo("unsupported_format"));
+                        VerificationFailure.class, f -> assertThat(f.code()).isEqualTo("malformed_credential"));
     }
 
     @Test

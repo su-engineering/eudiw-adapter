@@ -20,7 +20,7 @@ flowchart LR
 
 | Module | Responsibility | Depends on |
 | --- | --- | --- |
-| `adapter-core` | Verify SD-JWT VC presentations, evaluate DCQL, validate issuer certificate chains, check status lists, sign requests, decrypt responses, minimize claims. ISO mdoc is planned | Nimbus JOSE+JWT and the JDK. No framework |
+| `adapter-core` | Verify SD-JWT VC presentations, evaluate DCQL, validate issuer certificate chains, check status lists, sign requests, decrypt responses, minimize claims. ISO mdoc: CBOR, COSE, MSO, issuer and device authentication | Nimbus JOSE+JWT and the JDK. No framework |
 | `adapter-verifier-service` | Management API, session lifecycle, wallet-facing OID4VP endpoints, result delivery | `adapter-core`, Quarkus, PostgreSQL |
 
 `adapter-core` is usable on its own by any Java application that wants to verify presentations without the service.

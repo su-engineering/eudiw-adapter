@@ -15,7 +15,6 @@
  */
 package io.github.suengineering.eudiw.core.mdoc;
 
-import io.github.suengineering.eudiw.core.VerificationFailure;
 import io.github.suengineering.eudiw.core.cbor.CborItem;
 
 /**
@@ -34,11 +33,6 @@ public interface MdocDeviceAuthentication {
      */
     void authenticate(CborItem.MapItem document, VerifiedIssuerSigned issuerSigned, CborItem sessionTranscript);
 
-    /**
-     * Rejects every presentation. Used until device authentication is implemented (ADR-012): issuer verification
-     * alone must not be enough to accept an mdoc.
-     */
-    MdocDeviceAuthentication NOT_IMPLEMENTED = (document, issuerSigned, transcript) -> {
-        throw new VerificationFailure("unsupported_format", "mdoc device authentication is not implemented yet");
-    };
+    /** Device signature over the session transcript; device MAC is refused (ADR-012). */
+    MdocDeviceAuthentication SIGNATURE = new DeviceSignatureAuthentication();
 }

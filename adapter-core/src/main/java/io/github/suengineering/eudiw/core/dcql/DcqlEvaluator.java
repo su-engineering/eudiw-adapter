@@ -146,6 +146,9 @@ public final class DcqlEvaluator {
 
     private static Optional<DisclosedClaim> select(ClaimQuery claim, PresentedCredential credential) {
         Optional<List<Object>> selected = claim.path().select(credential.claims());
+        if (selected.isEmpty() && DcqlQuery.FORMAT_MDOC.equals(credential.format())) {
+            selected = AgeOver.substitute(claim.path(), credential.claims());
+        }
         if (selected.isEmpty()) {
             return Optional.empty();
         }
@@ -211,6 +214,46 @@ public final class DcqlEvaluator {
                 throw new VerificationFailure(
                         "credentials_not_satisfied", "a required credential set is not satisfied");
             }
+        }
+    }
+
+    /**
+     * The age attestation rule of ISO/IEC 18013-5:2021 clause 7.2.5. A wallet asked for {@code age_over_NN} may
+     * answer with the nearest attestation it holds instead: {@code age_over_MM: true} with MM at least NN proves
+     * the holder is over NN, and {@code age_over_MM: false} with MM below NN proves they are not. The answer is
+     * reported under the requested element, so nothing unrequested leaves the evaluator. Attestations that
+     * contradict each other answer nothing.
+     */
+    static final class AgeOver {
+        private static final java.util.regex.Pattern ELEMENT = java.util.regex.Pattern.compile("age_over_(\\d{2})");
+
+        private AgeOver() {}
+
+        static Optional<List<Object>> substitute(ClaimsPath path, Map<String, Object> claims) {
+            if (!path.isMdocPath()) {
+                return Optional.empty();
+            }
+            java.util.regex.Matcher requested =
+                    ELEMENT.matcher((String) path.components().get(1));
+            if (!requested.matches() || !(claims.get((String) path.components().get(0)) instanceof Map<?, ?> ns)) {
+                return Optional.empty();
+            }
+            int wanted = Integer.parseInt(requested.group(1));
+            boolean over = false;
+            boolean notOver = false;
+            for (Map.Entry<?, ?> e : ns.entrySet()) {
+                java.util.regex.Matcher m = ELEMENT.matcher(String.valueOf(e.getKey()));
+                if (!m.matches() || !(e.getValue() instanceof Boolean value)) {
+                    continue;
+                }
+                int held = Integer.parseInt(m.group(1));
+                over |= value && held >= wanted;
+                notOver |= !value && held < wanted;
+            }
+            if (over == notOver) {
+                return Optional.empty();
+            }
+            return Optional.of(List.of(over));
         }
     }
 }

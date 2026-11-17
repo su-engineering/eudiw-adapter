@@ -62,6 +62,18 @@ public final class MdocPresentationVerifier {
             throw new VerificationFailure("malformed_credential", "DeviceResponse too large");
         }
         CborItem.MapItem response = MdocCbor.map(CborDecoder.decode(bytes), "DeviceResponse");
+        // Clause 8.3.2.1.2.2: version and status are mandatory. Only major version 1 is known; a non-zero status
+        // means the device returned no usable documents, whatever else the response holds.
+        String version = MdocCbor.text(response, "version");
+        if (!version.equals("1") && !version.startsWith("1.")) {
+            throw MdocCbor.malformed("unsupported DeviceResponse version");
+        }
+        long status = MdocCbor.unsigned(MdocCbor.field(response, "status"), "status");
+        if (status != 0) {
+            throw new VerificationFailure(
+                    "unprocessable_presentation", "DeviceResponse reports an error (status " + status + ")");
+        }
+        // documentErrors and per-document errors name what was not returned; DCQL decides whether that matters.
         List<CborItem> documents = response.get("documents")
                 .map(d -> MdocCbor.array(d, "documents").items())
                 .orElseThrow(() -> new VerificationFailure("malformed_credential", "DeviceResponse has no documents"));
@@ -75,6 +87,7 @@ public final class MdocPresentationVerifier {
         }
         VerifiedIssuerSigned issuerSigned = issuerVerifier.verify(document);
         deviceAuthentication.authenticate(document, issuerSigned, sessionTranscript);
+        // Device-signed elements carry only the holder's word, so they are never returned.
         return new VerifiedMdoc(issuerSigned, json(issuerSigned.elements()));
     }
 

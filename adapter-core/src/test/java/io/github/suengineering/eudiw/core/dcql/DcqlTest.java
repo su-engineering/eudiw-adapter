@@ -239,6 +239,63 @@ class DcqlTest {
     }
 
     @Test
+    void anMdocAgeAttestationAnswersANearbyAgeRequest() {
+        String ns = "eu.europa.ec.eudi.pid.1";
+        DcqlQuery query = DcqlQuery.parse(Json.parseObject("""
+                {"credentials":[{"id":"pid","format":"mso_mdoc","meta":{"doctype_value":"%s"},
+                  "claims":[{"path":["%s","age_over_18"],"values":[true]}]}]}""".formatted(ns, ns), "test"));
+        java.util.function.Function<Map<String, Object>, Map<String, List<SelectedCredential>>> evaluate =
+                elements -> new DcqlEvaluator(true)
+                        .evaluate(
+                                query,
+                                Map.of(
+                                        "pid",
+                                        List.of(new PresentedCredential(
+                                                "mso_mdoc",
+                                                ns,
+                                                "iss",
+                                                Map.of(ns, elements),
+                                                true,
+                                                Set.of(),
+                                                Set.of()))));
+
+        // Over 21 proves over 18; the answer is reported under the requested element only.
+        DcqlEvaluator.DisclosedClaim claim = evaluate.apply(Map.of("age_over_21", true))
+                .get("pid")
+                .get(0)
+                .claims()
+                .get(0);
+        assertThat(claim.path().components()).containsExactly(ns, "age_over_18");
+        assertThat(claim.values()).containsExactly(true);
+        // The exact element wins.
+        assertThat(evaluate.apply(Map.of("age_over_18", true, "age_over_16", false)))
+                .containsKey("pid");
+        // Not over 16 proves not over 18, which fails values:[true].
+        assertFailure(() -> evaluate.apply(Map.of("age_over_16", false)), "claims_not_satisfied");
+        // Over 16 says nothing about 18, and contradicting attestations answer nothing.
+        assertFailure(() -> evaluate.apply(Map.of("age_over_16", true)), "claims_not_satisfied");
+        assertFailure(() -> evaluate.apply(Map.of("age_over_21", true, "age_over_16", false)), "claims_not_satisfied");
+        // Only for mdoc.
+        assertFailure(
+                () -> new DcqlEvaluator(true)
+                        .evaluate(
+                                DcqlQuery.parse(Json.parseObject("""
+                        {"credentials":[{"id":"c","format":"dc+sd-jwt","meta":{"vct_values":["%s"]},
+                          "claims":[{"path":["age_over_18"]}]}]}""".formatted(VCT), "test")),
+                                Map.of(
+                                        "c",
+                                        List.of(new PresentedCredential(
+                                                "dc+sd-jwt",
+                                                VCT,
+                                                "iss",
+                                                Map.of("age_over_21", true),
+                                                true,
+                                                Set.of(),
+                                                Set.of())))),
+                "claims_not_satisfied");
+    }
+
+    @Test
     void trustedAuthoritiesAreEnforcedWhenConfigured() {
         DcqlQuery query = DcqlQuery.parse(Json.parseObject("""
                 {"credentials":[{"id":"c","format":"dc+sd-jwt","meta":{"vct_values":["%s"]},
