@@ -98,7 +98,7 @@ class MdocVpTokenTest {
     }
 
     @Test
-    void anMdocStatusReferenceCannotSatisfyRequireValid() {
+    void anUnreachableMdocStatusListCannotSatisfyRequireValid() {
         assertThatThrownBy(() -> verifier((d, i, t) -> List.of(), StatusPolicy.REQUIRE_VALID)
                         .verify(vpToken(deviceResponse(document())), query, context))
                 .isInstanceOfSatisfying(

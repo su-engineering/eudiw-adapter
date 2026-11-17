@@ -67,12 +67,21 @@ class VerificationFlowTest {
     @Inject
     AgroalDataSource dataSource;
 
+    private static final String MDOC_STATUS = "https://mdoc-issuer.test.example/status/";
+
     private final TestWallet wallet = new TestWallet();
     private final MutableClock clock = new MutableClock(Instant.now());
 
     @BeforeEach
     void setUp() {
         HttpFetcher fetcher = (uri, accept, max) -> {
+            if (uri.toString().startsWith(MDOC_STATUS)) {
+                try {
+                    return TestEnvironment.mdocIssuer.statusListCwt(uri.toString());
+                } catch (Exception e) {
+                    throw new HttpFetcher.FetchException("unavailable", e);
+                }
+            }
             if (uri.toString().equals(TestEnvironment.CRL_C)) {
                 try {
                     return java.nio.file.Files.readAllBytes(TestEnvironment.DIR.resolve("issuer-c-root.crl"));
@@ -448,6 +457,31 @@ class VerificationFlowTest {
         // warnings.
         assertThat(auditCodes(session.getString("id"), "conformance_warning"))
                 .containsExactly("mdoc_signer_validity_over_457_days", "mdoc_signer_without_crl_distribution_point");
+    }
+
+    @Test
+    void anMdocStatusIsCheckedAgainstACwtStatusList() throws Exception {
+        try {
+            for (long idx : new long[] {1, 0}) {
+                TestEnvironment.mdocIssuer.status = TestMdocIssuer.statusList(MDOC_STATUS + idx, idx);
+                JsonPath session = create("portal-a", "cross_device", "mdl-age");
+                Map<String, Object> request = TestWallet.fetchRequest(session.getString("wallet_launch.request_uri"));
+                TestWallet.respond(request, Map.of("vp_token", Map.of("mdl", List.of(mdl(request, (String)
+                        request.get("nonce"))))));
+                given().auth()
+                        .oauth2(TestWallet.fullToken("portal-a"))
+                        .get("/v1/verification-sessions/" + session.getString("id"))
+                        .then()
+                        .body("status", org.hamcrest.Matchers.equalTo(idx == 0 ? "rejected" : "verified"))
+                        .body(
+                                "reason",
+                                idx == 0
+                                        ? org.hamcrest.Matchers.equalTo("credential_revoked")
+                                        : org.hamcrest.Matchers.nullValue());
+            }
+        } finally {
+            TestEnvironment.mdocIssuer.status = null;
+        }
     }
 
     @Test

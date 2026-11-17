@@ -65,6 +65,56 @@ public final class TestMdocIssuer {
     /** Whether the next x5chain also carries the IACA root, which the standard says it should not. */
     public boolean rootInChain;
 
+    /** The {@code status} put into the next MSO, or {@code null} for none. */
+    public CborItem status;
+
+    /** An MSO {@code status} with a Token Status List reference. */
+    public static CborItem statusList(String uri, long idx) {
+        Map<CborItem, CborItem> reference = new LinkedHashMap<>();
+        reference.put(CborEncoder.text("idx"), CborEncoder.integer(idx));
+        reference.put(CborEncoder.text("uri"), CborEncoder.text(uri));
+        return CborEncoder.map(Map.of(CborEncoder.text("status_list"), CborEncoder.map(reference)));
+    }
+
+    /**
+     * A Status List Token in CWT form for {@code uri}, signed by this issuer's document signer: one bit per entry,
+     * index 0 revoked and index 1 valid (Token Status List section 4 example).
+     */
+    public byte[] statusListCwt(String uri) throws Exception {
+        Map<CborItem, CborItem> list = new LinkedHashMap<>();
+        list.put(CborEncoder.text("bits"), CborEncoder.integer(1));
+        list.put(
+                CborEncoder.text("lst"),
+                CborEncoder.bytes(java.util.Base64.getUrlDecoder().decode("eNrbuRgAAhcBXQ")));
+        Map<CborItem, CborItem> claims = new LinkedHashMap<>();
+        claims.put(CborEncoder.integer(2), CborEncoder.text(uri));
+        claims.put(CborEncoder.integer(6), CborEncoder.integer(Instant.now().getEpochSecond()));
+        claims.put(CborEncoder.integer(65534), CborEncoder.integer(300));
+        claims.put(CborEncoder.integer(65533), CborEncoder.map(list));
+        Map<CborItem, CborItem> header = new LinkedHashMap<>();
+        header.put(CborEncoder.integer(1), CborEncoder.integer(-7));
+        header.put(CborEncoder.integer(16), CborEncoder.text("application/statuslist+cwt"));
+        byte[] protectedBytes = CborEncoder.map(header).encoded();
+        byte[] payload = CborEncoder.map(claims).encoded();
+        Signature s = Signature.getInstance("SHA256withECDSAinP1363Format");
+        s.initSign(signerKeys.getPrivate());
+        s.update(CborEncoder.array(
+                        CborEncoder.text("Signature1"),
+                        CborEncoder.bytes(protectedBytes),
+                        CborEncoder.bytes(new byte[0]),
+                        CborEncoder.bytes(payload))
+                .encoded());
+        return CborEncoder.tag(
+                        18,
+                        CborEncoder.array(
+                                CborEncoder.bytes(protectedBytes),
+                                CborEncoder.map(
+                                        Map.of(CborEncoder.integer(33), CborEncoder.bytes(signer.getEncoded()))),
+                                CborEncoder.bytes(payload),
+                                CborEncoder.bytes(s.sign())))
+                .encoded();
+    }
+
     /**
      * @param iacaSubject subject of the IACA, for example {@code "CN=Test IACA,C=DE"}
      * @param signerSubject subject of the document signer
@@ -138,6 +188,9 @@ public final class TestMdocIssuer {
         validity.put(CborEncoder.text("validFrom"), tdate(validFrom));
         validity.put(CborEncoder.text("validUntil"), tdate(validUntil));
         mso.put(CborEncoder.text("validityInfo"), CborEncoder.map(validity));
+        if (status != null) {
+            mso.put(CborEncoder.text("status"), status);
+        }
         byte[] payload = CborEncoder.embedded(CborEncoder.map(mso)).encoded();
 
         Map<CborItem, CborItem> protectedHeader = new LinkedHashMap<>();

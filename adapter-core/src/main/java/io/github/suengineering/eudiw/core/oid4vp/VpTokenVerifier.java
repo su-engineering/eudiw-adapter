@@ -25,6 +25,7 @@ import io.github.suengineering.eudiw.core.dcql.PresentedCredential;
 import io.github.suengineering.eudiw.core.jose.AlgorithmPolicy;
 import io.github.suengineering.eudiw.core.mdoc.MdocPresentationVerifier;
 import io.github.suengineering.eudiw.core.mdoc.MdocPresentationVerifier.VerifiedMdoc;
+import io.github.suengineering.eudiw.core.mdoc.MobileSecurityObject;
 import io.github.suengineering.eudiw.core.mdoc.SessionTranscripts;
 import io.github.suengineering.eudiw.core.sdjwt.SdJwtVcVerifier;
 import io.github.suengineering.eudiw.core.sdjwt.SdJwtVcVerifier.VerifiedSdJwtVc;
@@ -252,10 +253,17 @@ public final class VpTokenVerifier {
                 context.audience(), context.nonce(), context.encryptionKeyThumbprint(), context.responseUri());
         VerifiedMdoc mdoc =
                 mdocVerifier.orElseThrow().verify(presentation, query.types().get(0), transcript);
-        // MSO revocation follows the second edition of ISO/IEC 18013-5, which is not implemented (ADR-012): a status
-        // reference cannot be checked, so it counts as an indeterminate status.
-        if (mdoc.issuerSigned().mso().statusPresent() && settings.statusPolicy() == StatusPolicy.REQUIRE_VALID) {
-            throw new VerificationFailure("credential_status_unknown", "mdoc status cannot be checked yet");
+        // An MSO status that is a Token Status List reference is checked like an SD-JWT VC's (ADR-012). Any other
+        // status mechanism cannot be checked, so it counts as an indeterminate status.
+        MobileSecurityObject mso = mdoc.issuerSigned().mso();
+        if (mso.statusListReference().isPresent()) {
+            if (settings.statusPolicy() != StatusPolicy.IGNORE) {
+                enforce(statusChecker
+                        .orElseThrow()
+                        .check(mso.statusListReference().get(), context.statusCacheScope(), true));
+            }
+        } else if (mso.statusPresent() && settings.statusPolicy() == StatusPolicy.REQUIRE_VALID) {
+            throw new VerificationFailure("credential_status_unknown", "mdoc status mechanism is not supported");
         }
         List<java.security.cert.X509Certificate> chain = mdoc.issuerSigned().chain();
         // An mdoc has no issuer identifier of its own. It is named by its trust anchor, which outlives document
@@ -277,7 +285,10 @@ public final class VpTokenVerifier {
         if (settings.statusPolicy() == StatusPolicy.IGNORE || vc.status().isEmpty()) {
             return;
         }
-        StatusDecision decision = statusChecker.orElseThrow().check(vc.status().get(), context.statusCacheScope());
+        enforce(statusChecker.orElseThrow().check(vc.status().get(), context.statusCacheScope()));
+    }
+
+    private void enforce(StatusDecision decision) {
         switch (decision.result()) {
             case VALID -> {}
             case INVALID -> throw new VerificationFailure("credential_revoked", "credential is revoked");
