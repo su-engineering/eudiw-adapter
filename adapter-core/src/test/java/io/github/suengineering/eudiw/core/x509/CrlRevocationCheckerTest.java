@@ -147,6 +147,44 @@ class CrlRevocationCheckerTest {
     }
 
     @Test
+    void concurrentChecksShareOneFetchPerCrl() throws Exception {
+        serveCurrentCrls();
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicInteger fetches = new java.util.concurrent.atomic.AtomicInteger();
+        HttpFetcher slow = (uri, accept, max) -> {
+            fetches.incrementAndGet();
+            try {
+                release.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return served.get(uri.toString());
+        };
+        CrlRevocationChecker shared = new CrlRevocationChecker(slow, Clock.fixed(NOW, ZoneOffset.UTC), 16);
+        int threads = 8;
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(threads);
+        try {
+            List<java.util.concurrent.Future<?>> checks = new ArrayList<>();
+            for (int i = 0; i < threads; i++) {
+                checks.add(pool.submit(() -> shared.check(chain, root.certificate())));
+            }
+            long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+            while (fetches.get() < 1 && System.nanoTime() < deadline) {
+                Thread.onSpinWait();
+            }
+            Thread.sleep(200);
+            release.countDown();
+            for (java.util.concurrent.Future<?> check : checks) {
+                check.get(10, java.util.concurrent.TimeUnit.SECONDS);
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+        // One fetch for the issuing CA's CRL and one for the root's, however many checks ran at once.
+        assertThat(fetches.get()).isEqualTo(2);
+    }
+
+    @Test
     void aCertificateWithoutDistributionPointCannotBeChecked() {
         TestPki.Issued plain = TestPki.endEntity("CN=Plain", ca, FROM, UNTIL, KeyUsage.digitalSignature, List.of());
         serveCurrentCrls();

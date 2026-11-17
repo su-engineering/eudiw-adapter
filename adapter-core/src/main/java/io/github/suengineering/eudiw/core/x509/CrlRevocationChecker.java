@@ -65,6 +65,9 @@ public final class CrlRevocationChecker {
     private final Clock clock;
     private final Map<String, X509CRL> cache;
     private final Map<String, Instant> failedUntil = new java.util.concurrent.ConcurrentHashMap<>();
+    /** Fetches under way, so concurrent checks that miss the cache for one CRL share a single fetch. */
+    private final Map<String, java.util.concurrent.CompletableFuture<X509CRL>> inFlight =
+            new java.util.concurrent.ConcurrentHashMap<>();
 
     /** How long a failed fetch is remembered, so an unreachable CRL does not cost a timeout on every check. */
     static final java.time.Duration FAILURE_MEMORY = java.time.Duration.ofSeconds(60);
@@ -139,7 +142,7 @@ public final class CrlRevocationChecker {
                 continue;
             }
             try {
-                X509CRL crl = fetch(point);
+                X509CRL crl = fetchShared(point);
                 if (!isCurrent(crl, now)) {
                     throw new VerificationFailure("certificate_status_unknown", "CRL is not current");
                 }
@@ -152,6 +155,32 @@ public final class CrlRevocationChecker {
             }
         }
         throw last;
+    }
+
+    /** Fetches a CRL, or waits for the fetch another check already started for the same distribution point. */
+    private X509CRL fetchShared(String point) {
+        java.util.concurrent.CompletableFuture<X509CRL> mine = new java.util.concurrent.CompletableFuture<>();
+        java.util.concurrent.CompletableFuture<X509CRL> running = inFlight.putIfAbsent(point, mine);
+        if (running != null) {
+            try {
+                return running.join();
+            } catch (java.util.concurrent.CompletionException e) {
+                if (e.getCause() instanceof VerificationFailure failure) {
+                    throw failure;
+                }
+                throw new VerificationFailure("certificate_status_unknown", "CRL cannot be fetched", e.getCause());
+            }
+        }
+        try {
+            X509CRL crl = fetch(point);
+            mine.complete(crl);
+            return crl;
+        } catch (RuntimeException e) {
+            mine.completeExceptionally(e);
+            throw e;
+        } finally {
+            inFlight.remove(point, mine);
+        }
     }
 
     private X509CRL fetch(String point) {
