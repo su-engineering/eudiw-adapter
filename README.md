@@ -297,7 +297,7 @@ Test evidence per feature: [standards and feature status](docs/standards-matrix.
 - [x] Web component and Node and Python examples
 - [x] OpenID Foundation HAIP verifier test plan, run locally (not certified)
 - [x] ISO mdoc (`mso_mdoc`): issuer and device authentication
-- [ ] MSO revocation (ISO/IEC 18013-5 second edition) and the Digital Credentials API
+- [ ] Digital Credentials API
 - [ ] The EU reference wallet on real devices, a second independent wallet, OCSP
 - [ ] Wallet attestation, `transaction_data`, certification, external review
 

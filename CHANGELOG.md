@@ -4,7 +4,7 @@ All notable changes to eudiw-adapter. Versions follow [Semantic Versioning](http
 
 ## [0.2.0] - 2026-11-17
 
-ISO mdoc support. No breaking changes: existing configuration, the management API and SD-JWT VC behaviour are unchanged.
+ISO mdoc support. No breaking changes: existing configuration, the management API and SD-JWT VC behaviour are unchanged. New policy settings and audit events are additions.
 
 ### Added
 
@@ -13,14 +13,19 @@ ISO mdoc support. No breaking changes: existing configuration, the management AP
   - mdoc authentication by device signature over the OpenID4VP session transcript, with key authorizations for device-signed elements;
   - the DeviceResponse version and status rules;
   - DCQL `[namespace, element]` paths with `intent_to_retain`, and the `age_over_NN` rule (an `age_over_21: true` answers a request for `age_over_18`);
-  - `mso_mdoc` in the request's `vp_formats_supported`.
+  - `mso_mdoc` in the request's `vp_formats_supported`;
+  - revocation: the MSO's Token Status List reference is checked like an SD-JWT VC's status;
+  - `allowed_issuers` names an mdoc issuer by its trust anchor's subject name or its trusted-list entity name, never by the document signer's name, which changes on rotation.
+- Conformance warnings: departures from ISO/IEC 18013-5 that the adapter tolerates are accepted and written to the audit trail as `conformance_warning` events. These are a P-384 device key, a document signer valid for more than 457 days or without a CRL distribution point, and a root certificate in the x5chain, which is ignored and never trusted. The policy setting `mdoc_strict_conformance` refuses P-384 device keys.
+- Token Status List in CWT form (draft-ietf-oauth-status-list-21), next to the JWT form. A token served by the eudi-dev wallet is a test fixture.
+- `adapter-crypto-brainpool`, an opt-in module for mdoc signatures on brainpool curves, with BouncyCastle. The service image carries it, off unless `EUDIW_CRYPTO_BRAINPOOL=true`.
 - A strict CBOR decoder and COSE_Sign1 verification in `adapter-core`, cross-checked in tests against Authlete `cbor`.
 - The Compose demo has the eudi-dev wallet present an mdoc PID end to end, and checks that one signed over another session transcript is rejected. CI runs both.
 
 ### Not supported yet
 
-- MSO revocation, which follows the second edition of ISO/IEC 18013-5. Under `require_valid`, an mdoc that carries a status reference is rejected.
-- Device MAC, which needs a reader key that the OpenID4VP flow does not have, and brainpool curves.
+- Device MAC, which needs a reader key that the OpenID4VP flow does not have.
+- MSO status mechanisms other than a Token Status List reference. Under `require_valid` they are rejected.
 
 ## [0.1.1] - 2026-11-17
 
