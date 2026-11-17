@@ -166,7 +166,7 @@ jobs:
 
           - Image: \`$IMAGE:$VERSION\` (\`$DIGEST\`), linux/amd64 and linux/arm64, signed with cosign, SBOM and provenance attached
           - Chart: \`$CHARTS/eudiw-adapter --version $VERSION\`, signed with cosign; also attached below
-          - Web component: [\`@su-engineering/eudiw-request@$VERSION\`](https://www.npmjs.com/package/@su-engineering/eudiw-request/v/$VERSION)
+          - Web component: [\`@su-engineering/eudiw-request@$VERSION\`](https://www.npmjs.com/package/@su-engineering/eudiw-request/v/$VERSION), published with provenance
 
           Verify the image: see [docs/kubernetes.md](https://github.com/$GITHUB_REPOSITORY/blob/v$VERSION/docs/kubernetes.md#image-and-chart).
           NOTES
@@ -185,11 +185,11 @@ jobs:
         with:
           node-version: '24'
           registry-url: https://registry.npmjs.org
-      - name: Publish @su-engineering/eudiw-request with provenance
+      # Trusted publishing (OIDC, no token) allows staging only: a maintainer approves the staged version with
+      # 2FA (npm stage approve, or on npmjs.com) before it becomes installable. See docs/releasing.md.
+      - name: Stage @su-engineering/eudiw-request with provenance
         working-directory: clients/web
         env:
-          # Trusted publishing (OIDC) once it is configured on npmjs.com; NPM_TOKEN only bootstraps the first version.
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           VERSION: ${{ needs.versions.outputs.version }}
         run: |
           npm install --global npm@11
@@ -198,4 +198,4 @@ jobs:
           fi
           cp ../../LICENSE ../../NOTICE .
           npm test
-          npm publish --provenance --access public
+          npm stage publish --provenance --access public

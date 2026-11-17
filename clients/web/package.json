@@ -1,6 +1,6 @@
 {
   "name": "@su-engineering/eudiw-request",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "<eudiw-request> web component: shows an EU Digital Identity Wallet request as a QR code and wallet link and follows the session. For eudiw-adapter.",
   "type": "module",
   "main": "./eudiw-request.js",
