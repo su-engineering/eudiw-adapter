@@ -750,6 +750,29 @@ class VerificationFlowTest {
                 .then()
                 .statusCode(403)
                 .body("code", org.hamcrest.Matchers.equalTo("unknown_client"));
+        // A client id that is not a JSON string is no client id.
+        for (Object azp : List.of(42, List.of("portal-a"), Map.of("id", "portal-a"))) {
+            given().auth()
+                    .oauth2(TestWallet.tokenWith(Map.of("azp", azp)))
+                    .get("/v1/verification-sessions/vrs_x")
+                    .then()
+                    .statusCode(403)
+                    .body("code", org.hamcrest.Matchers.equalTo("unknown_client"));
+        }
+        // Scopes are compared exactly as issued: quotes are not stripped, and a scope that is not a string grants none.
+        for (Object scope : List.of("\"verification:read\"", List.of("verification:read"), 1)) {
+            given().auth()
+                    .oauth2(TestWallet.tokenWith(Map.of("scope", scope)))
+                    .get("/v1/verification-sessions/vrs_x")
+                    .then()
+                    .statusCode(403)
+                    .body("code", org.hamcrest.Matchers.equalTo("insufficient_scope"));
+        }
+        given().auth()
+                .oauth2(TestWallet.tokenWith(Map.of("scope", "verification:read")))
+                .get("/v1/verification-sessions/vrs_x")
+                .then()
+                .statusCode(404);
         given().auth()
                 .oauth2("not.a.token")
                 .get("/v1/verification-sessions/vrs_x")

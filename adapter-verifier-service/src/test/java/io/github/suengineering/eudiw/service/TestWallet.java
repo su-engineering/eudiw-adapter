@@ -82,6 +82,26 @@ public final class TestWallet {
         claims.put("iat", now - 600);
         claims.put("exp", now + lifetimeSeconds);
         claims.put("jti", UUID.randomUUID().toString());
+        return signToken(claims);
+    }
+
+    /** A valid access token for {@code portal-a} with all scopes, and the given claims replaced or added. */
+    public static String tokenWith(Map<String, Object> overrides) {
+        Map<String, Object> claims = new LinkedHashMap<>();
+        long now = Instant.now().getEpochSecond();
+        claims.put("iss", TestEnvironment.TOKEN_ISSUER);
+        claims.put("aud", TestEnvironment.AUDIENCE);
+        claims.put("sub", "service-account-portal-a");
+        claims.put("azp", "portal-a");
+        claims.put("scope", ALL_SCOPES);
+        claims.put("iat", now - 600);
+        claims.put("exp", now + 300);
+        claims.put("jti", UUID.randomUUID().toString());
+        claims.putAll(overrides);
+        return signToken(claims);
+    }
+
+    private static String signToken(Map<String, Object> claims) {
         try {
             JWSObject jws = new JWSObject(
                     new JWSHeader.Builder(JWSAlgorithm.RS256)
