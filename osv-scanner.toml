@@ -1,8 +1,0 @@
-# Known advisories accepted for now, each with a reason and an expiry. CI fails again once ignoreUntil passes.
-
-[[IgnoredVulns]]
-id = "GHSA-ccrj-gw8r-854m"
-ignoreUntil = 2027-01-31
-reason = """opentelemetry-api 1.62.0, tracestate parsing CPU. Comes with Quarkus 3.39.5; reachable only with
-tracing enabled (quarkus.otel.sdk.disabled=true by default). Take the fixed version (1.67.0) with the next Quarkus
-release that ships it rather than overriding the OpenTelemetry BOM under Quarkus."""

@@ -120,4 +120,58 @@ class JdkHttpFetcherTest {
                 .isInstanceOf(HttpFetcher.FetchException.class)
                 .hasMessage("scheme not allowed: http");
     }
+
+    @Test
+    void goesThroughTheConfiguredProxy() throws Exception {
+        java.util.List<String> seen = new java.util.concurrent.CopyOnWriteArrayList<>();
+        HttpServer proxy = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
+        proxy.createContext("/", exchange -> {
+            seen.add(exchange.getRequestURI().toString());
+            byte[] body = "via proxy".getBytes(StandardCharsets.US_ASCII);
+            exchange.sendResponseHeaders(200, body.length);
+            try (OutputStream out = exchange.getResponseBody()) {
+                out.write(body);
+            }
+        });
+        proxy.start();
+        try {
+            // Nothing listens on port 1, so only the proxy can answer.
+            URI target = URI.create("http://127.0.0.1:1/status/7");
+            JdkHttpFetcher fetcher = new JdkHttpFetcher(
+                    LOCAL,
+                    Duration.ofSeconds(5),
+                    JdkHttpFetcher.proxy("127.0.0.1:" + proxy.getAddress().getPort()));
+            byte[] body = fetcher.get(target, "*/*", 1024);
+            assertThat(new String(body, StandardCharsets.US_ASCII)).isEqualTo("via proxy");
+            assertThat(seen).containsExactly(target.toString());
+        } finally {
+            proxy.stop(0);
+        }
+    }
+
+    @Test
+    void theEgressPolicyStillAppliesBehindAProxy() {
+        JdkHttpFetcher fetcher =
+                new JdkHttpFetcher(EgressPolicy.STRICT, Duration.ofSeconds(5), JdkHttpFetcher.proxy("proxy.test:3128"));
+        assertThatThrownBy(() -> fetcher.get(URI.create("https://127.0.0.1/list"), "*/*", 1024))
+                .isInstanceOf(HttpFetcher.FetchException.class)
+                .hasMessage("host resolves to a non-public address");
+    }
+
+    @Test
+    void parsesTheProxySetting() {
+        assertThat(JdkHttpFetcher.proxy("proxy.internal:3128"))
+                .satisfies(a -> assertThat(a.getHostString()).isEqualTo("proxy.internal"))
+                .satisfies(a -> assertThat(a.getPort()).isEqualTo(3128));
+        assertThat(JdkHttpFetcher.proxy(" http://10.0.0.5:8080/ ").getPort()).isEqualTo(8080);
+        for (String bad : new String[] {
+            "proxy.internal",
+            "https://proxy:443",
+            "http://user:pw@proxy:3128",
+            "http://proxy:3128/path",
+            "socks5://p:1080"
+        }) {
+            assertThatThrownBy(() -> JdkHttpFetcher.proxy(bad)).as(bad).isInstanceOf(IllegalArgumentException.class);
+        }
+    }
 }

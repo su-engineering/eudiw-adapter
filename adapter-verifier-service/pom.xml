@@ -17,7 +17,8 @@
     <dependencies>
       <!-- Ahead of the Quarkus BOM, which still pins versions with known DoS advisories:
            Jackson GHSA-7hhh-6rmp-j9qf, GHSA-p6pp-m3f8-5c89, GHSA-cxp5-3px4-pw24, GHSA-wv8q-qhhj-9h54 and
-           Guava GHSA-xxph-c9ww-hj94. Drop these when the Quarkus BOM catches up. -->
+           Guava GHSA-xxph-c9ww-hj94, OpenTelemetry GHSA-ccrj-gw8r-854m. Drop these when the Quarkus BOM catches
+           up. The OpenTelemetry API is backward compatible, so instrumentation built for an older API keeps working. -->
       <dependency>
         <groupId>com.fasterxml.jackson</groupId>
         <artifactId>jackson-bom</artifactId>
@@ -29,6 +30,20 @@
         <groupId>com.google.guava</groupId>
         <artifactId>guava</artifactId>
         <version>33.7.2-jre</version>
+      </dependency>
+      <dependency>
+        <groupId>io.opentelemetry</groupId>
+        <artifactId>opentelemetry-bom</artifactId>
+        <version>1.67.0</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>io.opentelemetry</groupId>
+        <artifactId>opentelemetry-bom-alpha</artifactId>
+        <version>1.67.0-alpha</version>
+        <type>pom</type>
+        <scope>import</scope>
       </dependency>
       <dependency>
         <groupId>io.quarkus.platform</groupId>
