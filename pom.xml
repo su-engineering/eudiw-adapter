@@ -34,6 +34,7 @@
   <properties>
     <assertj.version>3.27.7</assertj.version>
     <authlete-sd-jwt.version>1.11</authlete-sd-jwt.version>
+    <authlete-cbor.version>1.21</authlete-cbor.version>
     <bouncycastle.version>1.86</bouncycastle.version>
     <jdk.version>21</jdk.version>
     <junit.version>6.0.3</junit.version>
@@ -59,6 +60,13 @@
         <groupId>com.authlete</groupId>
         <artifactId>sd-jwt</artifactId>
         <version>${authlete-sd-jwt.version}</version>
+        <scope>test</scope>
+      </dependency>
+      <dependency>
+        <!-- Independent CBOR and COSE implementation, test scope only (ADR-012) -->
+        <groupId>com.authlete</groupId>
+        <artifactId>cbor</artifactId>
+        <version>${authlete-cbor.version}</version>
         <scope>test</scope>
       </dependency>
       <dependency>
