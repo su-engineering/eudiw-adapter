@@ -1,7 +1,7 @@
 # Runtime image for the verifier service. Build the application first:
 #   ./mvnw -pl adapter-verifier-service -am package -DskipTests
 # glibc base, so vendor PKCS#11 libraries for HSMs and KMSs can be loaded.
-FROM eclipse-temurin:21.0.9_10-jre-noble@sha256:d3eb69add1874bc785382d6282db53a67841f602a1139dee6c4a1221d8c56568
+FROM eclipse-temurin:24.0.2_12-jre-noble@sha256:b416d02335e702b0403ff280de9475a3348e29382285969c9d4e17862ce632e7
 
 # Optional OS packages, for example "softhsm2 opensc openssl" for the local demo. Empty for production images.
 ARG EXTRA_PACKAGES=""
