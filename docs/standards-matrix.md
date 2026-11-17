@@ -24,7 +24,7 @@ States: `not implemented`, `implemented` (code exists), `tested` (automated test
 | Feature | Status |
 | --- | --- |
 | DCQL query construction and response checks | tested: OpenID4VP 1.0 section 7.3 and Appendix D examples, claim sets, credential sets, `trusted_authorities` (`aki`, `etsi_tl`) |
-| SD-JWT VC: issuer signature, disclosures, key binding | interop-tested: RFC 9901 worked examples, rejection cases, differential test against Authlete `sd-jwt` 1.11, eudi-dev wallet v3.8.0 (2026-11-16) |
+| SD-JWT VC: issuer signature, disclosures, key binding | interop-tested: RFC 9901 worked examples, rejection cases, differential test against Authlete `sd-jwt` 1.11, eudi-dev wallet v3.8.0 (2026-11-16), OpenID Foundation suite `oid4vp-1final-verifier-haip-test-plan`: 14 modules with the expected outcome and no failures or warnings in the suite log, not certified ([details](../interop/oidf/README.md), 2026-11-17) |
 | ISO mdoc: issuer and device authentication | not implemented |
 | `direct_post.jwt` with response encryption | interop-tested: OpenID4VP 1.0 section 8.3 example; eudi-dev wallet v3.8.0 with `--haip --arf --mode strict` (2026-11-16) |
 | `x509_hash` client identifier, signed request objects | interop-tested: eudi-dev wallet v3.8.0 with `--haip --arf --mode strict` (2026-11-16): it accepts our access certificate chain under the configured relying-party CA and refuses it under a different CA. Over plain HTTP in tests |

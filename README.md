@@ -207,7 +207,7 @@ Docker image, Compose demo, and a Helm chart that runs under the restricted Pod 
 <td valign="top">
 
 **🧪 Tested against others' work**<br>
-RFC 9901 and OpenID4VP worked examples, a differential test against a second SD-JWT implementation, 5,000 mutated inputs, and the independent eudi-dev wallet in strict HAIP and ARF mode.
+RFC 9901 and OpenID4VP worked examples, a differential test against a second SD-JWT implementation, 5,000 mutated inputs, the independent eudi-dev wallet in strict HAIP and ARF mode, and the OpenID Foundation HAIP verifier test plan run locally ([results](interop/oidf/README.md)).
 
 </td>
 </tr>
@@ -255,7 +255,8 @@ Test evidence per feature: [standards and feature status](docs/standards-matrix.
 - [x] Signed webhooks, HSM/KMS request signing, Helm chart
 - [ ] ISO mdoc (`mso_mdoc`)
 - [ ] OCSP
-- [ ] OpenID Foundation conformance results, more wallets, real devices
+- [x] OpenID Foundation HAIP verifier test plan, run locally (not certified)
+- [ ] Certification, more wallets, real devices
 - [ ] Digital Credentials API
 
 ## 📚 Documentation
