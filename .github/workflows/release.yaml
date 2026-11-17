@@ -148,7 +148,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        # Only the release assets: the run also holds CI's test reports.
         with:
+          pattern: '{chart,sbom}'
           path: assets
           merge-multiple: true
       - name: Create the GitHub release
@@ -157,7 +159,7 @@ jobs:
           VERSION: ${{ needs.versions.outputs.version }}
           DIGEST: ${{ needs.image.outputs.digest }}
         run: |
-          awk -v v="$VERSION" '$0 ~ "^## \\[" v "\\]" {on=1; next} on && /^## \[/ {exit} on' CHANGELOG.md > notes.md
+          awk -v v="$VERSION" '$0 ~ "^## \\[" v "\\]" {on=1; next} on && /^## \[/ {exit} on && !/^\[[^]]*\]: /' CHANGELOG.md > notes.md
           cat >> notes.md <<NOTES
 
           ### Artifacts
