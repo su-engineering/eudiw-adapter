@@ -109,7 +109,7 @@ class StatusListCwtTest {
                 java.nio.file.Path.of("src/test/resources/status/eudi-dev-statuslist.cwt"));
         X509Certificate ca = (X509Certificate) java.security.cert.CertificateFactory.getInstance("X.509")
                 .generateCertificate(java.nio.file.Files.newInputStream(
-                        java.nio.file.Path.of("src/test/resources/status/eudi-dev-wallet-ca.pem")));
+                        java.nio.file.Path.of("src/test/resources/status/eudi-dev-wallet-ca.crt")));
         StatusListChecker checker = new StatusListChecker(
                 (uri, accept, maxBytes) -> token,
                 () -> Set.of(new TrustAnchor(ca, null)),
