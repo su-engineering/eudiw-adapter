@@ -73,7 +73,15 @@ public class AuditTrail {
             Instant now) {
         AUDIT.infof(
                 "action=%s outcome=%s code=%s tenant=%s client=%s policy=%s session=%s revision=%s at=%s",
-                action, outcome, tag(code), tenantId, tag(clientId), tag(policyId), tag(sessionId), tag(revision), now);
+                tag(action),
+                tag(outcome),
+                tag(code),
+                tag(tenantId),
+                tag(clientId),
+                tag(policyId),
+                tag(sessionId),
+                tag(revision),
+                now);
         Counter.builder("eudiw.events")
                 .description("Session events by action, outcome and reason code")
                 .tag("tenant", tenantId)
@@ -86,7 +94,12 @@ public class AuditTrail {
                 .increment();
     }
 
-    private static String tag(String value) {
-        return value == null ? "none" : value;
+    /**
+     * A value for the audit line or a metric tag. Line breaks and other control characters are replaced, so a value
+     * can never start a forged audit line. Configuration ids are already restricted when the file is loaded; this
+     * holds whatever the source.
+     */
+    static String tag(String value) {
+        return value == null ? "none" : value.replaceAll("[\\r\\n\\p{Cntrl}]", "?");
     }
 }
