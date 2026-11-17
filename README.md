@@ -14,7 +14,7 @@
 ![SD-JWT VC](https://img.shields.io/badge/SD--JWT_VC-RFC_9901-8b5cf6)
 [![Helm](https://img.shields.io/badge/Helm-chart-0f1689?logo=helm&logoColor=white)](docs/kubernetes.md)
 
-[**Quickstart**](#-quickstart) · [**How it works**](#-how-it-works) · [**Features**](#-features) · [**Docs**](#-documentation) · [**Security**](SECURITY.md)
+[**Quickstart**](#quickstart) · [**How it works**](#how-it-works) · [**Features**](#features) · [**Docs**](#documentation) · [**Security**](SECURITY.md)
 
 </div>
 
@@ -55,7 +55,7 @@ That's all. Nothing else the wallet disclosed ever reaches your systems.
 
 **Typical uses:** age verification without collecting a birth date, attribute checks at onboarding or checkout (residency, nationality, a qualification), adding wallet presentation to an existing web or mobile product. For wallet *login* inside Keycloak, see [keycloak-oid4vp](https://github.com/su-engineering/keycloak-oid4vp).
 
-## ⚡ Quickstart
+## Quickstart
 
 Requirements: Docker, Java 21, `curl`, `jq`.
 
@@ -75,7 +75,7 @@ The demo runs PostgreSQL, Keycloak (as your OAuth server) and the adapter, then 
 
 The same demo runs in CI on every commit. It uses plain HTTP on localhost with `EUDIW_PRODUCTION=false`; production requires HTTPS.
 
-## 🔍 How it works
+## How it works
 
 ```mermaid
 sequenceDiagram
@@ -138,19 +138,19 @@ Show `launch_uri` as a link on the same device or as a QR code across devices. I
 
 </details>
 
-## ✨ Features
+## Features
 
 <table>
 <tr>
 <td width="50%" valign="top">
 
-**🔐 Verification you don't have to write**<br>
+**Verification you don't have to write**<br>
 SD-JWT VC (RFC 9901): issuer signature, disclosure digests, key binding to your nonce and client identifier, Token Status List revocation and suspension.
 
 </td>
 <td width="50%" valign="top">
 
-**📜 OpenID4VP 1.0 as HAIP 1.0 profiles it**<br>
+**OpenID4VP 1.0 as HAIP 1.0 profiles it**<br>
 Signed request objects by `request_uri`, `x509_hash` client identifier, `direct_post.jwt` encrypted to a fresh key per request, DCQL with claim sets, credential sets and `trusted_authorities`.
 
 </td>
@@ -158,13 +158,13 @@ Signed request objects by `request_uri`, `x509_hash` client identifier, `direct_
 <tr>
 <td valign="top">
 
-**🧾 Data minimization by design**<br>
+**Data minimization by design**<br>
 Each policy names the claims that may leave the service. Results are encrypted at rest, retrievable once and expire. The raw presentation is never stored.
 
 </td>
 <td valign="top">
 
-**🏛️ ETSI trusted lists**<br>
+**ETSI trusted lists**<br>
 Issuer trust from signed TS 119 602 lists (such as the EU PID providers list) and TS 119 612 lists including the EU list of trusted lists. Pinned signers, freshness checks, rollback protection. Tested with synthetic lists so far.
 
 </td>
@@ -172,13 +172,13 @@ Issuer trust from signed TS 119 602 lists (such as the EU PID providers list) an
 <tr>
 <td valign="top">
 
-**🔑 HSM and KMS keys**<br>
+**HSM and KMS keys**<br>
 Request-signing keys can stay in an HSM or KMS through PKCS#11. Tested with SoftHSM, which the demo signs with.
 
 </td>
 <td valign="top">
 
-**🚫 Fails closed**<br>
+**Fails closed**<br>
 Unknown issuer, broken chain, revoked certificate (CRL) or credential, unknown status, replayed key binding or late response: rejected, with a coarse reason code.
 
 </td>
@@ -186,13 +186,13 @@ Unknown issuer, broken chain, revoked certificate (CRL) or credential, unknown s
 <tr>
 <td valign="top">
 
-**🏢 Multi-tenant**<br>
+**Multi-tenant**<br>
 Tenants, clients and policies from configuration. The tenant always comes from the caller's OAuth token, never from the request. Anchors and caches are per policy.
 
 </td>
 <td valign="top">
 
-**📣 Signed webhooks**<br>
+**Signed webhooks**<br>
 Standard Webhooks HMAC signatures, queued in the same database statement that ends the session, retried with backoff. They carry the session id and status, never claims.
 
 </td>
@@ -200,20 +200,20 @@ Standard Webhooks HMAC signatures, queued in the same database statement that en
 <tr>
 <td valign="top">
 
-**☸️ Ready to run**<br>
+**Ready to run**<br>
 Docker image, Compose demo, and a Helm chart that runs under the restricted Pod Security Standard. Any number of replicas share state through PostgreSQL.
 
 </td>
 <td valign="top">
 
-**🧪 Tested against others' work**<br>
+**Tested against others' work**<br>
 RFC 9901 and OpenID4VP worked examples, a differential test against a second SD-JWT implementation, 5,000 mutated inputs, the independent eudi-dev wallet in strict HAIP and ARF mode, and the OpenID Foundation HAIP verifier test plan run locally ([results](interop/oidf/README.md)).
 
 </td>
 </tr>
 </table>
 
-## 🧱 Architecture
+## Architecture
 
 ```mermaid
 flowchart LR
@@ -233,7 +233,7 @@ flowchart LR
 | [`adapter-core`](adapter-core) | Verification library: SD-JWT VC, DCQL, X.509 chains, trusted lists, status lists, CRLs, request objects, response decryption. Java 21 with Nimbus JOSE+JWT, no framework, usable without the service |
 | [`adapter-verifier-service`](adapter-verifier-service) | Quarkus service: management API, wallet endpoints, PostgreSQL state, webhooks, audit |
 
-## 📐 Standards
+## Standards
 
 | Standard | Version |
 | --- | --- |
@@ -247,7 +247,7 @@ flowchart LR
 
 Test evidence per feature: [standards and feature status](docs/standards-matrix.md).
 
-## 🗺️ Roadmap
+## Roadmap
 
 - [x] SD-JWT VC verification, OpenID4VP 1.0 + HAIP 1.0, DCQL
 - [x] ETSI trusted lists (TS 119 602, TS 119 612, EU LOTL)
@@ -259,7 +259,7 @@ Test evidence per feature: [standards and feature status](docs/standards-matrix.
 - [ ] Certification, more wallets, real devices
 - [ ] Digital Credentials API
 
-## 📚 Documentation
+## Documentation
 
 | | |
 | --- | --- |
@@ -269,7 +269,7 @@ Test evidence per feature: [standards and feature status](docs/standards-matrix.
 | [Threat model](docs/threat-model.md) | What it defends against, and what it doesn't |
 | [Standards and feature status](docs/standards-matrix.md) | Pinned versions and test evidence |
 
-## 🛠️ Build
+## Build
 
 ```bash
 ./mvnw clean verify
@@ -277,7 +277,7 @@ Test evidence per feature: [standards and feature status](docs/standards-matrix.
 
 Service tests start PostgreSQL and the eudi-dev wallet with Testcontainers, so Docker must be running.
 
-## 🔒 Security
+## Security
 
 Report vulnerabilities privately; see [SECURITY.md](SECURITY.md).
 
