@@ -46,7 +46,7 @@ import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 /**
  * A synthetic mdoc issuer for rejection cases the independent fixtures cannot produce: an IACA, a document
  * signer under it, and Documents whose MSO this test code signs. Not a reference: correctness is anchored by the
- * eudi-dev fixtures and the ISO Annex D check.
+ * independent eudi-dev fixtures.
  */
 final class TestMdocIssuer {
 
