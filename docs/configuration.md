@@ -142,7 +142,7 @@ JVM, process and connection pool metrics are included. HTTP server metrics are n
 
 ## mdoc
 
-A policy can request an ISO mdoc with `"format": "mso_mdoc"`, a `meta.doctype_value`, and claim paths of the form `[namespace, element]`, optionally with `intent_to_retain` (OpenID4VP 1.0 Appendix B.2):
+A policy can request an ISO mdoc (ISO/IEC 18013-5) with `"format": "mso_mdoc"`, a `meta.doctype_value`, and claim paths of the form `[namespace, element]`, optionally with `intent_to_retain` (OpenID4VP 1.0 Appendix B.2). An mDL:
 
 ```json
 "dcql": { "credentials": [ { "id": "mdl", "format": "mso_mdoc",
@@ -151,13 +151,45 @@ A policy can request an ISO mdoc with `"format": "mso_mdoc"`, a `meta.doctype_va
 "output": { "age_over_18": { "credential": "mdl", "path": ["org.iso.18013.5.1", "age_over_18"] } }
 ```
 
-- Document signer certificates validate to the policy's `trust_anchors_file` and `trusted_lists`, as for SD-JWT VC, with CRLs when `certificate_revocation` is `crl`. For the mDL doctype the IACA rules also apply: the document signer carries the mDL document signer extended key usage and the digitalSignature key usage, the IACA's country (and state, when it has one), and a returned `issuing_country` or `issuing_jurisdiction` must match it.
-- `allowed_issuers` compares against the document signer certificate's subject name.
-- Values come back as JSON: dates as their text, byte strings (such as a portrait) as base64url.
-- The wallet proves possession of the device key bound in the MSO by signing this request's session transcript. A device MAC is not accepted, because the OpenID4VP flow has no reader key to derive it from.
-- A request for `age_over_NN` is also answered by a nearby attestation: `age_over_21: true` satisfies `age_over_18`.
-- Only issuer-signed elements are returned; device-signed elements are checked but never returned.
-- An MSO status reference cannot be checked yet ([ADR-012](adr/0012-mdoc.md)): `require_valid` rejects such an mdoc, `reject_known_invalid` accepts it.
+An EU PID in mdoc form uses the doctype and namespace `eu.europa.ec.eudi.pid.1`. The Compose demo has this policy (`age-over-18-mdoc` in [tenants.json](../deploy/compose/config/tenants.json)):
+
+```json
+"dcql": { "credentials": [ { "id": "pid", "format": "mso_mdoc",
+  "meta": { "doctype_value": "eu.europa.ec.eudi.pid.1" },
+  "claims": [ { "path": ["eu.europa.ec.eudi.pid.1", "age_over_18"], "intent_to_retain": false } ] } ] },
+"output": { "age_over_18": { "credential": "pid", "path": ["eu.europa.ec.eudi.pid.1", "age_over_18"] } },
+"allowed_issuers": ["CN=Demo Issuer (synthetic)"]
+```
+
+A policy that asks for `mso_mdoc` adds `mso_mdoc` to `vp_formats_supported` in its requests, with the COSE algorithms the adapter accepts.
+
+**What is checked**
+- **Issuer.** The MSO's signature, with the algorithm pinned to the signer key's curve (P-256, P-384, P-521, Ed25519, Ed448). The digest of every returned element. The docType, and the MSO's validity period. Document signer certificates validate to the policy's `trust_anchors_file` and `trusted_lists`, as for SD-JWT VC, with CRLs when `certificate_revocation` is `crl`. The x5chain carries the document signer (and any intermediates), not the root.
+- **The mDL certificate rules.** For the `org.iso.18013.5.1.mDL` doctype, the IACA rules apply too. The document signer carries:
+  - the mDL document signer extended key usage and the digitalSignature key usage;
+  - the IACA's country, and its state when the IACA has one.
+
+  A returned `issuing_country` or `issuing_jurisdiction` must match the document signer.
+- **The holder.** The wallet proves possession of the device key bound in the MSO by signing this request's session transcript (client identifier, nonce, response URI and encryption key). A response made for another request does not verify. A device MAC is not accepted, because the OpenID4VP flow has no reader key to derive it from.
+- **The response.** One document per DeviceResponse (HAIP 1.0), of the requested doctype, with status 0.
+
+**What comes back**
+- Only issuer-signed elements. Device-signed elements are checked against the MSO's key authorizations but never returned.
+- Values as JSON: dates as their text, byte strings (such as a portrait) as base64url.
+- A request for `age_over_NN` is also answered by a nearby attestation, as ISO/IEC 18013-5 intends. `age_over_21: true` satisfies `age_over_18`, and `age_over_16: false` answers it with false. The value is reported under the requested name.
+- `allowed_issuers` compares against the document signer certificate's subject name, in RFC 4514 form such as `CN=Demo Issuer (synthetic)`. The result's `credential_evidence` names it as the issuer.
+
+**Not supported yet** ([ADR-012](adr/0012-mdoc.md))
+- **MSO revocation**, which follows the second edition of ISO/IEC 18013-5. An MSO that carries a status reference has unknown status: `require_valid` rejects it, while `reject_known_invalid` accepts it.
+- Brainpool curves and device MAC.
+
+**Rejection reasons specific to mdoc**
+- `holder_binding_invalid`: the device signature does not verify for this request, a device MAC was sent, or a device-signed element is not authorized.
+- `unprocessable_presentation`: the DeviceResponse reports a non-zero status.
+- `credential_mismatch`: the MSO's docType differs from the document, or `issuing_country` or `issuing_jurisdiction` differs from the certificate.
+- `malformed_credential`: the presentation is not valid CBOR or lacks a mandatory part.
+
+All other reasons are the same as for SD-JWT VC.
 
 ## Trusted lists
 

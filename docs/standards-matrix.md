@@ -9,7 +9,7 @@ Pinned versions. Changes go through a reviewed ADR and tests. "Supported" means 
 | RFC 9901, Selective Disclosure for JWTs | Standards Track | November 2025 | SD-JWT |
 | SD-JWT VC | version referenced by HAIP 1.0 | | `dc+sd-jwt` credentials |
 | Token Status List | version referenced by HAIP 1.0 | | Revocation and suspension |
-| ISO/IEC 18013-5 | First edition | 2021 | mdoc issuer data authentication ([ADR-012](adr/0012-mdoc.md)) |
+| ISO/IEC 18013-5 | First edition | 2021 | mdoc issuer data authentication, mdoc authentication by device signature, DeviceResponse, age attestations ([ADR-012](adr/0012-mdoc.md)). The second edition (MSO revocation) is not yet published |
 | ETSI TS 119 602 (lists of trusted entities) | V1.1.1 | | PID provider and other EU lists, JSON binding |
 | ETSI TS 119 612 (trusted lists) | V2.4.1 | | XML trusted lists and the EU list of trusted lists |
 | ETSI TS 119 182-1 (JAdES) | V1.2.1 | | Compact signatures on TS 119 602 lists |

@@ -37,6 +37,7 @@ The EU Digital Identity Wallet (EUDI Wallet, eIDAS 2.0) lets people prove facts 
 - build and sign OpenID4VP request objects
 - decrypt `direct_post.jwt` responses (ECDH-ES)
 - verify SD-JWT disclosures and key binding
+- parse CBOR and verify ISO mdoc issuer and device signatures
 - validate issuer X.509 chains, trusted lists, CRLs
 - check Token Status Lists
 - decide what personal data to keep, and protect it
@@ -66,13 +67,14 @@ git clone https://github.com/su-engineering/eudiw-adapter.git && cd eudiw-adapte
 ```
 
 <div align="center">
-<img src="docs/assets/demo.svg" alt="Demo output: a session is created, the wallet presents, the result contains only age_over_18 true, and an untrusted issuer is rejected" width="88%">
+<img src="docs/assets/demo.svg" alt="Demo output: a session is created, the wallet presents, the result contains only age_over_18 true, an untrusted issuer is rejected, the same check passes with an ISO mdoc, and an mdoc signed for another session is rejected" width="88%">
 </div>
 
 The demo runs PostgreSQL, Keycloak (as your OAuth server) and the adapter, then plays both sides with the independent [eudi-dev](https://github.com/eudi-dev/eudi-dev) wallet in HAIP mode:
 - The adapter's request-signing key is generated inside SoftHSM and never leaves it.
 - Issuer trust comes from a signed ETSI trusted list.
 - The credential also holds a name, but only `age_over_18` comes back.
+- The same check then runs with an ISO mdoc PID, and an mdoc signed over another session's transcript is rejected.
 
 The same demo runs in CI on every commit. It uses plain HTTP on localhost with `EUDIW_PRODUCTION=false`; production requires HTTPS.
 
@@ -95,8 +97,8 @@ sequenceDiagram
     App-)W: user opens the link or scans the QR code
     W->>A: fetch request_uri
     A-->>W: signed request object (x509_hash, DCQL, fresh encryption key)
-    W->>A: direct_post.jwt (encrypted SD-JWT VC presentation)
-    Note over A: decrypt · verify issuer chain and trusted list<br/>key binding · status list · CRL · DCQL<br/>keep only the policy's output claims
+    W->>A: direct_post.jwt (encrypted SD-JWT VC or mdoc presentation)
+    Note over A: decrypt · verify issuer chain and trusted list<br/>key binding or device signature · status list · CRL · DCQL<br/>keep only the policy's output claims
     A-->>W: redirect_uri with one-time response_code (same device)
     A--)App: signed webhook (optional) or poll
     App->>A: GET /v1/verification-sessions/{id}/result
@@ -306,7 +308,7 @@ The full, ordered list is in [ROADMAP.md](ROADMAP.md).
 | | |
 | --- | --- |
 | [Architecture](docs/architecture.md) and [decisions](docs/adr/) | How it is built and why |
-| [Configuration](docs/configuration.md) | Tenants, policies, registration, trusted lists, webhooks, HSM keys, metrics and reload |
+| [Configuration](docs/configuration.md) | Tenants, policies, [ISO mdoc](docs/configuration.md#mdoc), registration, trusted lists, webhooks, HSM keys, metrics and reload |
 | [Web component](clients/web) and [examples](examples) | Frontend and backend integration in Node and Python |
 | [Kubernetes and Helm](docs/kubernetes.md) | Deploying the chart |
 | [Threat model](docs/threat-model.md) | What it defends against, and what it doesn't |
@@ -318,7 +320,7 @@ The full, ordered list is in [ROADMAP.md](ROADMAP.md).
 ./mvnw clean verify
 ```
 
-Service tests start PostgreSQL and the eudi-dev wallet with Testcontainers, so Docker must be running.
+Service tests start PostgreSQL and the eudi-dev wallet with Testcontainers, so Docker must be running. The ISO mdoc code is built from clause references and our own descriptions of requirements; the ISO text is not reproduced in this repository ([ADR-012](docs/adr/0012-mdoc.md)).
 
 ## Security
 
