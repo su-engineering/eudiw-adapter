@@ -3,10 +3,12 @@
 [[IgnoredVulns]]
 id = "GHSA-ccrj-gw8r-854m"
 ignoreUntil = 2027-01-31
-reason = """opentelemetry-api 1.62.0, tracestate parsing CPU. Comes with Quarkus 3.39.5; reachable only with
-tracing enabled (quarkus.otel.sdk.disabled=true by default). Take the fixed version (1.67.0) with the next Quarkus
-release that ships it. Overriding the OpenTelemetry BOM to 1.67.0 under Quarkus 3.39.5 was tried and breaks
-tracing: the Quarkus instrumentation (2.28.1) calls io.opentelemetry.api.internal.InstrumentationUtil, which
-1.67.0 no longer has, so every traced request fails with NoClassDefFoundError. Moving the instrumentation BOM to
-2.33.1 as well fixes that, but the Quarkus OTLP exporter then fails at startup with NoSuchMethodError on
-ExporterBuilderUtil.validateEndpoint, also an internal API that changed in 1.67.0 (checked again for 0.2.1)."""
+reason = """opentelemetry-api 1.62.0 (managed by Quarkus 3.39.5) parses tracestate with a regex that is quadratic on
+runs of spaces or tabs. The disabled SDK keeps the W3C propagator, so this was treated as reachable with tracing off,
+the default. Mitigated in code (BoundedTraceContextPropagator): with tracing off, the HTTP server's tracing policy is
+IGNORE, so the tracer returns before reading any header; with tracing on, the W3C propagator is wrapped so a
+tracestate over 512 characters is dropped before parsing, the workaround the advisory names. The fixed 1.67.0 cannot
+be forced under Quarkus 3.39: with the 1.67.0 API, Quarkus' instrumentation 2.28.1 fails with NoClassDefFoundError
+(InstrumentationUtil), and with instrumentation 2.33.1 as well, its OTLP exporter fails at startup with
+NoSuchMethodError (ExporterBuilderUtil.validateEndpoint). Take 1.67.0 with the first Quarkus release that ships it,
+then delete BoundedTraceContextPropagator."""
