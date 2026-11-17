@@ -84,6 +84,7 @@ Relative paths resolve against the directory of the tenants file.
 - `certificate_revocation`: `crl` checks every issuer chain certificate except the anchor against its CRL, and rejects when a CRL is missing, stale or unreachable; `off` (default) does not check. CRLs are fetched over HTTP or HTTPS from public addresses only ([ADR-007](adr/0007-certificate-revocation.md)).
 - `status_policy`: `require_valid` (default; an unavailable status list rejects), `reject_known_invalid` (revoked or suspended rejects, unavailable is tolerated) or `ignore` (not allowed in production).
 - `enforce_trusted_authorities`: reject credentials that match none of the query's `trusted_authorities` (default `true`).
+- `mdoc_strict_conformance`: refuse mdoc departures from ISO/IEC 18013-5 that are otherwise accepted with a conformance warning; today, a P-384 device key (default `false`, see [mdoc](#mdoc)).
 - `session_ttl_seconds`: at most 900. `result_ttl_seconds`: at most 3600.
 - `registration`: optional. What the relying party registered for this intended use, sent to wallets in `verifier_info` as ETSI TS 119 472-2 requires. See [Registration](#registration).
 
@@ -207,7 +208,7 @@ All other reasons are the same as for SD-JWT VC.
 
 ### Brainpool curves
 
-ISO/IEC 18013-5 lets mdoc signatures use the brainpool curves (brainpoolP256r1, P320r1, P384r1, P512r1). The JDK cannot verify them, so they need BouncyCastle, which ships in the opt-in `adapter-crypto-brainpool` module. The service image carries it, turned off. Set `EUDIW_CRYPTO_BRAINPOOL=true` (`eudiw.crypto.brainpool`) to turn it on; the startup log says so. BouncyCastle is then used only where a brainpool key is involved, and everything else keeps the JDK's providers ([ADR-012](adr/0012-mdoc.md)). In a Java application using `adapter-core` directly, add `io.github.su-engineering:adapter-crypto-brainpool` and call `BrainpoolSupport.enable()` once at startup.
+ISO/IEC 18013-5 lets mdoc signatures use the brainpool curves (brainpoolP256r1, P320r1, P384r1, P512r1). The JDK cannot verify them, so they need BouncyCastle, which ships in the opt-in `adapter-crypto-brainpool` module. The service image carries it, turned off. Set `EUDIW_CRYPTO_BRAINPOOL=true` (`eudiw.crypto.brainpool`) to turn it on, with the chart through `extraEnv`; the startup log says so. BouncyCastle is then used only where a brainpool key is involved, and everything else keeps the JDK's providers ([ADR-012](adr/0012-mdoc.md)). In a Java application using `adapter-core` directly, add `io.github.su-engineering:adapter-crypto-brainpool` and call `BrainpoolSupport.enable()` once at startup.
 
 ## Trusted lists
 
