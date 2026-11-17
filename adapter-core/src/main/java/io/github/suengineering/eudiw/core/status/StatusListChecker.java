@@ -43,12 +43,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
 /**
  * Resolves the status of a Referenced Token from a Status List Token (Token Status List, section 8.3), in JWT form
  * (section 5.1) or CWT form (section 5.2). The Status List Token must be signed with a key from an {@code x5c} or
  * {@code x5chain} certificate chain that validates to the configured trust anchors (HAIP 1.0 section 6.1).
+ *
+ * <p>A cached list is used only while the certificate its token validated to is still a trust anchor, so a trusted
+ * list update that withdraws a status provider takes effect at once. Concurrent checks of one list share one fetch.
  *
  * <p>A list that cannot be fetched, verified or indexed yields {@link StatusDecision.Result#INDETERMINATE}; the
  * caller's policy decides whether that rejects the credential.
@@ -80,8 +86,9 @@ public final class StatusListChecker {
     private final int maxListBytes;
     private final Map<String, CachedList> cache;
     private final int maxCacheEntries;
+    private final Map<String, CompletableFuture<StatusList>> inFlight = new ConcurrentHashMap<>();
 
-    private record CachedList(StatusList list, Instant until) {}
+    private record CachedList(StatusList list, Instant until, X509Certificate anchor) {}
 
     public StatusListChecker(
             HttpFetcher fetcher,
@@ -157,10 +164,44 @@ public final class StatusListChecker {
         Instant now = clock.instant();
         synchronized (cache) {
             CachedList cached = cache.get(key);
-            if (cached != null && now.isBefore(cached.until())) {
+            if (cached != null && now.isBefore(cached.until()) && isAnchor(cached.anchor())) {
                 return cached.list();
             }
         }
+        CompletableFuture<StatusList> mine = new CompletableFuture<>();
+        CompletableFuture<StatusList> running = inFlight.putIfAbsent(key, mine);
+        if (running != null) {
+            try {
+                return running.join();
+            } catch (CompletionException e) {
+                if (e.getCause() instanceof VerificationFailure failure) {
+                    throw failure;
+                }
+                throw e;
+            }
+        }
+        try {
+            StatusList list = fetch(uri, key, accept, now);
+            mine.complete(list);
+            return list;
+        } catch (RuntimeException e) {
+            mine.completeExceptionally(e);
+            throw e;
+        } finally {
+            inFlight.remove(key, mine);
+        }
+    }
+
+    private boolean isAnchor(X509Certificate certificate) {
+        for (TrustAnchor anchor : trustAnchors.get()) {
+            if (certificate.equals(anchor.getTrustedCert())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private StatusList fetch(String uri, String key, String accept, Instant now) {
         byte[] body;
         try {
             body = fetcher.get(URI.create(uri), accept, maxTokenBytes);
@@ -172,12 +213,25 @@ public final class StatusListChecker {
                 ? verifyCwt(body, uri, now)
                 : verifyToken(new String(body, StandardCharsets.US_ASCII).strip(), uri, now);
         synchronized (cache) {
-            cache.put(key, new CachedList(verified.list(), verified.cacheUntil()));
+            cache.put(key, new CachedList(verified.list(), verified.cacheUntil(), verified.anchor()));
         }
         return verified.list();
     }
 
-    private record Verified(StatusList list, Instant cacheUntil) {}
+    private record Verified(StatusList list, Instant cacheUntil, X509Certificate anchor) {}
+
+    /** The chain's validated end-entity certificate and anchor, and the earliest time a certificate on it expires. */
+    private record Signer(X509Certificate leaf, X509Certificate anchor, Instant notAfter) {}
+
+    private Signer validate(List<X509Certificate> chain, Instant now) {
+        CertificateChainValidator.ValidatedPath path =
+                CertificateChainValidator.validatePath(chain, trustAnchors.get(), now);
+        Instant notAfter = path.anchor().getNotAfter().toInstant();
+        for (X509Certificate certificate : chain) {
+            notAfter = min(notAfter, certificate.getNotAfter().toInstant());
+        }
+        return new Signer(path.leaf(), path.anchor(), notAfter);
+    }
 
     Verified verifyToken(String compact, String expectedUri, Instant now) {
         JWSObject jws;
@@ -195,8 +249,8 @@ public final class StatusListChecker {
         }
         List<X509Certificate> chain =
                 CertificateChainValidator.parse(x5c.stream().map(Base64::decode).toList());
-        X509Certificate signer = CertificateChainValidator.validate(chain, trustAnchors.get(), now);
-        JWK key = CertificateKeys.publicJwk(signer);
+        Signer signer = validate(chain, now);
+        JWK key = CertificateKeys.publicJwk(signer.leaf());
         JwsSignatureVerifier.verify(jws, key, algorithms);
 
         Map<String, Object> claims = Json.parseObject(jws.getPayload().toString(), "status_list_invalid");
@@ -206,7 +260,7 @@ public final class StatusListChecker {
         if (!(claims.get("iat") instanceof Number)) {
             throw new VerificationFailure("status_list_invalid", "iat is required");
         }
-        Instant cacheUntil = now.plus(maxCacheAge);
+        Instant cacheUntil = min(now.plus(maxCacheAge), signer.notAfter());
         if (claims.get("exp") != null) {
             if (!(claims.get("exp") instanceof Number exp) || !inRange(exp.doubleValue(), MAX_NUMERIC_DATE)) {
                 throw new VerificationFailure("status_list_invalid", "exp must be a valid NumericDate");
@@ -240,13 +294,14 @@ public final class StatusListChecker {
         if (bits.doubleValue() != Math.rint(bits.doubleValue()) || !inRange(bits.doubleValue(), 8)) {
             throw new VerificationFailure("status_list_invalid", "bits must be an integer");
         }
-        return new Verified(StatusList.decode(bits.intValue(), compressed, maxListBytes), cacheUntil);
+        return new Verified(StatusList.decode(bits.intValue(), compressed, maxListBytes), cacheUntil, signer.anchor());
     }
 
     /** A Status List Token in CWT form (section 5.2). */
     Verified verifyCwt(byte[] token, String expectedUri, Instant now) {
         CoseSign1 cose;
         CborItem.MapItem claims;
+        Signer signer;
         try {
             CborItem item = CborDecoder.decode(token);
             if (!(item instanceof CborItem.Tag tag) || tag.number() != 18) {
@@ -258,8 +313,8 @@ public final class StatusListChecker {
                 throw invalid("type must be application/statuslist+cwt");
             }
             List<X509Certificate> chain = CertificateChainValidator.parse(cose.x5chain());
-            X509Certificate signer = CertificateChainValidator.validate(chain, trustAnchors.get(), now);
-            cose.verify(signer.getPublicKey());
+            signer = validate(chain, now);
+            cose.verify(signer.leaf().getPublicKey());
             if (!(CborDecoder.decode(cose.payload().orElseThrow(() -> invalid("status list CWT is detached")))
                     instanceof CborItem.MapItem map)) {
                 throw invalid("status list CWT claims are not a map");
@@ -277,7 +332,7 @@ public final class StatusListChecker {
         if (!(claims.get(CWT_IAT).orElse(null) instanceof CborItem.Int)) {
             throw invalid("iat is required");
         }
-        Instant cacheUntil = now.plus(maxCacheAge);
+        Instant cacheUntil = min(now.plus(maxCacheAge), signer.notAfter());
         if (claims.get(CWT_EXP).isPresent()) {
             long exp = unsigned(claims.get(CWT_EXP).get(), "exp must be a valid NumericDate");
             if (exp > MAX_NUMERIC_DATE) {
@@ -305,7 +360,7 @@ public final class StatusListChecker {
         if (bits > 8) {
             throw invalid("bits must be an integer");
         }
-        return new Verified(StatusList.decode((int) bits, lst.value(), maxListBytes), cacheUntil);
+        return new Verified(StatusList.decode((int) bits, lst.value(), maxListBytes), cacheUntil, signer.anchor());
     }
 
     private static long unsigned(CborItem item, String message) {

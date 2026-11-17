@@ -45,7 +45,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * number is lower than the highest one accepted is refused, which stops an attacker from replaying an older, still
  * unexpired list; a {@link SequenceStore} can keep that across restarts.
  *
- * <p>{@link #issuance()} and {@link #status()} read only lists that are current at the clock's time, together with
+ * <p>{@link #issuance()} and {@link #status()} read only lists that are current at the clock's time (for a list
+ * reached through a LOTL, while that LOTL is current too), together with
  * a fixed base store (for example configured anchor certificates). Each trusted certificate carries the identifiers
  * of the list that listed it and, for lists reached through a LOTL, that LOTL's identifier too, which is what DCQL
  * {@code etsi_tl} values name.
@@ -142,7 +143,7 @@ public final class TrustedLists {
                 if (list != null) {
                     results.addAll(followPointers(source, list));
                 }
-                evictUnpointed(id, list == null ? List.of() : list.pointers());
+                evictUnpointed(id, list == null ? List.of() : followable(source, list));
             }
         }
         return results;
@@ -186,8 +187,8 @@ public final class TrustedLists {
     }
 
     /**
-     * Drops lists reached through this LOTL that it no longer points to, or whose signing certificate it no
-     * longer publishes. With no current LOTL, drops them all.
+     * Drops lists reached through this LOTL that it no longer points to in a form this source follows (MIME type,
+     * territory), or whose signing certificate it no longer publishes. With no current LOTL, drops them all.
      */
     private void evictUnpointed(String lotlId, List<TrustedList.Pointer> pointers) {
         boolean removed = loaded.entrySet().removeIf(entry -> {
@@ -275,7 +276,7 @@ public final class TrustedLists {
             return true;
         }
         Instant now = clock.instant();
-        return loaded.values().stream().anyMatch(l -> l.list().isCurrentAt(now));
+        return loaded.values().stream().anyMatch(l -> isCurrent(l, now));
     }
 
     private TrustStore store(boolean forStatus) {
@@ -301,6 +302,18 @@ public final class TrustedLists {
         return fresh.store();
     }
 
+    /** A list counts while it is current and, if a LOTL pointed to it, while that LOTL is current too. */
+    private boolean isCurrent(Loaded entry, Instant now) {
+        if (!entry.list().isCurrentAt(now)) {
+            return false;
+        }
+        if (entry.parent() == null) {
+            return true;
+        }
+        Loaded parent = loaded.get(entry.parent());
+        return parent != null && parent.list().isCurrentAt(now);
+    }
+
     private TrustStore build(boolean forStatus, Instant now) {
         Map<X509Certificate, Set<String>> trusted = new LinkedHashMap<>();
         Map<X509Certificate, Set<String>> names = new LinkedHashMap<>();
@@ -308,7 +321,7 @@ public final class TrustedLists {
             trusted.computeIfAbsent(certificate, c -> new LinkedHashSet<>()).addAll(base.sourcesOf(certificate));
         }
         for (Loaded entry : loaded.values()) {
-            if (!entry.list().isCurrentAt(now)) {
+            if (!isCurrent(entry, now)) {
                 continue;
             }
             TrustedListSource source = entry.source();

@@ -46,6 +46,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.bouncycastle.asn1.x509.KeyUsage;
@@ -155,6 +160,69 @@ class StatusListCheckerTest {
         assertThat(fetches).hasValue(1);
         checker.check(status(1), "tenant-b");
         assertThat(fetches).hasValue(2);
+    }
+
+    @Test
+    void aCachedListIsDroppedWhenItsAnchorIsNoLongerTrusted() {
+        served.set(token(claims(ONE_BIT, 1)));
+        AtomicReference<Set<TrustAnchor>> anchors =
+                new AtomicReference<>(Set.of(new TrustAnchor(root.certificate(), null)));
+        StatusListChecker checker = new StatusListChecker(
+                fetcher,
+                anchors::get,
+                AlgorithmPolicy.DEFAULT,
+                clock,
+                Duration.ofSeconds(60),
+                Duration.ofHours(1),
+                100);
+
+        assertThat(checker.check(status(1), "t1").result()).isEqualTo(Result.VALID);
+        // A trusted list update withdraws the status provider; the configuration revision, and so the scope, stay.
+        anchors.set(Set.of());
+        assertThat(checker.check(status(1), "t1")).satisfies(d -> {
+            assertThat(d.result()).isEqualTo(Result.INDETERMINATE);
+            assertThat(d.reason()).contains("certificate_untrusted");
+        });
+        assertThat(fetches).hasValue(2);
+    }
+
+    @Test
+    void concurrentChecksShareOneFetch() throws Exception {
+        String body = token(claims(ONE_BIT, 1));
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger calls = new AtomicInteger();
+        HttpFetcher slow = (uri, accept, maxBytes) -> {
+            calls.incrementAndGet();
+            try {
+                release.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return body.getBytes(StandardCharsets.US_ASCII);
+        };
+        StatusListChecker checker = new StatusListChecker(
+                slow,
+                () -> Set.of(new TrustAnchor(root.certificate(), null)),
+                AlgorithmPolicy.DEFAULT,
+                clock,
+                Duration.ofSeconds(60),
+                Duration.ofHours(1),
+                100);
+        ExecutorService pool = Executors.newFixedThreadPool(8);
+        try {
+            List<Future<StatusDecision>> results = new ArrayList<>();
+            for (int i = 0; i < 8; i++) {
+                results.add(pool.submit(() -> checker.check(status(1), "t1")));
+            }
+            Thread.sleep(200);
+            release.countDown();
+            for (Future<StatusDecision> result : results) {
+                assertThat(result.get(5, TimeUnit.SECONDS).result()).isEqualTo(Result.VALID);
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+        assertThat(calls).hasValue(1);
     }
 
     @Test
