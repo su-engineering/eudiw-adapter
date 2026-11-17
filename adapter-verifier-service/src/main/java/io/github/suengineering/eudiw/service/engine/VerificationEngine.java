@@ -343,7 +343,7 @@ public class VerificationEngine {
             }
             return finish(session, tenant, policy, "verified", null, buildResult(session, policy, result, now), now);
         } catch (VerificationFailure failure) {
-            return finish(session, tenant, policy, "rejected", failure.code(), null, now);
+            return rejectPresentation(finish(session, tenant, policy, "rejected", failure.code(), null, now), session);
         } catch (RuntimeException e) {
             // The request instance is already used; leave no session pending after an unexpected error.
             LOG.errorf(
@@ -351,6 +351,18 @@ public class VerificationEngine {
                     session.id(), e.getClass().getName());
             return finish(session, tenant, policy, "rejected", "internal_error", null, now);
         }
+    }
+
+    /**
+     * A presentation that fails verification is answered with 400 in cross-device sessions, so the wallet can tell
+     * the user (OpenID4VP 1.0 section 8.2 lets the response endpoint reject). Same-device sessions keep the 200
+     * with {@code redirect_uri}, so the user returns to the application, which then sees {@code rejected}.
+     */
+    private static WalletReply rejectPresentation(WalletReply reply, SessionRow session) {
+        if (reply.status() != 200 || session.mode().equals("same_device")) {
+            return reply;
+        }
+        return new WalletReply(400, Map.of("error", "invalid_request"));
     }
 
     private boolean configurationUnchanged(SessionRow session) {

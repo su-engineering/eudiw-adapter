@@ -216,8 +216,9 @@ class VerificationFlowTest {
 
     @Test
     void certificateRevocationRejectsAnIssuerListedInItsCaCrl() {
-        String good = presentUnderCrlPolicy(TestEnvironment.ISSUER_C, "issuer-c");
-        String revoked = presentUnderCrlPolicy(TestEnvironment.ISSUER_C_REVOKED, "issuer-c-revoked");
+        // The wallet is told at once: 200 for the good presentation, 400 for the rejected one (cross-device).
+        String good = presentUnderCrlPolicy(TestEnvironment.ISSUER_C, "issuer-c", 200);
+        String revoked = presentUnderCrlPolicy(TestEnvironment.ISSUER_C_REVOKED, "issuer-c-revoked", 400);
 
         given().auth()
                 .oauth2(TestWallet.fullToken("portal-a"))
@@ -232,7 +233,7 @@ class VerificationFlowTest {
                 .body("reason", org.hamcrest.Matchers.equalTo("certificate_revoked"));
     }
 
-    private String presentUnderCrlPolicy(String issuer, String files) {
+    private String presentUnderCrlPolicy(String issuer, String files, int expectedReply) {
         JsonPath session = create("portal-a", "cross_device", "age-over-18-crl");
         Map<String, Object> request = TestWallet.fetchRequest(session.getString("wallet_launch.request_uri"));
         Map<String, Object> response = Map.of(
@@ -241,7 +242,7 @@ class VerificationFlowTest {
                         "age",
                         List.of(wallet.presentation(
                                 request, issuer, files + "-key.pem", files + ".pem", Map.of("age_over_18", true), 1))));
-        TestWallet.respond(request, response);
+        assertThat(TestWallet.respond(request, response).statusCode()).isEqualTo(expectedReply);
         return session.getString("id");
     }
 
