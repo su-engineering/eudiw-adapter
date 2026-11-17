@@ -685,6 +685,13 @@ class VerificationFlowTest {
                 .get("/v1/verification-sessions/vrs_x")
                 .then()
                 .statusCode(403);
+        // The client id is compared exactly as issued: a quote is not stripped into another client's id.
+        given().auth()
+                .oauth2(TestWallet.fullToken("portal-a\""))
+                .get("/v1/verification-sessions/vrs_x")
+                .then()
+                .statusCode(403)
+                .body("code", org.hamcrest.Matchers.equalTo("unknown_client"));
         given().auth()
                 .oauth2("not.a.token")
                 .get("/v1/verification-sessions/vrs_x")

@@ -19,6 +19,7 @@ import io.github.suengineering.eudiw.service.config.AdapterConfig.ClientBinding;
 import io.github.suengineering.eudiw.service.engine.AdapterRuntime;
 import jakarta.enterprise.context.RequestScoped;
 import jakarta.inject.Inject;
+import jakarta.json.JsonString;
 import java.util.Arrays;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -65,8 +66,18 @@ public class Callers {
         return binding;
     }
 
+    /**
+     * A string claim exactly as issued. Claims outside the MicroProfile JWT set arrive as JSON values; anything
+     * other than a string counts as absent.
+     */
     private String claim(String name) {
         Object value = token.getClaim(name);
-        return value == null ? null : value.toString().replace("\"", "");
+        if (value instanceof String s) {
+            return s;
+        }
+        if (value instanceof JsonString s) {
+            return s.getString();
+        }
+        return null;
     }
 }
