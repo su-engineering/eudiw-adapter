@@ -79,6 +79,11 @@ public final class AuthorizationResponses {
         if (header.getCompressionAlgorithm() != null) {
             throw new VerificationFailure("invalid_response", "compressed responses are not accepted");
         }
+        // RFC 7516 section 4.1.13: a recipient must reject critical extensions it does not understand. This
+        // implementation understands none, so any crit header is refused before key agreement.
+        if (header.getCriticalParams() != null || header.getCustomParam("crit") != null) {
+            throw new VerificationFailure("invalid_response", "critical header extensions are not accepted");
+        }
         try {
             jwe.decrypt(new ECDHDecrypter(key));
         } catch (JOSEException | IllegalStateException e) {
