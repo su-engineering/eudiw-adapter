@@ -48,13 +48,13 @@ import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
  * signer under it, and Documents whose MSO this test code signs. Not a reference: correctness is anchored by the
  * independent eudi-dev fixtures.
  */
-final class TestMdocIssuer {
+public final class TestMdocIssuer {
 
-    final KeyPair iacaKeys = keys();
-    final KeyPair signerKeys = keys();
-    final KeyPair deviceKeys = keys();
-    final X509Certificate iaca;
-    final X509Certificate signer;
+    public final KeyPair iacaKeys = keys();
+    public final KeyPair signerKeys = keys();
+    public final KeyPair deviceKeys = keys();
+    public final X509Certificate iaca;
+    public final X509Certificate signer;
 
     /**
      * @param iacaSubject subject of the IACA, for example {@code "CN=Test IACA,C=DE"}
@@ -63,7 +63,8 @@ final class TestMdocIssuer {
      * @param signerFrom start of the document signer validity
      * @param signerUntil end of the document signer validity
      */
-    TestMdocIssuer(String iacaSubject, String signerSubject, boolean withEku, Instant signerFrom, Instant signerUntil)
+    public TestMdocIssuer(
+            String iacaSubject, String signerSubject, boolean withEku, Instant signerFrom, Instant signerUntil)
             throws Exception {
         iaca = certificate(
                 iacaSubject,
@@ -82,7 +83,7 @@ final class TestMdocIssuer {
      *
      * @param msoNamespace the namespace the MSO holds digests for (may differ from {@code namespace})
      */
-    CborItem document(
+    public CborItem document(
             String docType,
             String namespace,
             String msoNamespace,

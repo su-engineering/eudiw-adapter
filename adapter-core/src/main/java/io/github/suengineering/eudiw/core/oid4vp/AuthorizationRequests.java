@@ -53,6 +53,9 @@ import java.util.Objects;
  */
 public final class AuthorizationRequests {
 
+    /** ES256, ESP256, ES384, ESP384, ES512, ESP512, EdDSA, Ed25519, Ed448 (IANA COSE Algorithms). */
+    private static final List<Integer> MDOC_ALGS = List.of(-7, -9, -35, -51, -36, -52, -8, -19, -53);
+
     /** Content type of the Request URI response (OpenID4VP 1.0 section 5.10.1). */
     public static final String REQUEST_OBJECT_MEDIA_TYPE = "application/oauth-authz-req+jwt";
 
@@ -138,7 +141,7 @@ public final class AuthorizationRequests {
         claims.put("nonce", parameters.nonce());
         claims.put("state", parameters.state());
         claims.put("dcql_query", parameters.query().toJson());
-        claims.put("client_metadata", clientMetadata(parameters.responseEncryptionKey()));
+        claims.put("client_metadata", clientMetadata(parameters.responseEncryptionKey(), parameters.query()));
         if (!parameters.verifierInfo().isEmpty()) {
             claims.put("verifier_info", parameters.verifierInfo());
         }
@@ -186,7 +189,7 @@ public final class AuthorizationRequests {
                 + "&request_uri_method=post";
     }
 
-    private static Map<String, Object> clientMetadata(ECKey encryptionKey) {
+    private static Map<String, Object> clientMetadata(ECKey encryptionKey, DcqlQuery query) {
         if (encryptionKey.getKeyID() == null) {
             throw new IllegalArgumentException("response encryption key needs a kid");
         }
@@ -198,9 +201,15 @@ public final class AuthorizationRequests {
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("jwks", Map.of("keys", List.of(jwk)));
         metadata.put("encrypted_response_enc_values_supported", ENC_VALUES);
-        metadata.put(
-                "vp_formats_supported",
-                Map.of(DcqlQuery.FORMAT_SD_JWT_VC, Map.of("sd-jwt_alg_values", algs, "kb-jwt_alg_values", algs)));
+        Map<String, Object> formats = new LinkedHashMap<>();
+        formats.put(DcqlQuery.FORMAT_SD_JWT_VC, Map.of("sd-jwt_alg_values", algs, "kb-jwt_alg_values", algs));
+        if (query.credentials().stream().anyMatch(c -> DcqlQuery.FORMAT_MDOC.equals(c.format()))) {
+            // COSE algorithm identifiers accepted for IssuerAuth and DeviceSignature (OpenID4VP 1.0 Appendix B.2.2).
+            formats.put(
+                    DcqlQuery.FORMAT_MDOC,
+                    Map.of("issuerauth_alg_values", MDOC_ALGS, "deviceauth_alg_values", MDOC_ALGS));
+        }
+        metadata.put("vp_formats_supported", formats);
         return metadata;
     }
 }

@@ -15,7 +15,11 @@
  */
 package io.github.suengineering.eudiw.service.engine;
 
+import io.github.suengineering.eudiw.core.dcql.DcqlQuery;
 import io.github.suengineering.eudiw.core.jose.AlgorithmPolicy;
+import io.github.suengineering.eudiw.core.mdoc.MdocDeviceAuthentication;
+import io.github.suengineering.eudiw.core.mdoc.MdocIssuerVerifier;
+import io.github.suengineering.eudiw.core.mdoc.MdocPresentationVerifier;
 import io.github.suengineering.eudiw.core.net.EgressPolicy;
 import io.github.suengineering.eudiw.core.net.HttpFetcher;
 import io.github.suengineering.eudiw.core.net.JdkHttpFetcher;
@@ -167,6 +171,20 @@ public class AdapterRuntime {
                         Duration.ofSeconds(60),
                         Duration.ofMinutes(15),
                         1000);
+                CrlRevocationChecker crls = policy.checkCertificateRevocation()
+                        ? new CrlRevocationChecker(crlFetcher == null ? fetcher : crlFetcher, clock, 256)
+                        : null;
+                Optional<MdocPresentationVerifier> mdoc = Optional.empty();
+                if (policy.query().credentials().stream().anyMatch(c -> DcqlQuery.FORMAT_MDOC.equals(c.format()))) {
+                    mdoc = Optional.of(new MdocPresentationVerifier(
+                            new MdocIssuerVerifier(
+                                    issuance, clock, Duration.ofSeconds(60), crls, MdocIssuerVerifier.mdlOnly()),
+                            MdocDeviceAuthentication.NOT_IMPLEMENTED));
+                    LOG.warnf(
+                            "tenant %s policy %s requests mso_mdoc: mdoc device authentication is not implemented"
+                                    + " yet, so mdoc presentations are rejected (ADR-012)",
+                            tenant.id(), policy.id());
+                }
                 VpTokenVerifier verifier = new VpTokenVerifier(
                         new SdJwtVcVerifier(
                                 policy.checkCertificateRevocation()
@@ -177,6 +195,7 @@ public class AdapterRuntime {
                                                         crlFetcher == null ? fetcher : crlFetcher, clock, 256))
                                         : X5cIssuerKeyResolver.withTrustStore(issuance, clock),
                                 false),
+                        mdoc,
                         policy.statusPolicy() == StatusPolicy.IGNORE ? Optional.empty() : Optional.of(checker),
                         new VpTokenVerifier.Settings(
                                 clock,

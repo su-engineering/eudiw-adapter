@@ -52,6 +52,22 @@ class DcqlTest {
     }
 
     @Test
+    void intentToRetainIsAnMdocClaimMember() {
+        DcqlQuery mdoc = DcqlQuery.parse(Json.parseObject("""
+                {"credentials":[{"id":"a","format":"mso_mdoc","meta":{"doctype_value":"d"},
+                  "claims":[{"path":["ns","x"],"intent_to_retain":true},{"path":["ns","y"]}]}]}""", "test"));
+        assertThat(mdoc.credentials().get(0).claims().get(0).intentToRetain()).isTrue();
+        assertThat(mdoc.credentials().get(0).claims().get(1).intentToRetain()).isNull();
+        assertThat(Json.toJson(mdoc.toJson()))
+                .contains("\"intent_to_retain\":true")
+                .doesNotContain("false");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> DcqlQuery.parse(Json.parseObject("""
+                        {"credentials":[{"id":"a","format":"dc+sd-jwt","meta":{"vct_values":["v"]},
+                          "claims":[{"path":["x"],"intent_to_retain":true}]}]}""", "test")))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void claimsPathPointerExamplesFromSection73() {
         assertThat(ClaimsPath.of("name").select(SECTION_7_3_CREDENTIAL)).contains(List.of("Arthur Dent"));
         assertThat(ClaimsPath.of("address", "street_address").select(SECTION_7_3_CREDENTIAL))

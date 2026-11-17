@@ -16,12 +16,16 @@
 package io.github.suengineering.eudiw.core.oid4vp;
 
 import io.github.suengineering.eudiw.core.VerificationFailure;
+import io.github.suengineering.eudiw.core.cbor.CborItem;
 import io.github.suengineering.eudiw.core.dcql.DcqlEvaluator;
 import io.github.suengineering.eudiw.core.dcql.DcqlEvaluator.SelectedCredential;
 import io.github.suengineering.eudiw.core.dcql.DcqlQuery;
 import io.github.suengineering.eudiw.core.dcql.DcqlQuery.CredentialQuery;
 import io.github.suengineering.eudiw.core.dcql.PresentedCredential;
 import io.github.suengineering.eudiw.core.jose.AlgorithmPolicy;
+import io.github.suengineering.eudiw.core.mdoc.MdocPresentationVerifier;
+import io.github.suengineering.eudiw.core.mdoc.MdocPresentationVerifier.VerifiedMdoc;
+import io.github.suengineering.eudiw.core.mdoc.SessionTranscripts;
 import io.github.suengineering.eudiw.core.sdjwt.SdJwtVcVerifier;
 import io.github.suengineering.eudiw.core.sdjwt.SdJwtVcVerifier.VerifiedSdJwtVc;
 import io.github.suengineering.eudiw.core.sdjwt.SdJwtVerificationOptions;
@@ -86,12 +90,27 @@ public final class VpTokenVerifier {
      * @param audience the Client Identifier the Key Binding JWT must be addressed to
      * @param nonce the nonce of the Authorization Request
      * @param statusCacheScope isolates cached status lists, for example tenant and trust profile revision
+     * @param responseUri the request's {@code response_uri}, part of the mdoc session transcript; {@code null}
+     *     when the query has no {@code mso_mdoc} credential
+     * @param encryptionKeyThumbprint SHA-256 JWK thumbprint of the response encryption key, for the mdoc session
+     *     transcript
      */
-    public record Context(String audience, String nonce, String statusCacheScope) {
+    public record Context(
+            String audience,
+            String nonce,
+            String statusCacheScope,
+            String responseUri,
+            Optional<byte[]> encryptionKeyThumbprint) {
         public Context {
             Objects.requireNonNull(audience, "audience");
             Objects.requireNonNull(nonce, "nonce");
             Objects.requireNonNull(statusCacheScope, "statusCacheScope");
+            Objects.requireNonNull(encryptionKeyThumbprint, "encryptionKeyThumbprint");
+        }
+
+        /** A context for SD-JWT VC only; mdoc presentations need the response URI and encryption key. */
+        public Context(String audience, String nonce, String statusCacheScope) {
+            this(audience, nonce, statusCacheScope, null, Optional.empty());
         }
     }
 
@@ -105,12 +124,25 @@ public final class VpTokenVerifier {
     public record Result(Map<String, List<SelectedCredential>> credentials, List<Discarded> discarded) {}
 
     private final SdJwtVcVerifier sdJwtVcVerifier;
+    private final Optional<MdocPresentationVerifier> mdocVerifier;
     private final Optional<StatusListChecker> statusChecker;
     private final Settings settings;
 
     public VpTokenVerifier(
             SdJwtVcVerifier sdJwtVcVerifier, Optional<StatusListChecker> statusChecker, Settings settings) {
+        this(sdJwtVcVerifier, Optional.empty(), statusChecker, settings);
+    }
+
+    /**
+     * @param mdocVerifier verifies {@code mso_mdoc} presentations; without it they are rejected as unsupported
+     */
+    public VpTokenVerifier(
+            SdJwtVcVerifier sdJwtVcVerifier,
+            Optional<MdocPresentationVerifier> mdocVerifier,
+            Optional<StatusListChecker> statusChecker,
+            Settings settings) {
         this.sdJwtVcVerifier = Objects.requireNonNull(sdJwtVcVerifier, "sdJwtVcVerifier");
+        this.mdocVerifier = Objects.requireNonNull(mdocVerifier, "mdocVerifier");
         this.statusChecker = Objects.requireNonNull(statusChecker, "statusChecker");
         this.settings = Objects.requireNonNull(settings, "settings");
         if (settings.statusPolicy() != StatusPolicy.IGNORE && statusChecker.isEmpty()) {
@@ -183,6 +215,9 @@ public final class VpTokenVerifier {
     }
 
     private PresentedCredential verifyPresentation(String presentation, CredentialQuery query, Context context) {
+        if (DcqlQuery.FORMAT_MDOC.equals(query.format()) && mdocVerifier.isPresent()) {
+            return verifyMdoc(presentation, query, context);
+        }
         if (!DcqlQuery.FORMAT_SD_JWT_VC.equals(query.format())) {
             throw new VerificationFailure("unsupported_format", "credential format not supported: " + query.format());
         }
@@ -207,6 +242,30 @@ public final class VpTokenVerifier {
                 vc.sdJwt().keyBindingVerified(),
                 CertificateIdentifiers.authorityKeyIds(vc.sdJwt().issuerCertificateChain()),
                 vc.sdJwt().trustSources());
+    }
+
+    private PresentedCredential verifyMdoc(String presentation, CredentialQuery query, Context context) {
+        if (context.responseUri() == null) {
+            throw new IllegalStateException("an mso_mdoc query needs the response URI in the context");
+        }
+        CborItem transcript = SessionTranscripts.openId4VpRedirect(
+                context.audience(), context.nonce(), context.encryptionKeyThumbprint(), context.responseUri());
+        VerifiedMdoc mdoc =
+                mdocVerifier.orElseThrow().verify(presentation, query.types().get(0), transcript);
+        // MSO revocation follows the second edition of ISO/IEC 18013-5, which is not implemented (ADR-012): a status
+        // reference cannot be checked, so it counts as an indeterminate status.
+        if (mdoc.issuerSigned().mso().statusPresent() && settings.statusPolicy() == StatusPolicy.REQUIRE_VALID) {
+            throw new VerificationFailure("credential_status_unknown", "mdoc status cannot be checked yet");
+        }
+        List<java.security.cert.X509Certificate> chain = mdoc.issuerSigned().chain();
+        return new PresentedCredential(
+                DcqlQuery.FORMAT_MDOC,
+                mdoc.issuerSigned().docType(),
+                chain.get(0).getSubjectX500Principal().getName(),
+                mdoc.claims(),
+                true,
+                CertificateIdentifiers.authorityKeyIds(chain),
+                mdoc.issuerSigned().trustSources());
     }
 
     private void checkStatus(VerifiedSdJwtVc vc, Context context) {
