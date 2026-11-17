@@ -447,6 +447,21 @@ class VerificationFlowTest {
     }
 
     @Test
+    void anMdocIssuerIsNamedByItsAnchorNotItsDocumentSigner() throws Exception {
+        // The policy lists the document signer's name, which any anchor could put in a certificate it issues.
+        JsonPath session = create("portal-a", "cross_device", "mdl-age-signer-name");
+        Map<String, Object> request = TestWallet.fetchRequest(session.getString("wallet_launch.request_uri"));
+        TestWallet.respond(
+                request, Map.of("vp_token", Map.of("mdl", List.of(mdl(request, (String) request.get("nonce"))))));
+        given().auth()
+                .oauth2(TestWallet.fullToken("portal-a"))
+                .get("/v1/verification-sessions/" + session.getString("id"))
+                .then()
+                .body("status", org.hamcrest.Matchers.equalTo("rejected"))
+                .body("reason", org.hamcrest.Matchers.equalTo("issuer_not_allowed"));
+    }
+
+    @Test
     void anMdocSignedForAnotherRequestIsRejected() throws Exception {
         JsonPath session = create("portal-a", "cross_device", "mdl-age");
         Map<String, Object> request = TestWallet.fetchRequest(session.getString("wallet_launch.request_uri"));

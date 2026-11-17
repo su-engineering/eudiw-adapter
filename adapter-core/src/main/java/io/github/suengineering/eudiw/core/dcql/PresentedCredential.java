@@ -30,6 +30,8 @@ import java.util.Set;
  * @param holderBindingVerified whether a holder binding proof was verified for this presentation
  * @param authorityKeyIds base64url AuthorityKeyIdentifier values of the certificates in the issuer chain
  * @param trustListIds identifiers of the trusted lists that anchored the issuer
+ * @param issuerNames further authenticated names of the issuer that an allow list may match, such as the trusted-list
+ *     entity name; {@code issuer} itself is not repeated here
  */
 public record PresentedCredential(
         String format,
@@ -38,10 +40,24 @@ public record PresentedCredential(
         Map<String, Object> claims,
         boolean holderBindingVerified,
         Set<String> authorityKeyIds,
-        Set<String> trustListIds) {
+        Set<String> trustListIds,
+        Set<String> issuerNames) {
 
     public PresentedCredential {
         authorityKeyIds = Set.copyOf(authorityKeyIds);
         trustListIds = Set.copyOf(trustListIds);
+        issuerNames = Set.copyOf(issuerNames);
+    }
+
+    /** A credential whose issuer is known by {@code issuer} alone. */
+    public PresentedCredential(
+            String format,
+            String type,
+            String issuer,
+            Map<String, Object> claims,
+            boolean holderBindingVerified,
+            Set<String> authorityKeyIds,
+            Set<String> trustListIds) {
+        this(format, type, issuer, claims, holderBindingVerified, authorityKeyIds, trustListIds, Set.of());
     }
 }

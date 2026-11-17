@@ -148,7 +148,14 @@ public final class MdocIssuerVerifier {
         if (now.minus(clockSkew).isAfter(mso.validUntil())) {
             throw new VerificationFailure("credential_expired", "MSO has expired");
         }
-        return new VerifiedIssuerSigned(docType, elements, mso, chain, store.sourcesOf(path.anchor()));
+        return new VerifiedIssuerSigned(
+                docType,
+                elements,
+                mso,
+                chain,
+                store.sourcesOf(path.anchor()),
+                path.anchor(),
+                store.entityNamesOf(path.anchor()));
     }
 
     private static Map<String, Map<String, CborItem>> issuerSignedElements(

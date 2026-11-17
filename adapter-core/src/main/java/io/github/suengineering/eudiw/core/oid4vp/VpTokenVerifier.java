@@ -258,14 +258,18 @@ public final class VpTokenVerifier {
             throw new VerificationFailure("credential_status_unknown", "mdoc status cannot be checked yet");
         }
         List<java.security.cert.X509Certificate> chain = mdoc.issuerSigned().chain();
+        // An mdoc has no issuer identifier of its own. It is named by its trust anchor, which outlives document
+        // signer rotation and cannot be claimed by a certificate under another anchor, and by the trusted-list
+        // entities that publish that anchor (ADR-012).
         return new PresentedCredential(
                 DcqlQuery.FORMAT_MDOC,
                 mdoc.issuerSigned().docType(),
-                chain.get(0).getSubjectX500Principal().getName(),
+                mdoc.issuerSigned().anchor().getSubjectX500Principal().getName(),
                 mdoc.claims(),
                 true,
                 CertificateIdentifiers.authorityKeyIds(chain),
-                mdoc.issuerSigned().trustSources());
+                mdoc.issuerSigned().trustSources(),
+                mdoc.issuerSigned().trustedEntityNames());
     }
 
     private void checkStatus(VerifiedSdJwtVc vc, Context context) {

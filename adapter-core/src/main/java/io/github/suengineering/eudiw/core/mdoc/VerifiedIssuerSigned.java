@@ -29,16 +29,21 @@ import java.util.Set;
  * @param mso the verified mobile security object
  * @param chain the document signer chain, end-entity first
  * @param trustSources where the trust anchor the chain validated to came from
+ * @param anchor the trust anchor the chain validated to
+ * @param trustedEntityNames names of the trusted-list entities that publish the anchor; empty for configured anchors
  */
 public record VerifiedIssuerSigned(
         String docType,
         Map<String, Map<String, CborItem>> elements,
         MobileSecurityObject mso,
         List<X509Certificate> chain,
-        Set<String> trustSources) {
+        Set<String> trustSources,
+        X509Certificate anchor,
+        Set<String> trustedEntityNames) {
 
     public VerifiedIssuerSigned {
         chain = List.copyOf(chain);
         trustSources = Set.copyOf(trustSources);
+        trustedEntityNames = Set.copyOf(trustedEntityNames);
     }
 }

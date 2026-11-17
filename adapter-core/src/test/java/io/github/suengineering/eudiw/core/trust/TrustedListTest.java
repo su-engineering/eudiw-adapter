@@ -414,6 +414,8 @@ class TrustedListTest {
         assertThat(results).allMatch(TrustedLists.LoadResult::ok);
         assertThat(lists.issuance().certificates()).containsExactly(EAA_CA.certificate());
         assertThat(lists.issuance().sourcesOf(EAA_CA.certificate())).containsExactlyInAnyOrder(TL_AA, LOTL);
+        // The provider that publishes a certificate names it for issuer allow lists.
+        assertThat(lists.issuance().entityNamesOf(EAA_CA.certificate())).containsExactly("QEAA Provider");
     }
 
     @Test
