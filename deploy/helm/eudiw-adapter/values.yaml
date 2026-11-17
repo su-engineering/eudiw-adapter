@@ -46,8 +46,9 @@ egress:
   allowHttp: false
   # Host names that list, status list and CRL fetches may reach; empty allows any public host.
   allowedHosts: []
-  # Forward proxy for those fetches, host:port or http://host:port. With networkPolicy.egress enabled, add the
-  # proxy to networkPolicy.egress.cluster (or exceptCidrs) so the pod can reach it.
+  # Forward proxy for those fetches, host:port or http://host:port. With networkPolicy.egress enabled, allow the
+  # proxy with a networkPolicy.egress.cluster rule so the pod can reach it. The pod still resolves each host name
+  # itself for its own address check, so it needs DNS for those names too.
   proxy: ""
 
 trustedLists:

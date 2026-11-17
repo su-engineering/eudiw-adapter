@@ -105,8 +105,18 @@ public record EgressPolicy(boolean allowHttp, boolean allowPrivateAddresses, Set
             return true;
         }
         if (address instanceof Inet6Address) {
+            // The NAT64 well-known prefix 64:ff9b::/96 (RFC 6052) is how an IPv6-only cluster with DNS64 reaches an
+            // IPv4-only host. It is judged by the IPv4 address it embeds, so 64:ff9b::7f00:1 (127.0.0.1) is refused
+            // and a public IPv4 host stays reachable. The local-use prefix 64:ff9b:1::/48 is refused below.
+            if (isNat64WellKnown(b)) {
+                try {
+                    return isPublic(InetAddress.getByAddress(java.util.Arrays.copyOfRange(b, 12, 16)));
+                } catch (java.net.UnknownHostException e) {
+                    return false;
+                }
+            }
             // IPv4-mapped ::ffff:a.b.c.d is normalized to Inet4Address by the JDK. Everything else must be global
-            // unicast 2000::/3, which already excludes NAT64 64:ff9b::/96 and 64:ff9b:1::/48, discard 100::/64,
+            // unicast 2000::/3, which excludes the NAT64 local-use prefix 64:ff9b:1::/48, discard 100::/64,
             // IPv4-compatible, unique local and link-local addresses.
             if ((b[0] & 0xE0) != 0x20) {
                 return false;
@@ -128,5 +138,18 @@ public record EgressPolicy(boolean allowHttp, boolean allowPrivateAddresses, Set
             return true;
         }
         return false;
+    }
+
+    /** {@code 64:ff9b::/96}: bytes 0 to 11 are 0064:ff9b:0000:0000:0000:0000. */
+    private static boolean isNat64WellKnown(byte[] b) {
+        if (b.length != 16 || b[0] != 0x00 || b[1] != 0x64 || (b[2] & 0xFF) != 0xFF || (b[3] & 0xFF) != 0x9B) {
+            return false;
+        }
+        for (int i = 4; i < 12; i++) {
+            if (b[i] != 0) {
+                return false;
+            }
+        }
+        return true;
     }
 }

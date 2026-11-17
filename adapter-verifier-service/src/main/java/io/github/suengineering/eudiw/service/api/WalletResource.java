@@ -56,6 +56,7 @@ public class WalletResource {
      * The address is the one Quarkus resolved, so a forwarded address counts only when proxy forwarding is on.
      */
     private Response refused() {
+        // hostAddress() is null when a forwarded value is not an IP literal; the engine puts those in one bucket.
         String address = http == null || http.remoteAddress() == null
                 ? null
                 : http.remoteAddress().hostAddress();
