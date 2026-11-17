@@ -75,6 +75,12 @@ The demo runs PostgreSQL, Keycloak (as your OAuth server) and the adapter, then 
 
 The same demo runs in CI on every commit. It uses plain HTTP on localhost with `EUDIW_PRODUCTION=false`; production requires HTTPS.
 
+With the demo running, `node examples/node/server.mjs` serves an example page on http://localhost:3000 that runs the same check in the browser with the [`<eudiw-request>`](clients/web) component and shows each protocol step as it happens ([how to run it](examples/README.md)).
+
+<div align="center">
+<img src="docs/assets/example-page.png" alt="The example page after a verified check: the web component shows done, the protocol trace lists each request, and the result returned to the backend is only age_over_18 true" width="88%">
+</div>
+
 ## How it works
 
 ```mermaid

@@ -17,7 +17,7 @@ node examples/node/server.mjs           # http://localhost:3000
 python3 examples/python/server.py       # http://localhost:3001
 ```
 
-Open the page and select "Verify with my wallet". Answer the QR code with a wallet that trusts the demo's relying-party certificate, or with the test wallet:
+Open the page and select "start a check". Answer the QR code with a wallet that trusts the demo's relying-party certificate, or with the test wallet:
 
 ```sh
 cd deploy/compose && docker compose run --rm wallet '<launch URI>'
