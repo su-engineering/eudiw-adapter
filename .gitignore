@@ -22,3 +22,12 @@ dependency-reduced-pom.xml
 .classpath
 .settings/
 .factorypath
+
+# Python bytecode
+__pycache__/
+
+# Impeccable working files (keep surfaces/, config.json, design.json)
+.impeccable/review/
+.impeccable/questions/
+.impeccable/hook.cache.json
+.impeccable/mocks/

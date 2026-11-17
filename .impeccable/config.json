@@ -1,0 +1,26 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "tight-leading",
+        "value": "*",
+        "files": [
+          "examples/shared/index.html"
+        ],
+        "createdAt": "2026-11-17T09:07:52.900Z",
+        "reason": "su.engineering brand rule: the original ASCII logo is set at line-height 1; only the logo pre uses 1.0"
+      },
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          "examples/shared/index.html"
+        ],
+        "createdAt": "2026-11-17T09:07:52.928Z",
+        "reason": "false positive: section.trace has 48px top padding below its border-top on mobile and 24-56px left padding beside its border-left on desktop"
+      }
+    ]
+  }
+}

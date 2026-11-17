@@ -6,3 +6,6 @@ This product is developed and maintained by su-engineering
 
 This product includes qrcode-generator by Kazuhiko Arase (MIT License),
 in clients/web/vendor/qrcode.mjs. See clients/web/vendor/README.md.
+
+This product includes JetBrains Mono (SIL Open Font License 1.1),
+in clients/web/fonts. See clients/web/fonts/OFL.txt.

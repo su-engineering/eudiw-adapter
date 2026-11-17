@@ -19,6 +19,7 @@ check() {
   curl -sf "http://localhost:$port/" | grep -q '<eudiw-request\|eudiw-request.js'
   curl -sf "http://localhost:$port/eudiw/eudiw-request.js" | grep -q "customElements.define('eudiw-request'"
   curl -sf "http://localhost:$port/eudiw/vendor/qrcode.mjs" | grep -q 'export const qrcode'
+  curl -sf -o /dev/null "http://localhost:$port/eudiw/fonts/jetbrains-mono-latin-wght-normal.woff2"
 
   started=$(curl -sf -X POST "http://localhost:$port/verifications")
   launch=$(echo "$started" | jq -r .launch_uri)
@@ -38,7 +39,10 @@ check() {
     sleep 1
   done
   test "$status" = verified || { echo "$name: status is $status"; exit 1; }
-  curl -sf -X POST "http://localhost:$port$result_url" | jq -e '.claims == {"age_over_18": true}' > /dev/null
+  result=$(curl -sf -X POST "http://localhost:$port$result_url")
+  echo "$result" | jq -e '.claims == {"age_over_18": true}' > /dev/null
+  # The trace shows what the backend did, never claim values.
+  echo "$result" | jq -e '[.trace[] | .detail] | all(test("age_over_18|true") | not)' > /dev/null
   # The result can be retrieved once.
   test "$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://localhost:$port$result_url")" = 404
   kill $pid

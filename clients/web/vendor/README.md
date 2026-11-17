@@ -22,3 +22,7 @@ OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 "QR Code" is a registered trademark of DENSO WAVE INCORPORATED.
 
 To update: download the package tarball from the npm registry, copy `dist/qrcode.mjs` here unchanged, record the version and checksum, and run `node --test clients/web/test/*.test.mjs` with zbar installed.
+
+## JetBrains Mono
+
+`../fonts/jetbrains-mono-latin-wght-normal.woff2` and `../fonts/jetbrains-mono-latin-ext-wght-normal.woff2` are the variable latin and latin-ext subsets from `@fontsource-variable/jetbrains-mono` 5.3.0, unmodified. Copyright 2020 The JetBrains Mono Project Authors, SIL Open Font License 1.1 (`../fonts/OFL.txt`).

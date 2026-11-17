@@ -1,13 +1,15 @@
 # `<eudiw-request>` web component
 
-Shows an EUDI Wallet request as a QR code with an "open wallet" link, and follows the session until it ends. One ES module, no build step, no dependencies besides a vendored QR encoder.
+Shows an EUDI Wallet request as a QR code with an "open wallet" link, says what is asked and that nothing else leaves the wallet, counts down to expiry, and follows the session until it ends. One ES module, no build step, no dependencies besides a vendored QR encoder and the JetBrains Mono font. It ships in the su.engineering look (charcoal, ivory, signal orange) with a light variant, and every color is a custom property.
 
 ```html
 <script type="module" src="/eudiw/eudiw-request.js"></script>
 
 <eudiw-request
   launch-uri="openid4vp://?client_id=...&request_uri=...&request_uri_method=post"
-  status-url="/verifications/7Qx.../status"></eudiw-request>
+  status-url="/verifications/7Qx.../status"
+  request-label="over 18"
+  expires-at="2026-11-17T10:05:00Z"></eudiw-request>
 
 <script type="module">
   document.querySelector('eudiw-request').addEventListener('eudiw-done', (event) => {
@@ -18,7 +20,7 @@ Shows an EUDI Wallet request as a QR code with an "open wallet" link, and follow
 </script>
 ```
 
-Serve `eudiw-request.js` and `vendor/qrcode.mjs` from your own origin, keeping the relative path between them.
+Serve `eudiw-request.js`, `vendor/qrcode.mjs` and `fonts/*.woff2` from your own origin, keeping the relative paths. The font is registered once per page as `eudiw-jetbrains-mono`, so it does not clash with your own fonts.
 
 ## How it fits
 
@@ -36,19 +38,24 @@ Give the browser a random id of your own rather than the adapter's session id. S
 | --- | --- |
 | `launch-uri` | `wallet_launch.launch_uri` of the session. `javascript:`, `data:`, `blob:`, `file:` and `vbscript:` URIs are refused |
 | `status-url` | Your backend's status URL for this session. Fetched with same-origin credentials |
+| `request-label` | What is asked, in the user's words, for example `over 18`. Shown as "this service asks for over 18" and repeated in the confirmation |
+| `expires-at` | The session's `expires_at`. Shows a countdown and ends the request locally at zero. Also read from `expires_at` in the status response |
 | `mode` | `cross_device` (default): QR code and link. `same_device`: link only |
+| `theme` | `dark` (default), `light` (warm ivory), or `auto` (follows `prefers-color-scheme`) |
+| `credit` | `off` hides the "eudiw-adapter · su.engineering" line |
 | `poll-interval` | Milliseconds between status checks, default 2000, at least 500. Errors back off up to 30 seconds; polling pauses while the page is hidden |
 
 ## Events
 
 Both bubble and cross shadow DOM boundaries.
 
-- `eudiw-status`: `detail.status` whenever the status changes.
+- `eudiw-status`: `detail.status` and `detail.response` (your status URL's JSON) whenever the status changes.
 - `eudiw-done`: once, when the session reaches `verified`, `rejected`, `denied`, `expired` or `cancelled`.
+- `eudiw-restart`: the user asked for a new request after one ended without a verification. Start a new session and replace the element.
 
 ## Styling
 
-The component uses a shadow root and adopted style sheets, so it works under a strict `style-src` Content Security Policy. Restyle it with custom properties on the element (`--eudiw-fg`, `--eudiw-bg`, `--eudiw-muted`, `--eudiw-accent`, `--eudiw-accent-fg`, `--eudiw-ok`, `--eudiw-bad`, `--eudiw-radius`) or with `::part(card)`, `::part(qr)`, `::part(open)` and `::part(status)`. It follows `prefers-color-scheme`. The QR code always keeps a white quiet zone so phones can read it.
+The component uses a shadow root and adopted style sheets, so it works under a strict `style-src` Content Security Policy. Restyle it with custom properties on the element: `--eudiw-bg`, `--eudiw-fg`, `--eudiw-muted`, `--eudiw-line`, `--eudiw-signal` (dots, marks), `--eudiw-signal-text` (signal-colored text), `--eudiw-qr-bg`, `--eudiw-qr-fg` and `--eudiw-font`, or with `::part(panel)`, `::part(qr)`, `::part(open)`, `::part(privacy)` and `::part(credit)`. Keep the QR colors dark on light so phones can read the code.
 
 ## Tests
 

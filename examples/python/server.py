@@ -33,6 +33,8 @@ CONFIG = {
     "client_id": os.environ.get("CLIENT_ID", "demo-portal"),
     "client_secret": os.environ.get("CLIENT_SECRET", "demo-only-secret"),
     "policy_id": os.environ.get("POLICY_ID", "age-over-18"),
+    # What the policy asks for, in the user's words, shown by the component.
+    "request_label": os.environ.get("REQUEST_LABEL", "over 18"),
     # whsec_ secrets: the current one, and during a rotation also the previous one.
     "webhook_secrets": [s for s in (os.environ.get("WEBHOOK_SECRET"), os.environ.get("WEBHOOK_PREVIOUS_SECRET")) if s],
 }
@@ -41,6 +43,8 @@ STATIC = {
     "/eudiw/eudiw-request.js": (HERE.parent.parent / "clients" / "web" / "eudiw-request.js", "text/javascript"),
     "/eudiw/vendor/qrcode.mjs": (HERE.parent.parent / "clients" / "web" / "vendor" / "qrcode.mjs", "text/javascript"),
 }
+for _font in ("jetbrains-mono-latin-wght-normal.woff2", "jetbrains-mono-latin-ext-wght-normal.woff2"):
+    STATIC[f"/eudiw/fonts/{_font}"] = (HERE.parent.parent / "clients" / "web" / "fonts" / _font, "font/woff2")
 LOCAL_PATH = re.compile(r"^/verifications/([A-Za-z0-9_-]{43})/(status|result)$")
 
 
@@ -78,10 +82,12 @@ _token = {"value": None, "expires_at": 0.0}
 _token_lock = threading.Lock()
 
 
-def access_token() -> str:
+def access_token(trace=None) -> str:
     with _token_lock:
         if _token["value"] and _token["expires_at"] > time.time() + 30:
             return _token["value"]
+        if trace:
+            trace("backend", "POST token endpoint", "client_credentials")
         data = urllib.parse.urlencode({
             "grant_type": "client_credentials",
             "client_id": CONFIG["client_id"],
@@ -94,8 +100,8 @@ def access_token() -> str:
         return _token["value"]
 
 
-def adapter(method: str, path: str, body: dict | None = None, idempotency_key: str | None = None):
-    headers = {"Authorization": f"Bearer {access_token()}", "Accept": "application/json"}
+def adapter(method: str, path: str, body: dict | None = None, idempotency_key: str | None = None, trace=None):
+    headers = {"Authorization": f"Bearer {access_token(trace)}", "Accept": "application/json"}
     data = None
     if body is not None:
         headers["Content-Type"] = "application/json"
@@ -110,8 +116,16 @@ def adapter(method: str, path: str, body: dict | None = None, idempotency_key: s
         return e.code, None
 
 
-# Local id (random, given to the browser) -> adapter session id. Use your database in a real application.
-sessions: dict[str, str] = {}
+# Local id (random, given to the browser) -> {adapter session id, status, trace}. Use your database in a real
+# application. The trace records what this backend did, so the example page can show it; it never holds claims.
+sessions: dict[str, dict] = {}
+
+
+def tracer(events: list):
+    def add(actor: str, event: str, detail: str = ""):
+        stamp = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()) + f".{int(time.time() * 1000) % 1000:03d}Z"
+        events.append({"at": stamp, "actor": actor, "event": event, "detail": detail})
+    return add
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -131,8 +145,16 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, file.read_bytes(), content_type)
         match = LOCAL_PATH.match(path)
         if match and match.group(2) == "status" and match.group(1) in sessions:
-            status, body = adapter("GET", f"/v1/verification-sessions/{sessions[match.group(1)]}")
-            return self.send(200, {"status": body["status"]}) if status == 200 else self.send(404, {})
+            session = sessions[match.group(1)]
+            status, body = adapter("GET", f"/v1/verification-sessions/{session['id']}")
+            if status != 200:
+                return self.send(404, {})
+            if body["status"] != session["status"]:
+                session["status"] = body["status"]
+                reason = f" ({body['reason']})" if body.get("reason") else ""
+                tracer(session["trace"])("backend", "GET /v1/verification-sessions/{id}", body["status"] + reason)
+            return self.send(200, {"status": session["status"], "expires_at": body["expires_at"],
+                                   "trace": session["trace"]})
         self.send(404, {"error": "not_found"})
 
     def do_POST(self):
@@ -142,26 +164,37 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(413, {"error": "too_large"})
         raw = self.rfile.read(length)
         if path == "/verifications":
+            events: list = []
+            trace = tracer(events)
+            trace("browser", "POST /verifications")
             status, body = adapter(
                 "POST",
                 "/v1/verification-sessions",
                 {"policy_id": CONFIG["policy_id"], "mode": "cross_device"},
                 str(uuid.uuid4()),
+                trace,
             )
+            trace("backend", "POST /v1/verification-sessions", f"{status} {(body or {}).get('status', '')}".strip())
             if status != 201:
                 return self.send(502, {"error": "could_not_start"})
             local = secrets.token_urlsafe(32)
-            sessions[local] = body["id"]
+            sessions[local] = {"id": body["id"], "status": body["status"], "trace": events}
             return self.send(201, {
                 "launch_uri": body["wallet_launch"]["launch_uri"],
+                "expires_at": body["expires_at"],
+                "request_label": CONFIG["request_label"],
                 "status_url": f"/verifications/{local}/status",
                 "result_url": f"/verifications/{local}/result",
+                "trace": events,
             })
         match = LOCAL_PATH.match(path)
         if match and match.group(2) == "result" and match.group(1) in sessions:
-            adapter_id = sessions.pop(match.group(1))
-            status, body = adapter("GET", f"/v1/verification-sessions/{adapter_id}/result")
-            return self.send(200, {"claims": body["claims"]}) if status == 200 else self.send(404, {})
+            session = sessions.pop(match.group(1))
+            status, body = adapter("GET", f"/v1/verification-sessions/{session['id']}/result")
+            tracer(session["trace"])("backend", "GET /v1/verification-sessions/{id}/result", str(status))
+            if status != 200:
+                return self.send(404, {})
+            return self.send(200, {"claims": body["claims"], "trace": session["trace"]})
         if path == "/webhooks/eudiw":
             headers = {k.lower(): v for k, v in self.headers.items()}
             try:
