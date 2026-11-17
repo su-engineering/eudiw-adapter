@@ -114,7 +114,7 @@ public class VerificationEngine {
                 tenant.id(),
                 caller.client().clientId(),
                 policy.id(),
-                runtime.config().revision(),
+                caller.revision(),
                 mode,
                 "pending",
                 AuthorizationRequests.randomValue(),

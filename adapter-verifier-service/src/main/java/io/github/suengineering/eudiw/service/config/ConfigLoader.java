@@ -66,6 +66,9 @@ public final class ConfigLoader {
     private static final org.jboss.logging.Logger LOG = org.jboss.logging.Logger.getLogger(ConfigLoader.class);
 
     private static final Pattern ID = Pattern.compile("[a-z0-9][a-z0-9._-]{0,63}");
+    /** An OAuth client id (RFC 6749 VSCHAR) without space, quote or backslash, so it is compared verbatim. */
+    private static final Pattern CLIENT_ID = Pattern.compile("[\\x21\\x23-\\x5B\\x5D-\\x7E]{1,255}");
+
     private static final Pattern PEM_KEY =
             Pattern.compile("-----BEGIN PRIVATE KEY-----(.*?)-----END PRIVATE KEY-----", Pattern.DOTALL);
 
@@ -140,6 +143,10 @@ public final class ConfigLoader {
         for (Object item : list(json, "clients")) {
             Map<String, Object> c = object(item, "client");
             String clientId = string(c, "client_id");
+            if (!CLIENT_ID.matcher(clientId).matches()) {
+                throw new ConfigException("tenant " + id + ": client_id must be 1 to 255 printable ASCII characters"
+                        + " without spaces, quotes or backslashes");
+            }
             Set<String> granted = new LinkedHashSet<>();
             for (Object p : list(c, "policies")) {
                 if (!(p instanceof String policyId) || !policies.containsKey(policyId)) {
@@ -304,8 +311,7 @@ public final class ConfigLoader {
                 default -> throw new ConfigException(where + ": certificate_revocation must be crl or off");
             };
         }
-        boolean enforceAuthorities = !json.containsKey("enforce_trusted_authorities")
-                || Boolean.TRUE.equals(json.get("enforce_trusted_authorities"));
+        boolean enforceAuthorities = flag(json, "enforce_trusted_authorities", true, where);
         Duration sessionTtl =
                 seconds(json, "session_ttl_seconds", Duration.ofMinutes(5), AdapterConfig.MAX_SESSION_TTL, where);
         Duration resultTtl =
@@ -331,9 +337,13 @@ public final class ConfigLoader {
     }
 
     private static boolean flag(Map<String, Object> json, String name, String where) {
+        return flag(json, name, false, where);
+    }
+
+    private static boolean flag(Map<String, Object> json, String name, boolean absent, String where) {
         Object value = json.get(name);
         if (value == null) {
-            return false;
+            return absent;
         }
         if (!(value instanceof Boolean b)) {
             throw new ConfigException(where + ": " + name + " must be true or false");
@@ -454,7 +464,7 @@ public final class ConfigLoader {
                     uri,
                     format,
                     signers,
-                    Boolean.TRUE.equals(json.get("follow_pointers")),
+                    flag(json, "follow_pointers", false, where),
                     json.containsKey("territories") ? strings(json, "territories", where) : Set.of(),
                     strings(json, "issuance_service_types", where),
                     json.containsKey("status_service_types") ? strings(json, "status_service_types", where) : Set.of(),

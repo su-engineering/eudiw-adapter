@@ -21,7 +21,7 @@ The verifier service reads environment variables for deployment settings and one
 
 The public port (8080) serves the management API and the wallet endpoints. The management port (9000) serves health checks at `/health/live`, `/health/ready` and `/health/well` (registration certificates near expiry) and Prometheus metrics at `/metrics`; none of these are on the public port. Do not expose port 9000 publicly. See [Operations](#operations).
 
-Access tokens must name the client in `azp` or `client_id` and list scopes in `scope`: `verification:create`, `verification:read`, `verification:result`, `verification:cancel`.
+Access tokens must name the client in `azp` or `client_id` (a string, compared exactly) and list scopes in `scope`: `verification:create`, `verification:read`, `verification:result`, `verification:cancel`.
 
 ## Tenants file
 
@@ -69,7 +69,7 @@ Relative paths resolve against the directory of the tenants file.
 - `wallet_invocation`: scheme of the launch URI, for example `openid4vp://` or `haip-vp://`.
 
 **Client**
-- `client_id`: the OAuth client id in the access token. Unique across all tenants.
+- `client_id`: the OAuth client id in the access token. Unique across all tenants. 1 to 255 printable ASCII characters without spaces, double quotes or backslashes.
 - `policies`: the only policies this client may start.
 - `completion_uri`: where same-device flows send the user back, with `#response_code=...`. Required for `same_device` sessions.
 - `rate_limit`: optional. `{"sessions_per_minute": N}`, 1 to 100000, default 300. Counted per client in one-minute windows in PostgreSQL, so the limit holds across replicas. Over the limit, session creation returns 429 with `Retry-After`. The default applies to every client that does not set its own, so size it to each client's expected peak: 300 per minute is 5 new sessions per second. Watch `eudiw_rate_limited_total` after changing it.
@@ -83,7 +83,7 @@ Relative paths resolve against the directory of the tenants file.
 - `allowed_issuers`: optional allow list of issuer identifiers.
 - `certificate_revocation`: `crl` checks every issuer chain certificate except the anchor against its CRL, and rejects when a CRL is missing, stale or unreachable; `off` (default) does not check. CRLs are fetched over HTTP or HTTPS from public addresses only ([ADR-007](adr/0007-certificate-revocation.md)).
 - `status_policy`: `require_valid` (default; an unavailable status list rejects), `reject_known_invalid` (revoked or suspended rejects, unavailable is tolerated) or `ignore` (not allowed in production).
-- `enforce_trusted_authorities`: reject credentials that match none of the query's `trusted_authorities` (default `true`).
+- `enforce_trusted_authorities`: reject credentials that match none of the query's `trusted_authorities` (default `true`). Must be a JSON boolean; `"true"` is a configuration error.
 - `mdoc_strict_conformance`: refuse mdoc departures from ISO/IEC 18013-5 that are otherwise accepted with a conformance warning; today, a P-384 device key (default `false`, see [mdoc](#mdoc)).
 - `session_ttl_seconds`: at most 900. `result_ttl_seconds`: at most 3600.
 - `registration`: optional. What the relying party registered for this intended use, sent to wallets in `verifier_info` as ETSI TS 119 472-2 requires. See [Registration](#registration).

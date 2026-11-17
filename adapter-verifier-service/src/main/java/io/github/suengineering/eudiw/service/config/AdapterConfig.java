@@ -41,13 +41,18 @@ public record AdapterConfig(String revision, Map<String, Tenant> tenants) {
         for (Tenant tenant : tenants.values()) {
             ClientApplication app = tenant.clients().get(oauthClientId);
             if (app != null) {
-                return Optional.of(new ClientBinding(tenant, app));
+                return Optional.of(new ClientBinding(tenant, app, revision));
             }
         }
         return Optional.empty();
     }
 
-    public record ClientBinding(Tenant tenant, ClientApplication client) {}
+    /**
+     * A caller resolved against one configuration.
+     *
+     * @param revision the revision of that configuration, which a session created for this caller records
+     */
+    public record ClientBinding(Tenant tenant, ClientApplication client, String revision) {}
 
     /**
      * @param id tenant identifier
