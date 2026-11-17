@@ -419,6 +419,23 @@ class VerificationFlowTest {
         assertThat(sequenceStore.digest(legacy)).isNull();
         assertThat(sequenceStore.advance(legacy, 9, "cc")).isTrue();
         assertThat(sequenceStore.advance(legacy, 9, "dd")).isFalse();
+
+        // A number raised without a digest (as a 0.2.0 node or record() does) unbinds the old digest, so the next
+        // list under that number is not refused for the previous number's content.
+        String raised = "https://tl.test.example/raised-" + java.util.UUID.randomUUID();
+        assertThat(sequenceStore.advance(raised, 5, "v1:aa")).isTrue();
+        sequenceStore.record(raised, 6);
+        assertThat(sequenceStore.digest(raised)).isNull();
+        assertThat(sequenceStore.advance(raised, 6, "v1:bb")).isTrue();
+        assertThat(sequenceStore.digest(raised)).isEqualTo("v1:bb");
+        assertThat(sequenceStore.advance(raised, 6, "v1:cc")).isFalse();
+        assertThat(sequenceStore.advance(raised, 7)).isTrue();
+        assertThat(sequenceStore.advance(raised, 7, "v1:dd")).isTrue();
+
+        // A digest of another version is replaced, not compared.
+        assertThat(sequenceStore.advance(raised, 7, "v2:ee")).isTrue();
+        assertThat(sequenceStore.digest(raised)).isEqualTo("v2:ee");
+        assertThat(sequenceStore.advance(raised, 7, "v2:ff")).isFalse();
     }
 
     @Test

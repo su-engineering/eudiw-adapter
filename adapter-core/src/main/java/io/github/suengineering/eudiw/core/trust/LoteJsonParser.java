@@ -67,6 +67,16 @@ public final class LoteJsonParser {
      *     trusted_list_signer_untrusted}
      */
     public static TrustedList verify(byte[] signed, String location, Collection<X509Certificate> allowedSigners) {
+        return verify(signed, location, allowedSigners, Instant.now());
+    }
+
+    /**
+     * As {@link #verify(byte[], String, Collection)}, with the current time from the caller's clock.
+     *
+     * @param now the time a {@code sigT} signing time may not be after, beyond a small skew
+     */
+    public static TrustedList verify(
+            byte[] signed, String location, Collection<X509Certificate> allowedSigners, Instant now) {
         if (signed.length > MAX_BYTES) {
             throw new VerificationFailure(ListRules.INVALID, "trusted list too large");
         }
@@ -85,7 +95,7 @@ public final class LoteJsonParser {
         }
         X509Certificate signer = signer(header, allowedSigners);
         ListRules.checkPinned(signer, allowedSigners);
-        checkSigningTime(header.getCustomParam("sigT"), signer);
+        checkSigningTime(header.getCustomParam("sigT"), signer, now);
         try {
             JwsSignatureVerifier.verify(
                     jws, CertificateKeys.publicJwk(signer), AlgorithmPolicy.TRUSTED_LISTS, UNDERSTOOD_CRITICAL);
@@ -146,7 +156,7 @@ public final class LoteJsonParser {
     }
 
     /** ETSI TS 119 182-1 clause 5.2.1: {@code sigT} is the claimed signing time, a UTC date-time. */
-    private static void checkSigningTime(Object sigT, X509Certificate signer) {
+    private static void checkSigningTime(Object sigT, X509Certificate signer, Instant now) {
         if (sigT == null) {
             return;
         }
@@ -154,7 +164,7 @@ public final class LoteJsonParser {
             throw new VerificationFailure(ListRules.INVALID, "sigT must be a date-time string");
         }
         Instant signed = ListRules.instant(value);
-        if (signed.isAfter(Instant.now().plus(SIGNING_TIME_SKEW))) {
+        if (signed.isAfter(now.plus(SIGNING_TIME_SKEW))) {
             throw new VerificationFailure(ListRules.INVALID, "sigT is in the future");
         }
         ListRules.checkSignerValidity(signer, signed);
