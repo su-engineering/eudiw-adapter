@@ -490,6 +490,50 @@ class TrustedListTest {
     }
 
     @Test
+    void anExpiredListOfListsStopsVouchingBeforeTheNextRefresh() {
+        Instant lotlNext = NOW.plus(Duration.ofDays(10));
+        Map<String, byte[]> served = new HashMap<>();
+        served.put(LOTL, signXml(lotl(7, lotlNext, TL_SIGNER, true), LOTL_SIGNER));
+        served.put(TL_AA, signXml(nationalXml(3), TL_SIGNER));
+        AtomicReference<Instant> now = new AtomicReference<>(NOW);
+        TrustedLists lists = registry(served, movingClock(now));
+        lists.refresh();
+        assertThat(lists.issuance().certificates()).containsExactly(EAA_CA.certificate());
+
+        // The national list is valid until NEXT, but the LOTL that vouched for it is not.
+        now.set(lotlNext.plusSeconds(1));
+        assertThat(lists.issuance().isEmpty()).isTrue();
+        assertThat(lists.status().isEmpty()).isTrue();
+        assertThat(lists.hasCurrentList()).isFalse();
+    }
+
+    @Test
+    void aPointerThisSourceNoLongerFollowsEvictsThatList() {
+        Map<String, byte[]> served = new HashMap<>();
+        served.put(LOTL, signXml(lotl(7, NEXT, TL_SIGNER, true), LOTL_SIGNER));
+        served.put(TL_AA, signXml(nationalXml(3), TL_SIGNER));
+        TrustedLists lists = registry(served, Clock.fixed(NOW, ZoneOffset.UTC));
+        lists.refresh();
+        assertThat(lists.issuance().certificates()).containsExactly(EAA_CA.certificate());
+
+        // Same location and signer, but no longer a pointer to a trusted list in XML.
+        served.put(
+                LOTL,
+                signXml(
+                        xml(
+                                TrustedList.TSL_TYPE_EU_LOTL,
+                                "EU",
+                                8,
+                                ISSUED,
+                                NEXT,
+                                List.of(new XmlPointer(TL_AA, "AA", "application/pdf", TL_SIGNER.certificate())),
+                                List.of()),
+                        LOTL_SIGNER));
+        lists.refresh();
+        assertThat(lists.issuance().isEmpty()).isTrue();
+    }
+
+    @Test
     void aListOfListsThatDropsAPointerOrRotatesItsSignerEvictsThatList() {
         Map<String, byte[]> served = new HashMap<>();
         served.put(LOTL, signXml(lotl(7, NEXT, TL_SIGNER, true), LOTL_SIGNER));
