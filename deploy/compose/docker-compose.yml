@@ -80,6 +80,9 @@ services:
       QUARKUS_OIDC_TOKEN_ISSUER: http://localhost:8081/realms/demo
       QUARKUS_OIDC_CONNECTION_DELAY: 90s
       SOFTHSM2_CONF: /hsm/softhsm2.conf
+    # Webhooks go to an example backend on the host (examples/README.md).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     entrypoint:
       - /bin/sh
       - -c

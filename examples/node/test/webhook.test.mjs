@@ -9,8 +9,8 @@ const body = Buffer.from(vector.body, 'utf8');
 const at = Number(vector.headers['webhook-timestamp']) * 1000;
 
 test('accepts what the adapter signs, with either secret during a rotation', () => {
-  assert.equal(verifyWebhook(body, vector.headers, [vector.secret], at).status, 'verified');
-  assert.equal(verifyWebhook(body, vector.headers, [vector.previous_secret], at).status, 'verified');
+  assert.equal(verifyWebhook(body, vector.headers, [vector.secret], at).data.status, 'verified');
+  assert.equal(verifyWebhook(body, vector.headers, [vector.previous_secret], at).data.status, 'verified');
 });
 
 test('rejects a changed body, a wrong secret, an old timestamp and missing headers', () => {

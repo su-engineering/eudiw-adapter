@@ -18,17 +18,21 @@ package io.github.suengineering.eudiw.service;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.suengineering.eudiw.core.json.Json;
+import io.github.suengineering.eudiw.service.engine.WebhookDispatcher;
 import io.github.suengineering.eudiw.service.engine.WebhookSigner;
+import io.github.suengineering.eudiw.service.store.SessionStore.SessionRow;
+import io.github.suengineering.eudiw.service.store.WebhookOutbox.Delivery;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 /**
- * The shared vector the Node and Python examples verify must be exactly what the adapter's signer produces, so the
- * example verifiers are tested against the real sender.
+ * The shared vector the Node and Python examples verify must be exactly what the adapter's signer and payload builder
+ * produce, so the example verifiers are tested against the real sender.
  */
 class WebhookVectorTest {
 
@@ -46,6 +50,33 @@ class WebhookVectorTest {
                 Long.parseLong((String) headers.get("webhook-timestamp")),
                 (String) vector.get("body"));
         assertThat(signature).isEqualTo(headers.get("webhook-signature"));
+    }
+
+    @Test
+    void theExampleBodyIsWhatTheAdapterSends() throws Exception {
+        Map<String, Object> vector = Json.parseObject(
+                Files.readString(Path.of("..", "examples", "shared", "webhook-vector.json")), "invalid");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> headers = (Map<String, Object>) vector.get("headers");
+        Instant at = Instant.ofEpochSecond(Long.parseLong((String) headers.get("webhook-timestamp")));
+        SessionRow session = new SessionRow(
+                "vrs_example",
+                "tenant",
+                "client",
+                "age-over-18",
+                "revision",
+                "cross_device",
+                "verified",
+                null,
+                null,
+                "order-42",
+                null,
+                true,
+                at,
+                at,
+                at);
+        Delivery delivery = new Delivery("msg", "vrs_example", "tenant", "client", "verified", at, 1);
+        assertThat(WebhookDispatcher.body(delivery, session)).isEqualTo(vector.get("body"));
     }
 
     private static byte[] secret(String value) {

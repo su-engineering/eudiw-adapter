@@ -180,7 +180,8 @@ public class WebhookDispatcher {
                 now);
     }
 
-    static String body(Delivery delivery, SessionRow session) {
+    /** The notification body. Public so the shared example vector can be checked against it. */
+    public static String body(Delivery delivery, SessionRow session) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("id", session.id());
         data.put("status", delivery.eventStatus());

@@ -28,6 +28,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 CONFIG = {
     "port": int(os.environ.get("PORT", "3001")),
+    # Loopback by default. On Linux, Docker reaches the host only on a non-loopback address (examples/README.md).
+    "host": os.environ.get("HOST", "127.0.0.1"),
     "adapter_url": os.environ.get("ADAPTER_URL", "http://localhost:8080").rstrip("/"),
     "token_url": os.environ.get("TOKEN_URL", "http://localhost:8081/realms/demo/protocol/openid-connect/token"),
     "client_id": os.environ.get("CLIENT_ID", "demo-portal"),
@@ -199,9 +201,15 @@ class Handler(BaseHTTPRequestHandler):
             headers = {k.lower(): v for k, v in self.headers.items()}
             try:
                 event = verify_webhook(raw, headers, CONFIG["webhook_secrets"])
-            except (WebhookError, ValueError):
+            except (WebhookError, ValueError, KeyError, TypeError):
                 return self.send(401, {"error": "invalid_signature"})
-            print(f"webhook: session {event['id']} is {event['status']}", flush=True)
+            # {type, timestamp, data: {id, status, policy_id, reason?, client_reference?}}, never claims.
+            data = event["data"]
+            print(f"webhook: session {data['id']} is {data['status']}", flush=True)
+            # A real application would update its own record here. The example adds it to the session's trace.
+            for session in list(sessions.values()):
+                if session["id"] == data["id"]:
+                    tracer(session["trace"])("adapter", "POST /webhooks/eudiw", f"{data['status']} · signature valid")
             self.send_response(204)
             self.end_headers()
             return None
@@ -213,4 +221,4 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     print(f"example backend on http://localhost:{CONFIG['port']}", flush=True)
-    ThreadingHTTPServer(("127.0.0.1", CONFIG["port"]), Handler).serve_forever()
+    ThreadingHTTPServer((CONFIG["host"], CONFIG["port"]), Handler).serve_forever()

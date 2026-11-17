@@ -15,7 +15,11 @@
         {
           "client_id": "demo-portal",
           "policies": ["age-over-18"],
-          "completion_uri": "http://localhost:8080/demo-complete"
+          "completion_uri": "http://localhost:8080/demo-complete",
+          "webhook": {
+            "url": "http://host.docker.internal:3000/webhooks/eudiw",
+            "secret_file": "/keys/webhook-secret"
+          }
         }
       ],
       "policies": [

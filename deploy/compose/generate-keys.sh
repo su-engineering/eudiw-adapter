@@ -4,6 +4,8 @@ set -eu
 OUT=${1:-/keys}
 mkdir -p "$OUT"
 cd "$OUT"
+# The demo client's webhook secret (Standard Webhooks whsec_ form).
+[ -f webhook-secret ] || { echo "whsec_$(openssl rand -base64 32)" > webhook-secret && chmod 644 webhook-secret; }
 if [ -f done ]; then
   echo "demo keys already present"
   exit 0

@@ -14,8 +14,8 @@ AT = int(VECTOR["headers"]["webhook-timestamp"])
 
 class WebhookTest(unittest.TestCase):
     def test_accepts_what_the_adapter_signs_with_either_secret(self):
-        self.assertEqual(verify_webhook(BODY, VECTOR["headers"], [VECTOR["secret"]], AT)["status"], "verified")
-        self.assertEqual(verify_webhook(BODY, VECTOR["headers"], [VECTOR["previous_secret"]], AT)["status"], "verified")
+        self.assertEqual(verify_webhook(BODY, VECTOR["headers"], [VECTOR["secret"]], AT)["data"]["status"], "verified")
+        self.assertEqual(verify_webhook(BODY, VECTOR["headers"], [VECTOR["previous_secret"]], AT)["data"]["status"], "verified")
 
     def test_rejects_tampering_wrong_secret_old_timestamp_and_missing_headers(self):
         secrets = [VECTOR["secret"]]

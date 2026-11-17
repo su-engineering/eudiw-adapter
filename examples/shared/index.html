@@ -281,8 +281,11 @@
      */
     function compose() {
       const items = [];
+      let inferred = false;
       for (const e of trace) {
-        if (e.event === 'GET /v1/verification-sessions/{id}' && /^(verified|rejected|denied)/.test(e.detail)) {
+        const verdictEvent = e.event === 'GET /v1/verification-sessions/{id}' || e.event === 'POST /webhooks/eudiw';
+        if (!inferred && verdictEvent && /^(verified|rejected|denied)/.test(e.detail)) {
+          inferred = true;
           const verdict = e.detail.split(' ')[0];
           items.push({ at: 'inferred', who: 'wallet', what: verdict === 'denied' ? 'declined in the wallet' : 'presented the credential',
             detail: 'from status: ' + verdict, inferred: true });

@@ -17,6 +17,8 @@ import { fileURLToPath } from 'node:url';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const config = {
   port: Number(process.env.PORT ?? 3000),
+  // Loopback by default. On Linux, Docker reaches the host only on a non-loopback address (examples/README.md).
+  host: process.env.HOST ?? '127.0.0.1',
   adapterUrl: (process.env.ADAPTER_URL ?? 'http://localhost:8080').replace(/\/$/, ''),
   tokenUrl: process.env.TOKEN_URL ?? 'http://localhost:8081/realms/demo/protocol/openid-connect/token',
   clientId: process.env.CLIENT_ID ?? 'demo-portal',
@@ -183,8 +185,14 @@ async function handle(req, res) {
   }
   if (req.method === 'POST' && url.pathname === '/webhooks/eudiw') {
     try {
-      const event = verifyWebhook(await readBody(req), req.headers, config.webhookSecrets);
-      console.log(`webhook: session ${event.id} is ${event.status}`);
+      // { type, timestamp, data: { id, status, policy_id, reason?, client_reference? } }, never claims.
+      const { data } = verifyWebhook(await readBody(req), req.headers, config.webhookSecrets);
+      console.log(`webhook: session ${data.id} is ${data.status}`);
+      // A real application would update its own record here. The example adds it to the session's trace.
+      const session = [...sessions.values()].find((s) => s.id === data.id);
+      if (session) {
+        tracer(session.trace)('adapter', 'POST /webhooks/eudiw', `${data.status} · signature valid`);
+      }
       res.writeHead(204).end();
     } catch {
       send(res, 401, { error: 'invalid_signature' });
@@ -202,5 +210,5 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         send(res, 500, { error: 'internal_error' });
       }
     });
-  }).listen(config.port, '127.0.0.1', () => console.log(`example backend on http://localhost:${config.port}`));
+  }).listen(config.port, config.host, () => console.log(`example backend on http://localhost:${config.port}`));
 }

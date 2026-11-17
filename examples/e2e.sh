@@ -1,10 +1,15 @@
 #!/bin/sh
 # Runs each example backend against the Compose demo (deploy/compose/demo.sh must have started it): the backend
 # starts a session, the eudi-dev wallet answers the launch URI, the status URL reaches "verified" and the backend
-# retrieves only the requested claim. Also checks that the page and the component are served.
+# retrieves only the requested claim, and the adapter's signed webhook reaches the backend. Also checks that the page
+# and the component are served.
 set -eu
 cd "$(dirname "$0")"
 command -v jq >/dev/null || { echo "jq is required"; exit 1; }
+# The demo client sends webhooks to http://host.docker.internal:3000, so each backend takes port 3000 in turn.
+# HOST=0.0.0.0 because on Linux the adapter container reaches the host only on a non-loopback address.
+WEBHOOK_SECRET=$(cd ../deploy/compose && docker compose run --rm --no-deps -T --entrypoint cat keygen /keys/webhook-secret)
+export WEBHOOK_SECRET HOST=0.0.0.0
 
 check() {
   name=$1 port=$2
@@ -39,6 +44,15 @@ check() {
     sleep 1
   done
   test "$status" = verified || { echo "$name: status is $status"; exit 1; }
+  # The adapter's signed webhook reaches the backend, which checks the signature and records it.
+  webhook=""
+  for _ in $(seq 1 30); do
+    webhook=$(curl -sf "http://localhost:$port$status_url" \
+      | jq -r '[.trace[] | select(.event == "POST /webhooks/eudiw")][0].detail // empty')
+    [ -n "$webhook" ] && break
+    sleep 1
+  done
+  test "$webhook" = "verified · signature valid" || { echo "$name: no valid webhook (got '$webhook')"; exit 1; }
   result=$(curl -sf -X POST "http://localhost:$port$result_url")
   echo "$result" | jq -e '.claims == {"age_over_18": true}' > /dev/null
   # The trace shows what the backend did, never claim values.
@@ -46,9 +60,10 @@ check() {
   # The result can be retrieved once.
   test "$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://localhost:$port$result_url")" = 404
   kill $pid
+  wait $pid 2>/dev/null || true
   trap - EXIT
-  echo "$name example: verified, only age_over_18 returned"
+  echo "$name example: verified, webhook signature valid, only age_over_18 returned"
 }
 
 check node 3000 node node/server.mjs
-check python 3001 python3 python/server.py
+check python 3000 python3 python/server.py

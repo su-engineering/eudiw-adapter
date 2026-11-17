@@ -5,7 +5,7 @@
   "headers": {
     "webhook-id": "msg_0123456789abcdef0123456789abcdef",
     "webhook-timestamp": "1795000000",
-    "webhook-signature": "v1,nFkD49GT967wkIH9Tc8WpdmX/uL/fP0uZb0CdRyuqvU= v1,9pzqgPgtwP6lWlAczL2LflgpLesdvcZ9mB5rgG7TV+g="
+    "webhook-signature": "v1,t7kDMenKzuqG8JlOou/5HBWIkwUH71+peZH76wOENnw= v1,crFFr11ayiX7BHzC5xTAnNo8Yp+cKPkUv8jeb6ssj1c="
   },
-  "body": "{\"id\":\"vrs_example\",\"status\":\"verified\",\"policy_id\":\"age-over-18\",\"client_reference\":\"order-42\"}"
+  "body": "{\"type\":\"verification_session.verified\",\"timestamp\":\"2026-11-18T11:06:40Z\",\"data\":{\"id\":\"vrs_example\",\"status\":\"verified\",\"policy_id\":\"age-over-18\",\"client_reference\":\"order-42\"}}"
 }

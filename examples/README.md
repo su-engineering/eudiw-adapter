@@ -23,11 +23,24 @@ Open the page and select "start a check". Answer the QR code with a wallet that 
 cd deploy/compose && docker compose run --rm wallet '<launch URI>'
 ```
 
-`examples/e2e.sh` does this for both backends and checks that only `age_over_18` comes back. CI runs it after the demo.
+### Webhooks in the demo
+
+The demo client sends webhooks to `http://host.docker.internal:3000/webhooks/eudiw`, signed with a secret the demo generates. To receive them, start a backend on port 3000 with that secret:
+
+```sh
+export WEBHOOK_SECRET=$(cd deploy/compose && docker compose run --rm --no-deps -T --entrypoint cat keygen /keys/webhook-secret)
+node examples/node/server.mjs                 # or: PORT=3000 python3 examples/python/server.py
+```
+
+The backend checks the signature and adds the notification to the session's trace. The page shows it when it arrives before the result is fetched; the adapter sends webhooks every `EUDIW_WEBHOOK_INTERVAL` (5 seconds by default). Without the secret it answers 401 and the adapter retries with backoff, which is harmless. On Linux, also set `HOST=0.0.0.0`: a container reaches the host only on a non-loopback address, so the backend has to listen on one (keep it behind a firewall).
+
+`examples/e2e.sh` does all of this for both backends and checks that the webhook arrives with a valid signature and that only `age_over_18` comes back. CI runs it after the demo.
+
+`examples/render/check.sh` opens the page in Chromium (in the Playwright container), decodes the QR code as drawn on screen with `zbarimg`, checks the vendored font is in use, and answers with the test wallet until the page shows the verified state. CI runs it and keeps the screenshots.
 
 ## Settings
 
-Environment variables, with the demo's values as defaults: `ADAPTER_URL`, `TOKEN_URL`, `CLIENT_ID`, `CLIENT_SECRET`, `POLICY_ID`, `PORT`, and `WEBHOOK_SECRET` (plus `WEBHOOK_PREVIOUS_SECRET` during a rotation) in the `whsec_` form configured for the client in the adapter.
+Environment variables, with the demo's values as defaults: `HOST` (default `127.0.0.1`), `ADAPTER_URL`, `TOKEN_URL`, `CLIENT_ID`, `CLIENT_SECRET`, `POLICY_ID`, `PORT`, and `WEBHOOK_SECRET` (plus `WEBHOOK_PREVIOUS_SECRET` during a rotation) in the `whsec_` form configured for the client in the adapter.
 
 ## Webhook vector
 
