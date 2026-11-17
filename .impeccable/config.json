@@ -20,6 +20,12 @@
         ],
         "createdAt": "2026-11-17T09:07:52.928Z",
         "reason": "false positive: section.trace has 48px top padding below its border-top on mobile and 24-56px left padding beside its border-left on desktop"
+      },
+      {
+        "rule": "design-system-font",
+        "value": "mono",
+        "createdAt": "2026-11-17T09:28:13.707Z",
+        "reason": "false positive: 'monospace' is the generic fallback after JetBrains Mono, which DESIGN.md declares"
       }
     ]
   }
