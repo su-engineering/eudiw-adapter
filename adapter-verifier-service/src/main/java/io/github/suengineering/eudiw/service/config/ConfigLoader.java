@@ -19,6 +19,7 @@ import io.github.suengineering.eudiw.core.dcql.ClaimsPath;
 import io.github.suengineering.eudiw.core.dcql.DcqlQuery;
 import io.github.suengineering.eudiw.core.json.Json;
 import io.github.suengineering.eudiw.core.keys.Pkcs11Keys;
+import io.github.suengineering.eudiw.core.oid4vp.RelyingPartyRegistration;
 import io.github.suengineering.eudiw.core.oid4vp.VerifierIdentity;
 import io.github.suengineering.eudiw.core.oid4vp.VpTokenVerifier.StatusPolicy;
 import io.github.suengineering.eudiw.core.trust.TrustedList;
@@ -61,6 +62,8 @@ import java.util.regex.Pattern;
  * TTL above the hard limits.
  */
 public final class ConfigLoader {
+
+    private static final org.jboss.logging.Logger LOG = org.jboss.logging.Logger.getLogger(ConfigLoader.class);
 
     private static final Pattern ID = Pattern.compile("[a-z0-9][a-z0-9._-]{0,63}");
     private static final Pattern PEM_KEY =
@@ -128,7 +131,7 @@ public final class ConfigLoader {
 
         Map<String, Policy> policies = new LinkedHashMap<>();
         for (Object item : list(json, "policies")) {
-            Policy policy = policy(object(item, "policy"), base, id, production);
+            Policy policy = policy(object(item, "policy"), base, id, production, chain.get(0));
             if (policies.put(policy.id(), policy) != null) {
                 throw new ConfigException("tenant " + id + ": duplicate policy " + policy.id());
             }
@@ -206,7 +209,12 @@ public final class ConfigLoader {
         return secret;
     }
 
-    private static Policy policy(Map<String, Object> json, Path base, String tenantId, boolean production) {
+    private static Policy policy(
+            Map<String, Object> json,
+            Path base,
+            String tenantId,
+            boolean production,
+            X509Certificate accessCertificate) {
         String id = id(json.get("id"), "policy id");
         String where = "tenant " + tenantId + " policy " + id;
         DcqlQuery query;
@@ -288,6 +296,10 @@ public final class ConfigLoader {
                 seconds(json, "session_ttl_seconds", Duration.ofMinutes(5), AdapterConfig.MAX_SESSION_TTL, where);
         Duration resultTtl =
                 seconds(json, "result_ttl_seconds", Duration.ofMinutes(15), AdapterConfig.MAX_RESULT_TTL, where);
+        Optional<RelyingPartyRegistration> registration = json.containsKey("registration")
+                ? Optional.of(registration(
+                        object(json.get("registration"), "registration"), base, where, query, accessCertificate))
+                : Optional.empty();
         return new Policy(
                 id,
                 query,
@@ -299,7 +311,88 @@ public final class ConfigLoader {
                 statusPolicy,
                 enforceAuthorities,
                 sessionTtl,
-                resultTtl);
+                resultTtl,
+                registration);
+    }
+
+    /**
+     * Reads a policy's registration (ETSI TS 119 472-2 clause 6.3.2.2). A missing required dataset member, a query
+     * that asks for more than the dataset declares, and a certificate that cannot be parsed or has expired stop
+     * startup. A query that asks for more than the certificate declares, or a certificate that names neither this
+     * relying party nor its intermediary, is logged: the wallet decides, and the certificate is the registrar's.
+     */
+    private static RelyingPartyRegistration registration(
+            Map<String, Object> json, Path base, String where, DcqlQuery query, X509Certificate accessCertificate) {
+        if (json.containsKey("registrar_dataset") == json.containsKey("registrar_dataset_file")) {
+            throw new ConfigException(where + ": set exactly one of registration.registrar_dataset and "
+                    + "registration.registrar_dataset_file");
+        }
+        Map<String, Object> dataset;
+        if (json.containsKey("registrar_dataset")) {
+            dataset = object(json.get("registrar_dataset"), "registrar_dataset");
+        } else {
+            try {
+                dataset = Json.parseObject(readUtf8(base, string(json, "registrar_dataset_file")), "invalid");
+            } catch (RuntimeException e) {
+                throw new ConfigException(where + ": registrar_dataset_file is not a JSON object", e);
+            }
+        }
+        Optional<RelyingPartyRegistration.RegistrationCertificate> certificate = Optional.empty();
+        if (json.containsKey("certificate_file")) {
+            RelyingPartyRegistration.RegistrationCertificate parsed;
+            try {
+                parsed = RelyingPartyRegistration.RegistrationCertificate.parse(
+                        read(base, string(json, "certificate_file")));
+            } catch (IllegalArgumentException e) {
+                throw new ConfigException(where + ": " + e.getMessage(), e);
+            }
+            java.time.Instant now = java.time.Instant.now();
+            if (parsed.expiresAt().map(exp -> !exp.isAfter(now)).orElse(false)) {
+                throw new ConfigException(where + ": the registration certificate expired at "
+                        + parsed.expiresAt().get());
+            }
+            if (!parsed.missingMembers().isEmpty()) {
+                LOG.warnf(
+                        "%s: the registration certificate lacks members ETSI TS 119 475 requires; wallets may refuse "
+                                + "it: %s",
+                        where, String.join(", ", parsed.missingMembers()));
+            }
+            if (!parsed.names(accessCertificate)) {
+                LOG.warnf(
+                        "%s: the registration certificate sub %s matches neither the organizationIdentifier nor the "
+                                + "serialNumber of the access certificate, nor an intermediary in the certificate",
+                        where, parsed.subject());
+            }
+            List<String> overAsking = RelyingPartyRegistration.undeclared(query, parsed.credentials());
+            if (!overAsking.isEmpty()) {
+                LOG.warnf(
+                        "%s: the DCQL query asks for more than the registration certificate declares; wallets may "
+                                + "refuse the request: %s",
+                        where, String.join("; ", overAsking));
+            }
+            certificate = Optional.of(parsed);
+        }
+        RelyingPartyRegistration registration;
+        try {
+            registration = RelyingPartyRegistration.of(dataset, certificate);
+        } catch (IllegalArgumentException e) {
+            throw new ConfigException(where + ": " + e.getMessage(), e);
+        }
+        List<String> undeclared = registration.undeclaredByDataset(query);
+        if (!undeclared.isEmpty()) {
+            throw new ConfigException(where + ": the DCQL query asks for more than the registrar dataset declares: "
+                    + String.join("; ", undeclared));
+        }
+        return registration;
+    }
+
+    private static String readUtf8(Path base, String relative) {
+        Path path = base.resolve(relative).normalize();
+        try {
+            return Files.readString(path, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new ConfigException("cannot read " + path, e);
+        }
     }
 
     private static TrustedListSource trustedList(
@@ -417,6 +510,14 @@ public final class ConfigLoader {
                 for (Policy p : t.policies().values()) {
                     for (TrustAnchor a : p.trustAnchors()) {
                         digest.update(a.getTrustedCert().getEncoded());
+                    }
+                    if (p.registration().isPresent()) {
+                        digest.update(Json.toJson(p.registration().get().registrarDataset())
+                                .getBytes(StandardCharsets.UTF_8));
+                        p.registration()
+                                .get()
+                                .certificate()
+                                .ifPresent(c -> digest.update(c.serialized().getBytes(StandardCharsets.US_ASCII)));
                     }
                     for (TrustedListSource list : p.trustedLists()) {
                         for (X509Certificate signer : list.signers()) {

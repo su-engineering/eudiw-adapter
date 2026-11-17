@@ -13,6 +13,8 @@ Pinned versions. Changes go through a reviewed ADR and tests. "Supported" means 
 | ETSI TS 119 602 (lists of trusted entities) | V1.1.1 | | PID provider and other EU lists, JSON binding |
 | ETSI TS 119 612 (trusted lists) | V2.4.1 | | XML trusted lists and the EU list of trusted lists |
 | ETSI TS 119 182-1 (JAdES) | V1.2.1 | | Compact signatures on TS 119 602 lists |
+| ETSI TS 119 472-2 (EAA presentation profiles) | V1.3.1 | July 2026 | `verifier_info` with `registrar_dataset` and `registration_cert` |
+| ETSI TS 119 475 (relying party attributes) | V1.2.1 | March 2026 | Registration certificate and registrar dataset contents |
 | EUDI Wallet Architecture and Reference Framework | v3.0.0 | 21 July 2026 | Ecosystem reference |
 | Standard Webhooks | specification at commit `ab6844147ce9` | | Signed session notifications (`v1` HMAC-SHA256) |
 | OpenID for Verifiable Credential Issuance 1.0 | Final | 16 September 2025 | Not used yet |
@@ -31,7 +33,8 @@ States: `not implemented`, `implemented` (code exists), `tested` (automated test
 | ETSI TS 119 602 / 119 612 trusted lists, LOTL | tested with synthetic signed lists: JSON with compact JAdES and XML with enveloped signatures, LOTL pointer following, tampering, wrong signer, XXE, partial-coverage signature wrapping, external references, rollback, expiry, six-month limit. Not yet run against a published list |
 | Token Status List | JWT form tested: draft 14 section 4 and Appendix C vectors (1, 2, 4 and 8 bits), signed `x5c` status list tokens; CWT form not implemented |
 | Issuer certificate revocation | CRL tested: revoked end-entity and intermediate, missing, stale, forged and unparsable CRLs, caching (CRLs from BouncyCastle, checked by the JDK). OCSP not implemented ([ADR-007](adr/0007-certificate-revocation.md)) |
-| Relying-party access and registration certificates | requires external onboarding |
+| Relying-party registration in `verifier_info` (ETSI TS 119 472-2 `registrar_dataset`, `registration_cert`) | tested with synthetic registration certificates only, no real registrar: request shape, over-asking check, expiry; eudi-dev wallet v3.8.0 with `--haip --arf --mode strict` accepts it, fetching the certificate's status list (2026-11-17) ([ADR-010](adr/0010-relying-party-registration.md)) |
+| Relying-party access and registration certificates from a real registrar | requires external onboarding |
 | Wallet and key attestation | not implemented |
 | DC API | not implemented |
 | did:web, did:webvh | not implemented |

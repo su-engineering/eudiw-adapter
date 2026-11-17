@@ -246,7 +246,8 @@ public class VerificationEngine {
                         policy.query(),
                         key,
                         walletNonceValue,
-                        java.time.Duration.between(now, session.expiresAt())),
+                        java.time.Duration.between(now, session.expiresAt()),
+                        policy.registration().map(r -> r.verifierInfo(now)).orElse(List.of())),
                 now));
     }
 

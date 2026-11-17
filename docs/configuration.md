@@ -82,6 +82,28 @@ Relative paths resolve against the directory of the tenants file.
 - `status_policy`: `require_valid` (default; an unavailable status list rejects), `reject_known_invalid` (revoked or suspended rejects, unavailable is tolerated) or `ignore` (not allowed in production).
 - `enforce_trusted_authorities`: reject credentials that match none of the query's `trusted_authorities` (default `true`).
 - `session_ttl_seconds`: at most 900. `result_ttl_seconds`: at most 3600.
+- `registration`: optional. What the relying party registered for this intended use, sent to wallets in `verifier_info` as ETSI TS 119 472-2 requires. See [Registration](#registration).
+
+## Registration
+
+In the EUDI Wallet ecosystem a relying party registers each intended use with its national registrar. The wallet shows that registration to the user and refuses requests that ask for more than was registered. Configure it per policy:
+
+```json
+"registration": {
+  "registrar_dataset_file": "registration/age-over-18.json",
+  "certificate_file": "registration/age-over-18.rc.jwt"
+}
+```
+
+- `registrar_dataset` (an object) or `registrar_dataset_file` (a JSON file): the data the registrar holds about this intended use, sent as the `registrar_dataset` element. It needs `identifier`, `srvDescription` and `purpose` (arrays of `{"lang", "content"}`), `registryURI`, `intendedUseIdentifier` and `policyURI`, and may list the registered `credential` entries. Use what your registrar publishes; the service does not change it.
+- `certificate_file`: optional. The registration certificate (a `rc-wrp+jwt` JWT) the registration certificate provider issued, sent base64url-encoded as the `registration_cert` element.
+
+At startup:
+
+- A dataset without a required member, a certificate that is not a `rc-wrp+jwt` JWS or has expired, and a DCQL query that asks for a credential or claim the dataset's `credential` list does not declare stop startup.
+- A query that asks for more than the certificate's `credentials` declares, a certificate whose `sub` (or intermediary) does not match the access certificate's `organizationIdentifier` or `serialNumber`, and a certificate missing members ETSI TS 119 475 requires are logged as warnings. The certificate is the registrar's and the wallet decides; fix it with them.
+
+After a certificate expires, requests carry only the dataset, and `/health/well` reports the policy. It reports a certificate 30 days before expiry too. Replace the file and restart. See [ADR-010](adr/0010-relying-party-registration.md).
 
 ## Trusted lists
 

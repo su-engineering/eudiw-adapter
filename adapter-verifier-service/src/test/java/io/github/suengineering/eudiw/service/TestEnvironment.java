@@ -50,6 +50,14 @@ public class TestEnvironment implements QuarkusTestResourceLifecycleManager {
     public static final String ISSUER_C = "https://issuer-c.test.example";
     public static final String ISSUER_C_REVOKED = "https://issuer-c-revoked.test.example";
     public static final String CRL_C = "https://crl.test.example/issuer-c-root.crl";
+    /** Served at {@code /rc-status} on the webhook receiver port: the registration certificate's status list. */
+    static final java.util.concurrent.atomic.AtomicReference<String> REGISTRATION_STATUS_TOKEN =
+            new java.util.concurrent.atomic.AtomicReference<>("");
+
+    /** Port of the local receiver for webhooks and the registration status list. */
+    public static int receiverPort;
+
+    public static final String RP_A_ID = "VATBE-0999999999";
     public static final String VCT = "https://credentials.test.example/age";
     public static final String PID_LIST_ID = "https://lists.test.example/pid-providers.jwt";
     public static final String PID_ISSUANCE = "http://uri.etsi.org/19602/SvcType/PID/Issuance";
@@ -122,6 +130,13 @@ public class TestEnvironment implements QuarkusTestResourceLifecycleManager {
                 exchange.sendResponseHeaders(status == null ? 200 : status, -1);
                 exchange.close();
             });
+            webhookServer.createContext("/rc-status", exchange -> {
+                byte[] token = REGISTRATION_STATUS_TOKEN.get().getBytes(StandardCharsets.US_ASCII);
+                exchange.getResponseHeaders().add("Content-Type", "application/statuslist+jwt");
+                exchange.sendResponseHeaders(200, token.length);
+                exchange.getResponseBody().write(token);
+                exchange.close();
+            });
             webhookServer.setExecutor(java.util.concurrent.Executors.newFixedThreadPool(4));
             webhookServer.start();
         }
@@ -131,6 +146,7 @@ public class TestEnvironment implements QuarkusTestResourceLifecycleManager {
     private static void generate() throws Exception {
         Files.createDirectories(DIR);
         int webhookPort = startWebhookReceiver();
+        receiverPort = webhookPort;
         write("portal-a.whsec", "whsec_" + Base64.getEncoder().encodeToString(WEBHOOK_SECRET));
         Instant from = Instant.now().minus(1, ChronoUnit.DAYS);
         Instant until = Instant.now().plus(3650, ChronoUnit.DAYS);
@@ -183,7 +199,8 @@ public class TestEnvironment implements QuarkusTestResourceLifecycleManager {
                         Instant.now().plus(7, ChronoUnit.DAYS),
                         issuerCRevoked.certificate()));
         Issued rpRoot = TestPki.rootCa("CN=RP Root", from, until);
-        Issued rpA = TestPki.endEntity("CN=Verifier A", rpRoot, from, until, KeyUsage.digitalSignature, List.of());
+        Issued rpA = TestPki.endEntity(
+                "CN=Verifier A,2.5.4.97=" + RP_A_ID, rpRoot, from, until, KeyUsage.digitalSignature, List.of());
         Issued rpB = TestPki.endEntity("CN=Verifier B", rpRoot, from, until, KeyUsage.digitalSignature, List.of());
 
         write("issuer-a-root.pem", pem(rootA.certificate()));
@@ -197,6 +214,53 @@ public class TestEnvironment implements QuarkusTestResourceLifecycleManager {
         write("rp-a-key.pem", pem(rpA.keyPair().getPrivate()));
         write("rp-b.pem", pem(rpB.certificate()));
         write("rp-b-key.pem", pem(rpB.keyPair().getPrivate()));
+
+        // A synthetic registration certificate for tenant A's age policy, with every field ETSI TS 119 475
+        // clause 5.2.4 lists, issued under the relying-party root so the test wallet trusts its provider.
+        Issued registrar = TestPki.endEntity(
+                "CN=Registration Certificate Provider,2.5.4.97=VATBE-0888888888,C=BE",
+                rpRoot,
+                from,
+                until,
+                KeyUsage.digitalSignature,
+                List.of());
+        String statusUri = "http://host.testcontainers.internal:" + webhookPort + "/rc-status";
+        Map<String, Object> statusList = new java.util.LinkedHashMap<>();
+        statusList.put("sub", statusUri);
+        statusList.put("iat", Instant.now().getEpochSecond());
+        statusList.put("ttl", 300);
+        statusList.put("status_list", Map.of("bits", 1, "lst", "eNrbuRgAAhcBXQ"));
+        REGISTRATION_STATUS_TOKEN.set(TestWallet.sign(
+                statusList, registrar.keyPair().getPrivate(), "statuslist+jwt", List.of(registrar.certificate())));
+        Map<String, Object> rc = new java.util.LinkedHashMap<>();
+        rc.put("name", "Verifier A");
+        rc.put("sub_ln", "Verifier A SA");
+        rc.put("sub", RP_A_ID);
+        rc.put("country", "BE");
+        rc.put("registry_uri", "https://registrar.test.example/api");
+        rc.put("srv_description", List.of(Map.of("lang", "en", "value", "Test portal")));
+        rc.put("entitlements", List.of("https://uri.etsi.org/19475/Entitlement/Service_Provider"));
+        rc.put("privacy_policy", "https://portal.test.example/privacy");
+        rc.put("info_uri", "https://portal.test.example");
+        rc.put("support_uri", "https://portal.test.example/support");
+        rc.put(
+                "supervisory_authority",
+                Map.of("email", "dpa@dpa.test.example", "phone", "+3220000000", "uri", "https://dpa.test.example"));
+        rc.put("policy_id", List.of("0.4.0.19475.3.1"));
+        rc.put("certificate_policy", "https://registrar.test.example/policy");
+        rc.put("iat", Instant.now().minus(1, ChronoUnit.DAYS).getEpochSecond());
+        rc.put("exp", Instant.now().plus(180, ChronoUnit.DAYS).getEpochSecond());
+        rc.put("status", Map.of("status_list", Map.of("idx", 1, "uri", statusUri)));
+        rc.put("purpose", List.of(Map.of("lang", "en", "value", "Age check")));
+        rc.put(
+                "credentials",
+                List.of(Map.of(
+                        "format", "dc+sd-jwt",
+                        "meta", Map.of("vct_values", List.of(VCT)),
+                        "claim", List.of(Map.of("path", List.of("age_over_18"))))));
+        write(
+                "rc-a.jwt",
+                TestWallet.sign(rc, registrar.keyPair().getPrivate(), "rc-wrp+jwt", List.of(registrar.certificate())));
 
         Issued listSigner = TestPki.endEntity(
                 "CN=List Signer,O=Test Operator,C=EU", rpRoot, from, until, KeyUsage.digitalSignature, List.of());
@@ -229,7 +293,16 @@ public class TestEnvironment implements QuarkusTestResourceLifecycleManager {
                    "policies":[{"id":"age-over-18","dcql":%s,
                      "output":{"age_over_18":{"credential":"age","path":["age_over_18"]}},
                      "trust_anchors_file":"issuer-a-root.pem","allowed_issuers":["%s"],
-                     "status_policy":"require_valid","session_ttl_seconds":300,"result_ttl_seconds":600},
+                     "status_policy":"require_valid","session_ttl_seconds":300,"result_ttl_seconds":600,
+                     "registration":{"certificate_file":"rc-a.jwt","registrar_dataset":{
+                       "identifier":"%s",
+                       "srvDescription":[{"lang":"en","content":"Test portal"}],
+                       "registryURI":"https://registrar.test.example/api",
+                       "intendedUseIdentifier":"iu-age",
+                       "purpose":[{"lang":"en","content":"Age check"}],
+                       "policyURI":"https://portal.test.example/privacy",
+                       "credential":[{"format":"dc+sd-jwt","meta":{"vct_values":["%s"]},
+                         "claim":[{"path":["age_over_18"]}]}]}}},
                     {"id":"age-over-18-crl","dcql":%s,
                      "output":{"age_over_18":{"credential":"age","path":["age_over_18"]}},
                      "trust_anchors_file":"issuer-c-root.pem","certificate_revocation":"crl",
@@ -247,7 +320,17 @@ public class TestEnvironment implements QuarkusTestResourceLifecycleManager {
                        "signer_certificates_file":"list-signer.pem","issuance_service_types":["%s"]}],
                      "status_policy":"require_valid"}]}
                 ]}""".formatted(
-                        COMPLETION_URI, webhookPort, dcql, ISSUER_A, dcql, dcql, listedDcql, PID_LIST_ID, PID_ISSUANCE);
+                        COMPLETION_URI,
+                        webhookPort,
+                        dcql,
+                        ISSUER_A,
+                        RP_A_ID,
+                        VCT,
+                        dcql,
+                        dcql,
+                        listedDcql,
+                        PID_LIST_ID,
+                        PID_ISSUANCE);
         write("tenants.json", tenants);
     }
 

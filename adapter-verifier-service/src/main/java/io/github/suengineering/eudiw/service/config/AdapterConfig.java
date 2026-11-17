@@ -96,6 +96,7 @@ public record AdapterConfig(String revision, Map<String, Tenant> tenants) {
      * @param enforceTrustedAuthorities enforce DCQL {@code trusted_authorities} on responses
      * @param sessionTtl lifetime of an uncompleted session
      * @param resultTtl how long a verified result can be retrieved
+     * @param registration the registered intended use sent in {@code verifier_info}, if configured
      */
     public record Policy(
             String id,
@@ -108,7 +109,8 @@ public record AdapterConfig(String revision, Map<String, Tenant> tenants) {
             StatusPolicy statusPolicy,
             boolean enforceTrustedAuthorities,
             Duration sessionTtl,
-            Duration resultTtl) {}
+            Duration resultTtl,
+            java.util.Optional<io.github.suengineering.eudiw.core.oid4vp.RelyingPartyRegistration> registration) {}
 
     public record OutputClaim(String credentialId, ClaimsPath path) {}
 

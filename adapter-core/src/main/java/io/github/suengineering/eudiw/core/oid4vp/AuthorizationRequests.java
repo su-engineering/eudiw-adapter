@@ -91,6 +91,8 @@ public final class AuthorizationRequests {
      * @param responseEncryptionKey per-request key; only the public part is published
      * @param walletNonce the wallet's nonce from a POST to the Request URI, or {@code null}
      * @param lifetime validity of the signed Request Object
+     * @param verifierInfo the {@code verifier_info} elements (OpenID4VP 1.0 section 5.1); empty to omit the
+     *     parameter
      */
     public record Parameters(
             URI responseUri,
@@ -99,7 +101,19 @@ public final class AuthorizationRequests {
             DcqlQuery query,
             ECKey responseEncryptionKey,
             String walletNonce,
-            Duration lifetime) {
+            Duration lifetime,
+            List<Map<String, Object>> verifierInfo) {
+
+        public Parameters(
+                URI responseUri,
+                String nonce,
+                String state,
+                DcqlQuery query,
+                ECKey responseEncryptionKey,
+                String walletNonce,
+                Duration lifetime) {
+            this(responseUri, nonce, state, query, responseEncryptionKey, walletNonce, lifetime, List.of());
+        }
 
         public Parameters {
             Objects.requireNonNull(responseUri, "responseUri");
@@ -108,6 +122,7 @@ public final class AuthorizationRequests {
             Objects.requireNonNull(query, "query");
             Objects.requireNonNull(responseEncryptionKey, "responseEncryptionKey");
             Objects.requireNonNull(lifetime, "lifetime");
+            verifierInfo = verifierInfo == null ? List.of() : List.copyOf(verifierInfo);
         }
     }
 
@@ -124,6 +139,9 @@ public final class AuthorizationRequests {
         claims.put("state", parameters.state());
         claims.put("dcql_query", parameters.query().toJson());
         claims.put("client_metadata", clientMetadata(parameters.responseEncryptionKey()));
+        if (!parameters.verifierInfo().isEmpty()) {
+            claims.put("verifier_info", parameters.verifierInfo());
+        }
         if (parameters.walletNonce() != null) {
             claims.put("wallet_nonce", parameters.walletNonce());
         }

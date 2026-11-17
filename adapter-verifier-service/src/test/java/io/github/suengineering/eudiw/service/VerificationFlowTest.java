@@ -128,6 +128,20 @@ class VerificationFlowTest {
         assertThat(session.getString("wallet_launch.launch_uri")).startsWith("openid4vp://?client_id=x509_hash%3A");
 
         Map<String, Object> request = TestWallet.fetchRequest(session.getString("wallet_launch.request_uri"));
+        // The registered intended use travels in verifier_info (ETSI TS 119 472-2 RO-01 to RO-16).
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> verifierInfo = (List<Map<String, Object>>) request.get("verifier_info");
+        assertThat(verifierInfo)
+                .extracting(e -> e.get("format"))
+                .containsExactly("registrar_dataset", "registration_cert");
+        assertThat(((Map<?, ?>) verifierInfo.get(0).get("data")).get("identifier"))
+                .isEqualTo(TestEnvironment.RP_A_ID);
+        assertThat(new String(
+                        java.util.Base64.getUrlDecoder()
+                                .decode((String) verifierInfo.get(1).get("data")),
+                        java.nio.charset.StandardCharsets.US_ASCII))
+                .isEqualTo(java.nio.file.Files.readString(TestEnvironment.DIR.resolve("rc-a.jwt"))
+                        .strip());
         assertThat(request).containsEntry("response_mode", "direct_post.jwt");
         Map<String, Object> response = presentAgeOver18(request, 1);
         @SuppressWarnings("unchecked")
