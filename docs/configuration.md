@@ -84,6 +84,7 @@ Relative paths resolve against the directory of the tenants file.
 - `certificate_revocation`: `crl` checks every issuer chain certificate except the anchor against its CRL, and rejects when a CRL is missing, stale or unreachable; `off` (default) does not check. CRLs are fetched over HTTP or HTTPS from public addresses only ([ADR-007](adr/0007-certificate-revocation.md)).
 - `status_policy`: `require_valid` (default; an unavailable status list rejects), `reject_known_invalid` (revoked or suspended rejects, unavailable is tolerated) or `ignore` (not allowed in production).
 - `enforce_trusted_authorities`: reject credentials that match none of the query's `trusted_authorities` (default `true`).
+- `mdoc_strict_conformance`: refuse mdoc departures from ISO/IEC 18013-5 that are otherwise accepted with a conformance warning; today, a P-384 device key (default `false`, see [mdoc](#mdoc)).
 - `session_ttl_seconds`: at most 900. `result_ttl_seconds`: at most 3600.
 - `registration`: optional. What the relying party registered for this intended use, sent to wallets in `verifier_info` as ETSI TS 119 472-2 requires. See [Registration](#registration).
 
@@ -124,7 +125,7 @@ Clients removed from the file lose access at once, also to their open sessions. 
 
 | Metric | Meaning |
 | --- | --- |
-| `eudiw_events_total{tenant,policy,client,action,outcome,code}` | Every audited event: `session_created`, `request_fetched`, `response_received` (outcome `verified`, `rejected`, `denied`, with the reason code), `result_retrieved`, `session_cancelled`, `webhook` |
+| `eudiw_events_total{tenant,policy,client,action,outcome,code}` | Every audited event: `session_created`, `request_fetched`, `response_received` (outcome `verified`, `rejected`, `denied`, with the reason code), `conformance_warning` (outcome `accepted`, with the warning code; see [mdoc](#mdoc)), `result_retrieved`, `session_cancelled`, `webhook` |
 | `eudiw_presentation_verification_seconds{tenant,policy,outcome}` | Time to verify a presentation |
 | `eudiw_sessions_expired_total` | Sessions that expired without a response |
 | `eudiw_rate_limited_total{tenant,client}` | Session creations refused by the rate limit |
@@ -142,7 +143,7 @@ JVM, process and connection pool metrics are included. HTTP server metrics are n
 
 ## mdoc
 
-A policy can request an ISO mdoc with `"format": "mso_mdoc"`, a `meta.doctype_value`, and claim paths of the form `[namespace, element]`, optionally with `intent_to_retain` (OpenID4VP 1.0 Appendix B.2):
+A policy can request an ISO mdoc (ISO/IEC 18013-5) with `"format": "mso_mdoc"`, a `meta.doctype_value`, and claim paths of the form `[namespace, element]`, optionally with `intent_to_retain` (OpenID4VP 1.0 Appendix B.2). An mDL:
 
 ```json
 "dcql": { "credentials": [ { "id": "mdl", "format": "mso_mdoc",
@@ -151,13 +152,63 @@ A policy can request an ISO mdoc with `"format": "mso_mdoc"`, a `meta.doctype_va
 "output": { "age_over_18": { "credential": "mdl", "path": ["org.iso.18013.5.1", "age_over_18"] } }
 ```
 
-- Document signer certificates validate to the policy's `trust_anchors_file` and `trusted_lists`, as for SD-JWT VC, with CRLs when `certificate_revocation` is `crl`. For the mDL doctype the IACA rules also apply: the document signer carries the mDL document signer extended key usage and the digitalSignature key usage, the IACA's country (and state, when it has one), and a returned `issuing_country` or `issuing_jurisdiction` must match it.
-- `allowed_issuers` compares against the document signer certificate's subject name.
-- Values come back as JSON: dates as their text, byte strings (such as a portrait) as base64url.
-- The wallet proves possession of the device key bound in the MSO by signing this request's session transcript. A device MAC is not accepted, because the OpenID4VP flow has no reader key to derive it from.
-- A request for `age_over_NN` is also answered by a nearby attestation: `age_over_21: true` satisfies `age_over_18`.
-- Only issuer-signed elements are returned; device-signed elements are checked but never returned.
-- An MSO status reference cannot be checked yet ([ADR-012](adr/0012-mdoc.md)): `require_valid` rejects such an mdoc, `reject_known_invalid` accepts it.
+An EU PID in mdoc form uses the doctype and namespace `eu.europa.ec.eudi.pid.1`. The Compose demo has this policy (`age-over-18-mdoc` in [tenants.json](../deploy/compose/config/tenants.json)):
+
+```json
+"dcql": { "credentials": [ { "id": "pid", "format": "mso_mdoc",
+  "meta": { "doctype_value": "eu.europa.ec.eudi.pid.1" },
+  "claims": [ { "path": ["eu.europa.ec.eudi.pid.1", "age_over_18"], "intent_to_retain": false } ] } ] },
+"output": { "age_over_18": { "credential": "pid", "path": ["eu.europa.ec.eudi.pid.1", "age_over_18"] } },
+"allowed_issuers": ["Demo Issuer"]
+```
+
+A policy that asks for `mso_mdoc` adds `mso_mdoc` to `vp_formats_supported` in its requests, with the COSE algorithms the adapter accepts.
+
+**What is checked**
+- **Issuer.** The MSO's signature, with the algorithm pinned to the signer key's curve (P-256, P-384, P-521, Ed25519, Ed448, and brainpool curves when [enabled](#brainpool-curves)). The digest of every returned element. The docType, and the MSO's validity period. Document signer certificates validate to the policy's `trust_anchors_file` and `trusted_lists`, as for SD-JWT VC, with CRLs when `certificate_revocation` is `crl`. A root certificate sent in the x5chain is ignored, never trusted.
+- **The mDL certificate rules.** For the `org.iso.18013.5.1.mDL` doctype, the IACA rules apply too. The document signer carries:
+  - the mDL document signer extended key usage and the digitalSignature key usage;
+  - the IACA's country, and its state when the IACA has one.
+
+  A returned `issuing_country` or `issuing_jurisdiction` must match the document signer.
+- **The holder.** The wallet proves possession of the device key bound in the MSO by signing this request's session transcript (client identifier, nonce, response URI and encryption key). A response made for another request does not verify. A device MAC is not accepted, because the OpenID4VP flow has no reader key to derive it from.
+- **The response.** One document per DeviceResponse (HAIP 1.0), of the requested doctype, with status 0.
+- **Revocation.** An MSO `status` holding a Token Status List reference (`status_list` with `idx` and `uri`) is checked like an SD-JWT VC's status. The list is fetched in CWT or JWT form, its signer must chain to the policy's status anchors, and `status_policy` decides what an unavailable list means. An MSO `status` with any other mechanism counts as unknown: `require_valid` rejects it, while `reject_known_invalid` accepts it.
+
+**What comes back**
+- Only issuer-signed elements. Device-signed elements are checked against the MSO's key authorizations but never returned.
+- Values as JSON: dates as their text, byte strings (such as a portrait) as base64url.
+- A request for `age_over_NN` is also answered by a nearby attestation, as ISO/IEC 18013-5 intends. `age_over_21: true` satisfies `age_over_18`, and `age_over_16: false` answers it with false. The value is reported under the requested name.
+
+**Naming the issuer.** An mdoc has no issuer identifier of its own. `allowed_issuers` matches either:
+- the subject name of the trust anchor the chain validated to (the IACA), in RFC 4514 form such as `CN=Test IACA,C=EU`;
+- the name of a trusted-list entity that publishes that anchor, such as `Demo Issuer`.
+
+The document signer's own name is not matched: it changes on every signer rotation, and any trusted anchor could issue a certificate carrying another issuer's name. The result's `credential_evidence` names the anchor.
+
+**Tolerated departures and `mdoc_strict_conformance`.** Some departures from ISO/IEC 18013-5 do not reject the credential. Each one is written to the audit trail as a `conformance_warning` event (outcome `accepted`) with one of these codes:
+
+| Code | When |
+| --- | --- |
+| `mdoc_device_key_curve_not_in_table_22` | The device key is on P-384. The standard allows P-384 for issuer signatures but does not list it for device keys |
+| `mdoc_signer_validity_over_457_days` | For the mDL: the document signer certificate is valid for longer than the certificate profile allows |
+| `mdoc_signer_without_crl_distribution_point` | For the mDL: the document signer certificate has no CRL distribution point |
+| `mdoc_x5chain_includes_root` | The x5chain carries a root certificate, which was ignored |
+
+Set `"mdoc_strict_conformance": true` on a policy to refuse P-384 device keys (`unsupported_key`) instead of warning. The certificate profile duties stay warnings in either mode: they are the issuer's to meet.
+
+**Rejection reasons specific to mdoc**
+- `holder_binding_invalid`: the device signature does not verify for this request, a device MAC was sent, or a device-signed element is not authorized.
+- `unprocessable_presentation`: the DeviceResponse reports a non-zero status.
+- `credential_mismatch`: the MSO's docType differs from the document, or `issuing_country` or `issuing_jurisdiction` differs from the certificate.
+- `malformed_credential`: the presentation is not valid CBOR or lacks a mandatory part.
+- `credential_revoked`, `credential_suspended` and `credential_status_unknown`: as for SD-JWT VC, from the MSO's status.
+
+All other reasons are the same as for SD-JWT VC.
+
+### Brainpool curves
+
+ISO/IEC 18013-5 lets mdoc signatures use the brainpool curves (brainpoolP256r1, P320r1, P384r1, P512r1). The JDK cannot verify them, so they need BouncyCastle, which ships in the opt-in `adapter-crypto-brainpool` module. The service image carries it, turned off. Set `EUDIW_CRYPTO_BRAINPOOL=true` (`eudiw.crypto.brainpool`) to turn it on, with the chart through `extraEnv`; the startup log says so. BouncyCastle is then used only where a brainpool key is involved, and everything else keeps the JDK's providers ([ADR-012](adr/0012-mdoc.md)). In a Java application using `adapter-core` directly, add `io.github.su-engineering:adapter-crypto-brainpool` and call `BrainpoolSupport.enable()` once at startup.
 
 ## Trusted lists
 

@@ -8,7 +8,7 @@ The adapter verifies the most security-sensitive inputs it receives: signed cred
 
 ## Decision
 
-- `adapter-core` depends only on the JDK and a JOSE library (a CBOR library will join it with ISO mdoc). It has no dependency on any identity and access management product; a Maven Enforcer rule bans `org.keycloak` artifacts as a guard against accidental coupling.
+- `adapter-core` depends only on the JDK and a JOSE library (ISO mdoc added its own small CBOR decoder rather than a CBOR library, [ADR-012](0012-mdoc.md)). It has no dependency on any identity and access management product; a Maven Enforcer rule bans `org.keycloak` artifacts as a guard against accidental coupling.
 - JOSE, JWK and JWE use Nimbus JOSE+JWT, subject to the evaluation in [ADR-005](0005-jose-and-sd-jwt-libraries.md).
 - SD-JWT (RFC 9901) and SD-JWT VC verification are implemented in core on top of the JOSE library, with no custom cryptographic primitives.
 - Each area is implemented from its specification and tested against fixtures with an expected outcome per case, anchored on published examples and test vectors where they exist (see [pr-plan.md](../pr-plan.md)).

@@ -9,7 +9,7 @@ Pinned versions. Changes go through a reviewed ADR and tests. "Supported" means 
 | RFC 9901, Selective Disclosure for JWTs | Standards Track | November 2025 | SD-JWT |
 | SD-JWT VC | version referenced by HAIP 1.0 | | `dc+sd-jwt` credentials |
 | Token Status List | version referenced by HAIP 1.0 | | Revocation and suspension |
-| ISO/IEC 18013-5 | First edition | 2021 | mdoc issuer data authentication ([ADR-012](adr/0012-mdoc.md)) |
+| ISO/IEC 18013-5 | First edition | 2021 | mdoc issuer data authentication, mdoc authentication by device signature, DeviceResponse, age attestations, MSO revocation through a Token Status List reference ([ADR-012](adr/0012-mdoc.md)). The second edition is not yet published |
 | ETSI TS 119 602 (lists of trusted entities) | V1.1.1 | | PID provider and other EU lists, JSON binding |
 | ETSI TS 119 612 (trusted lists) | V2.4.1 | | XML trusted lists and the EU list of trusted lists |
 | ETSI TS 119 182-1 (JAdES) | V1.2.1 | | Compact signatures on TS 119 602 lists |
@@ -27,7 +27,7 @@ States: `not implemented`, `implemented` (code exists), `tested` (automated test
 | --- | --- |
 | DCQL query construction and response checks | tested: OpenID4VP 1.0 section 7.3 and Appendix D examples, claim sets, credential sets, `trusted_authorities` (`aki`, `etsi_tl`) |
 | SD-JWT VC: issuer signature, disclosures, key binding | interop-tested: RFC 9901 worked examples, rejection cases, differential test against Authlete `sd-jwt` 1.11, eudi-dev wallet v3.8.0 (2026-11-16), OpenID Foundation suite `oid4vp-1final-verifier-haip-test-plan`: 14 modules with the expected outcome and no failures or warnings in the suite log, not certified ([details](../interop/oidf/README.md), 2026-11-17) |
-| ISO mdoc: issuer data authentication | tested: `mso_mdoc` fixtures issued by eudi-dev wallet v3.8.0 (PID and mDL), differential CBOR and COSE checks against Authlete `cbor` 1.21, one rejection case per inspection step (2026-11-17). Brainpool curves, `deviceMac` and MSO revocation are not supported ([ADR-012](adr/0012-mdoc.md)) |
+| ISO mdoc: issuer data authentication | tested: `mso_mdoc` fixtures issued by eudi-dev wallet v3.8.0 (PID and mDL), differential CBOR and COSE checks against Authlete `cbor` 1.21, one rejection case per inspection step (2026-11-17). Brainpool curves with the opt-in `adapter-crypto-brainpool` module: an mDL whose certificates and signatures were made by OpenSSL. `deviceMac` is not supported ([ADR-012](adr/0012-mdoc.md)) |
 | ISO mdoc: session transcript, DCQL, request metadata, service | tested: OpenID4VP 1.0 Appendix B.2.6.1 examples (handover info, handover, session transcript, JWK thumbprint), `intent_to_retain`, `age_over_NN` substitution, `vp_formats_supported` for `mso_mdoc` |
 | ISO mdoc: device authentication, DeviceResponse | interop-tested: eudi-dev wallet v3.8.0 presents an mdoc PID through the Compose demo and its device signature verifies; the same wallet signing the ISO/IEC 18013-7 transcript is rejected. Both run in CI's `demo` job on every push, so the job logs are the record (2026-11-17). Rejection cases for each transcript input, other doctype or namespaces, another key, attached payload, algorithm and key mismatch, `deviceMac`, missing `deviceSigned`, unauthorized device-signed elements, version and status. `deviceMac` is not supported ([ADR-012](adr/0012-mdoc.md)) |
 | `direct_post.jwt` with response encryption | interop-tested: OpenID4VP 1.0 section 8.3 example; eudi-dev wallet v3.8.0 with `--haip --arf --mode strict` (2026-11-16) |

@@ -27,7 +27,7 @@ Not in the first release: ISO mdoc, ETSI trusted list ingestion, credential issu
 - [x] SD-JWT VC: type and issuer checks, `x5c` issuer binding
 - [x] DCQL: query model, construction from a policy, response matching
 - [x] Trusted lists: ETSI TS 119 602 (JSON, compact JAdES), TS 119 612 (XML) and LOTL, signature, freshness and rollback ([ADR-006](adr/0006-trusted-lists.md))
-- [x] Token Status List, JWT form (CWT form with mdoc)
+- [x] Token Status List, JWT and CWT forms; MSO status of mdocs
 - [x] ISO mdoc: CBOR and COSE, MSO, value digests, issuer data authentication ([ADR-012](adr/0012-mdoc.md))
 - [x] ISO mdoc: OpenID4VP session transcript, DCQL `mso_mdoc` with `intent_to_retain`, request metadata, service integration (fail-closed)
 - [x] ISO mdoc: device authentication, DeviceResponse status rules, age attestations, eudi-dev wallet end to end

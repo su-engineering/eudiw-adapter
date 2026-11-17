@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="900" height="470" viewBox="0 0 900 470" role="img" aria-label="Output of deploy/compose/demo.sh">
-  <rect width="900" height="470" rx="12" fill="#0d1117"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="590" viewBox="0 0 900 590" role="img" aria-label="Output of deploy/compose/demo.sh">
+  <rect width="900" height="590" rx="12" fill="#0d1117"/>
   <rect width="900" height="36" rx="12" fill="#161b22"/>
   <rect y="24" width="900" height="12" fill="#161b22"/>
   <circle cx="22" cy="18" r="6" fill="#f87171"/><circle cx="42" cy="18" r="6" fill="#fbbf24"/><circle cx="62" cy="18" r="6" fill="#34d399"/>
@@ -19,7 +19,12 @@
     <text x="48" y="334" fill="#8b949e"># the credential also held a name; it never left the adapter</text>
     <text x="24" y="360" fill="#7ee787">6. A credential from an issuer the policy does not trust is rejected</text>
     <text x="48" y="382" fill="#8b949e">"status": <tspan fill="#ff7b72">"rejected"</tspan>, "reason": <tspan fill="#ff7b72">"certificate_untrusted"</tspan></text>
-    <text x="24" y="416" fill="#e6edf3">Done.</text>
-    <text x="24" y="444" fill="#8b949e">Request signing key in SoftHSM · issuer trust from a signed ETSI list · eudi-dev wallet in HAIP mode</text>
+    <text x="24" y="408" fill="#7ee787">7. The same check with an ISO mdoc: the wallet signs the session transcript</text>
+    <text x="48" y="430" fill="#8b949e">[VP] mdoc presentation created: docType=eu.europa.ec.eudi.pid.1 transcript=oid4vp</text>
+    <text x="48" y="452" fill="#e6edf3">{ "claims": { <tspan fill="#ffa657">"age_over_18"</tspan>: <tspan fill="#79c0ff">true</tspan> } }</text>
+    <text x="24" y="478" fill="#7ee787">8. An mdoc signed over another session transcript is rejected</text>
+    <text x="48" y="500" fill="#8b949e">"status": <tspan fill="#ff7b72">"rejected"</tspan>, "reason": <tspan fill="#ff7b72">"holder_binding_invalid"</tspan></text>
+    <text x="24" y="534" fill="#e6edf3">Done.</text>
+    <text x="24" y="562" fill="#8b949e">Request signing key in SoftHSM · issuer trust from a signed ETSI list · eudi-dev wallet in HAIP mode</text>
   </g>
 </svg>
