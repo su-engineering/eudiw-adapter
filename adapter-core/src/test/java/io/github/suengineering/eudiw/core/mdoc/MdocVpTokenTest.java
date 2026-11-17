@@ -117,6 +117,45 @@ class MdocVpTokenTest {
     }
 
     @Test
+    void anMdocWithoutStatusIsRefusedOnlyUnderRequireStatus() throws Exception {
+        java.time.Instant signed = signed();
+        TestMdocIssuer issuer = new TestMdocIssuer(
+                "CN=Test IACA,C=DE",
+                "CN=Test DS,C=DE",
+                true,
+                signed.minus(Duration.ofDays(30)),
+                signed.plus(Duration.ofDays(300)));
+        CborItem document = issuer.document(
+                DOCTYPE,
+                DOCTYPE,
+                DOCTYPE,
+                Map.of("age_over_18", CborEncoder.bool(true)),
+                signed,
+                signed,
+                signed.plus(Duration.ofDays(30)));
+        Map<String, Object> token = vpToken(deviceResponse(document));
+
+        VpTokenVerifier.Result result = verifier(
+                        issuer.iaca,
+                        (d, i, t) -> List.of(),
+                        StatusPolicy.REJECT_KNOWN_INVALID,
+                        false,
+                        VpTokenVerifier.StatusSigner.ANY_ANCHOR)
+                .verify(token, query, context);
+        assertThat(result.credentials()).containsKey("pid");
+
+        assertThatThrownBy(() -> verifier(
+                                issuer.iaca,
+                                (d, i, t) -> List.of(),
+                                StatusPolicy.REJECT_KNOWN_INVALID,
+                                true,
+                                VpTokenVerifier.StatusSigner.ANY_ANCHOR)
+                        .verify(token, query, context))
+                .isInstanceOfSatisfying(
+                        VerificationFailure.class, f -> assertThat(f.code()).isEqualTo("credential_status_missing"));
+    }
+
+    @Test
     void theDeviceResponseShapeIsChecked() {
         VpTokenVerifier verifier = verifier((d, i, t) -> List.of(), StatusPolicy.REJECT_KNOWN_INVALID);
         expect(verifier, "not base64url!", "malformed_credential");
@@ -162,7 +201,15 @@ class MdocVpTokenTest {
             StatusPolicy statusPolicy,
             boolean requireStatus,
             VpTokenVerifier.StatusSigner statusSigner) {
-        X509Certificate iaca = iaca();
+        return verifier(iaca(), deviceAuthentication, statusPolicy, requireStatus, statusSigner);
+    }
+
+    private VpTokenVerifier verifier(
+            X509Certificate iaca,
+            MdocDeviceAuthentication deviceAuthentication,
+            StatusPolicy statusPolicy,
+            boolean requireStatus,
+            VpTokenVerifier.StatusSigner statusSigner) {
         Clock clock = Clock.fixed(signed().plusSeconds(3600), ZoneOffset.UTC);
         MdocIssuerVerifier issuer = new MdocIssuerVerifier(
                 () -> TrustStore.of(List.of(iaca), "test"),
