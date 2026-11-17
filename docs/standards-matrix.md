@@ -9,7 +9,7 @@ Pinned versions. Changes go through a reviewed ADR and tests. "Supported" means 
 | RFC 9901, Selective Disclosure for JWTs | Standards Track | November 2025 | SD-JWT |
 | SD-JWT VC | version referenced by HAIP 1.0 | | `dc+sd-jwt` credentials |
 | Token Status List | version referenced by HAIP 1.0 | | Revocation and suspension |
-| ISO/IEC 18013-5 | | | mdoc issuer and device authentication |
+| ISO/IEC 18013-5 | First edition | 2021 | mdoc issuer data authentication ([ADR-012](adr/0012-mdoc.md)) |
 | ETSI TS 119 602 (lists of trusted entities) | V1.1.1 | | PID provider and other EU lists, JSON binding |
 | ETSI TS 119 612 (trusted lists) | V2.4.1 | | XML trusted lists and the EU list of trusted lists |
 | ETSI TS 119 182-1 (JAdES) | V1.2.1 | | Compact signatures on TS 119 602 lists |
@@ -27,7 +27,8 @@ States: `not implemented`, `implemented` (code exists), `tested` (automated test
 | --- | --- |
 | DCQL query construction and response checks | tested: OpenID4VP 1.0 section 7.3 and Appendix D examples, claim sets, credential sets, `trusted_authorities` (`aki`, `etsi_tl`) |
 | SD-JWT VC: issuer signature, disclosures, key binding | interop-tested: RFC 9901 worked examples, rejection cases, differential test against Authlete `sd-jwt` 1.11, eudi-dev wallet v3.8.0 (2026-11-16), OpenID Foundation suite `oid4vp-1final-verifier-haip-test-plan`: 14 modules with the expected outcome and no failures or warnings in the suite log, not certified ([details](../interop/oidf/README.md), 2026-11-17) |
-| ISO mdoc: issuer and device authentication | not implemented |
+| ISO mdoc: issuer data authentication | tested in core, not yet available through the service: `mso_mdoc` fixtures issued by eudi-dev wallet v3.8.0 (PID and mDL), the device retrieval example of ISO/IEC 18013-5:2021 Annex D run locally (not committed), differential CBOR and COSE checks against Authlete `cbor` 1.21, one rejection case per inspection step (2026-11-17). Brainpool curves, `deviceMac` and MSO revocation are not supported ([ADR-012](adr/0012-mdoc.md)) |
+| ISO mdoc: device authentication, session transcript, DCQL | not implemented |
 | `direct_post.jwt` with response encryption | interop-tested: OpenID4VP 1.0 section 8.3 example; eudi-dev wallet v3.8.0 with `--haip --arf --mode strict` (2026-11-16) |
 | `x509_hash` client identifier, signed request objects | interop-tested: eudi-dev wallet v3.8.0 with `--haip --arf --mode strict` (2026-11-16): it accepts our access certificate chain under the configured relying-party CA and refuses it under a different CA. Over plain HTTP in tests |
 | ETSI TS 119 602 / 119 612 trusted lists, LOTL | tested with synthetic signed lists: JSON with compact JAdES and XML with enveloped signatures, LOTL pointer following, tampering, wrong signer, XXE, partial-coverage signature wrapping, external references, rollback, expiry, six-month limit. Not yet run against a published list |
