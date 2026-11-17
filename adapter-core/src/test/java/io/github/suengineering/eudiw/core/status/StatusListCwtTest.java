@@ -102,6 +102,30 @@ class StatusListCwtTest {
         }
     }
 
+    @Test
+    void aCwtFromAnIndependentImplementationVerifies() throws Exception {
+        // Served by eudi-dev v3.8.0 after the credential at index 122 was revoked (see resources/status/README.md).
+        byte[] token = java.nio.file.Files.readAllBytes(
+                java.nio.file.Path.of("src/test/resources/status/eudi-dev-statuslist.cwt"));
+        X509Certificate ca = (X509Certificate) java.security.cert.CertificateFactory.getInstance("X.509")
+                .generateCertificate(java.nio.file.Files.newInputStream(
+                        java.nio.file.Path.of("src/test/resources/status/eudi-dev-wallet-ca.pem")));
+        StatusListChecker checker = new StatusListChecker(
+                (uri, accept, maxBytes) -> token,
+                () -> Set.of(new TrustAnchor(ca, null)),
+                AlgorithmPolicy.DEFAULT,
+                Clock.fixed(Instant.parse("2026-11-17T15:50:00Z"), ZoneOffset.UTC),
+                Duration.ofSeconds(60),
+                Duration.ofHours(1),
+                100);
+        Map<String, Object> revoked =
+                Map.of("status_list", Map.of("idx", 122L, "uri", "https://localhost:8086/api/statuslist"));
+        assertThat(checker.check(revoked, "t", true).result()).isEqualTo(Result.INVALID);
+        Map<String, Object> valid =
+                Map.of("status_list", Map.of("idx", 0L, "uri", "https://localhost:8086/api/statuslist"));
+        assertThat(checker.check(valid, "t", true).result()).isEqualTo(Result.VALID);
+    }
+
     // -- helpers
 
     private StatusListChecker checker() {

@@ -388,25 +388,18 @@ public class VerificationEngine {
                     }
                 }
             }
-            // Tolerated departures from a standard are recorded, one audit event each, without claims.
-            for (List<SelectedCredential> credentials : result.credentials().values()) {
-                for (SelectedCredential credential : credentials) {
-                    for (ConformanceWarning warning : credential.warnings()) {
-                        audit.record(
-                                session.tenantId(),
-                                session.id(),
-                                session.clientId(),
-                                session.policyId(),
-                                "conformance_warning",
-                                "accepted",
-                                warning.code(),
-                                session.configRevision(),
-                                now);
-                    }
-                }
-            }
+            List<ConformanceWarning> warnings = new ArrayList<>();
+            result.credentials().values().forEach(list -> list.forEach(c -> warnings.addAll(c.warnings())));
             outcome = "verified";
-            return finish(session, tenant, policy, "verified", null, buildResult(session, policy, result, now), now);
+            return finish(
+                    session,
+                    tenant,
+                    policy,
+                    "verified",
+                    null,
+                    buildResult(session, policy, result, now),
+                    now,
+                    warnings);
         } catch (VerificationFailure failure) {
             outcome = "rejected";
             return rejectPresentation(finish(session, tenant, policy, "rejected", failure.code(), null, now), session);
@@ -490,6 +483,22 @@ public class VerificationEngine {
             String code,
             Map<String, Object> result,
             Instant now) {
+        return finish(session, tenant, policy, status, code, result, now, List.of());
+    }
+
+    /**
+     * @param warnings tolerated departures from a standard, recorded one audit event each (without claims) only when
+     *     this response completes the session
+     */
+    private WalletReply finish(
+            SessionRow session,
+            Tenant tenant,
+            Policy policy,
+            String status,
+            String code,
+            Map<String, Object> result,
+            Instant now,
+            List<ConformanceWarning> warnings) {
         String responseCode = session.mode().equals("same_device") ? AuthorizationRequests.randomValue() : null;
         byte[] ciphertext = result == null
                 ? null
@@ -530,6 +539,18 @@ public class VerificationEngine {
                 code,
                 session.configRevision(),
                 now);
+        for (ConformanceWarning warning : warnings) {
+            audit.record(
+                    session.tenantId(),
+                    session.id(),
+                    session.clientId(),
+                    session.policyId(),
+                    "conformance_warning",
+                    "accepted",
+                    warning.code(),
+                    session.configRevision(),
+                    now);
+        }
         LOG.infof("session %s completed: %s %s", session.id(), status, code == null ? "" : code);
         Map<String, Object> body = new LinkedHashMap<>();
         if (responseCode != null) {
