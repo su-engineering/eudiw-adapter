@@ -17,6 +17,7 @@ package io.github.suengineering.eudiw.service.engine;
 
 import com.nimbusds.jose.jwk.ECKey;
 import com.nimbusds.jose.jwk.JWK;
+import io.github.suengineering.eudiw.core.ConformanceWarning;
 import io.github.suengineering.eudiw.core.VerificationFailure;
 import io.github.suengineering.eudiw.core.dcql.DcqlEvaluator.DisclosedClaim;
 import io.github.suengineering.eudiw.core.dcql.DcqlEvaluator.SelectedCredential;
@@ -384,6 +385,23 @@ public class VerificationEngine {
                 for (SelectedCredential credential : credentials) {
                     if (!policy.allowedIssuers().isEmpty() && !credential.issuerIn(policy.allowedIssuers())) {
                         throw new VerificationFailure("issuer_not_allowed", "issuer not allowed by policy");
+                    }
+                }
+            }
+            // Tolerated departures from a standard are recorded, one audit event each, without claims.
+            for (List<SelectedCredential> credentials : result.credentials().values()) {
+                for (SelectedCredential credential : credentials) {
+                    for (ConformanceWarning warning : credential.warnings()) {
+                        audit.record(
+                                session.tenantId(),
+                                session.id(),
+                                session.clientId(),
+                                session.policyId(),
+                                "conformance_warning",
+                                "accepted",
+                                warning.code(),
+                                session.configRevision(),
+                                now);
                     }
                 }
             }

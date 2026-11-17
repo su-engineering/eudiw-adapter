@@ -15,6 +15,7 @@
  */
 package io.github.suengineering.eudiw.core.mdoc;
 
+import io.github.suengineering.eudiw.core.ConformanceWarning;
 import io.github.suengineering.eudiw.core.VerificationFailure;
 import io.github.suengineering.eudiw.core.cbor.CborDecoder;
 import io.github.suengineering.eudiw.core.cbor.CborItem;
@@ -86,16 +87,23 @@ public final class MdocPresentationVerifier {
             throw new VerificationFailure("credential_type_not_allowed", "document is not of the requested doctype");
         }
         VerifiedIssuerSigned issuerSigned = issuerVerifier.verify(document);
-        deviceAuthentication.authenticate(document, issuerSigned, sessionTranscript);
+        List<ConformanceWarning> warnings = new ArrayList<>(issuerSigned.warnings());
+        warnings.addAll(deviceAuthentication.authenticate(document, issuerSigned, sessionTranscript));
         // Device-signed elements carry only the holder's word, so they are never returned.
-        return new VerifiedMdoc(issuerSigned, json(issuerSigned.elements()));
+        return new VerifiedMdoc(issuerSigned, json(issuerSigned.elements()), warnings);
     }
 
     /**
      * @param issuerSigned the issuer-verified part
      * @param claims issuer-signed elements per namespace, as JSON-compatible values for DCQL and policy output
+     * @param warnings tolerated departures from the standard, from issuer and device authentication
      */
-    public record VerifiedMdoc(VerifiedIssuerSigned issuerSigned, Map<String, Object> claims) {}
+    public record VerifiedMdoc(
+            VerifiedIssuerSigned issuerSigned, Map<String, Object> claims, List<ConformanceWarning> warnings) {
+        public VerifiedMdoc {
+            warnings = List.copyOf(warnings);
+        }
+    }
 
     private static Map<String, Object> json(Map<String, Map<String, CborItem>> elements) {
         Map<String, Object> out = new LinkedHashMap<>();

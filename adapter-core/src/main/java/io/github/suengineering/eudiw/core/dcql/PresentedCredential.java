@@ -15,6 +15,8 @@
  */
 package io.github.suengineering.eudiw.core.dcql;
 
+import io.github.suengineering.eudiw.core.ConformanceWarning;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -32,6 +34,7 @@ import java.util.Set;
  * @param trustListIds identifiers of the trusted lists that anchored the issuer
  * @param issuerNames further authenticated names of the issuer that an allow list may match, such as the trusted-list
  *     entity name; {@code issuer} itself is not repeated here
+ * @param warnings tolerated departures from the standard found while verifying
  */
 public record PresentedCredential(
         String format,
@@ -41,9 +44,11 @@ public record PresentedCredential(
         boolean holderBindingVerified,
         Set<String> authorityKeyIds,
         Set<String> trustListIds,
-        Set<String> issuerNames) {
+        Set<String> issuerNames,
+        List<ConformanceWarning> warnings) {
 
     public PresentedCredential {
+        warnings = List.copyOf(warnings);
         authorityKeyIds = Set.copyOf(authorityKeyIds);
         trustListIds = Set.copyOf(trustListIds);
         issuerNames = Set.copyOf(issuerNames);
@@ -58,6 +63,6 @@ public record PresentedCredential(
             boolean holderBindingVerified,
             Set<String> authorityKeyIds,
             Set<String> trustListIds) {
-        this(format, type, issuer, claims, holderBindingVerified, authorityKeyIds, trustListIds, Set.of());
+        this(format, type, issuer, claims, holderBindingVerified, authorityKeyIds, trustListIds, Set.of(), List.of());
     }
 }

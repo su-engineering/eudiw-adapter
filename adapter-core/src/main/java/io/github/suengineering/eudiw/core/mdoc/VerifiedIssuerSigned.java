@@ -15,6 +15,7 @@
  */
 package io.github.suengineering.eudiw.core.mdoc;
 
+import io.github.suengineering.eudiw.core.ConformanceWarning;
 import io.github.suengineering.eudiw.core.cbor.CborItem;
 import java.security.cert.X509Certificate;
 import java.util.List;
@@ -31,6 +32,7 @@ import java.util.Set;
  * @param trustSources where the trust anchor the chain validated to came from
  * @param anchor the trust anchor the chain validated to
  * @param trustedEntityNames names of the trusted-list entities that publish the anchor; empty for configured anchors
+ * @param warnings tolerated departures from the certificate profile
  */
 public record VerifiedIssuerSigned(
         String docType,
@@ -39,11 +41,13 @@ public record VerifiedIssuerSigned(
         List<X509Certificate> chain,
         Set<String> trustSources,
         X509Certificate anchor,
-        Set<String> trustedEntityNames) {
+        Set<String> trustedEntityNames,
+        List<ConformanceWarning> warnings) {
 
     public VerifiedIssuerSigned {
         chain = List.copyOf(chain);
         trustSources = Set.copyOf(trustSources);
         trustedEntityNames = Set.copyOf(trustedEntityNames);
+        warnings = List.copyOf(warnings);
     }
 }

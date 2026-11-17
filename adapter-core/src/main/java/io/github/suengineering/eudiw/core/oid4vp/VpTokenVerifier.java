@@ -269,7 +269,8 @@ public final class VpTokenVerifier {
                 true,
                 CertificateIdentifiers.authorityKeyIds(chain),
                 mdoc.issuerSigned().trustSources(),
-                mdoc.issuerSigned().trustedEntityNames());
+                mdoc.issuerSigned().trustedEntityNames(),
+                mdoc.warnings());
     }
 
     private void checkStatus(VerifiedSdJwtVc vc, Context context) {

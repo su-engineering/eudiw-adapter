@@ -78,7 +78,11 @@ class MdocVpTokenTest {
     void anAuthenticatedMdocSatisfiesTheQuery() {
         AtomicReference<CborItem> transcript = new AtomicReference<>();
         VpTokenVerifier.Result result = verifier(
-                        (doc, issuer, t) -> transcript.set(t), StatusPolicy.REJECT_KNOWN_INVALID)
+                        (doc, issuer, t) -> {
+                            transcript.set(t);
+                            return List.of();
+                        },
+                        StatusPolicy.REJECT_KNOWN_INVALID)
                 .verify(vpToken(deviceResponse(document())), query, context);
         SelectedCredential pid = result.credentials().get("pid").get(0);
         assertThat(pid.format()).isEqualTo("mso_mdoc");
@@ -95,7 +99,7 @@ class MdocVpTokenTest {
 
     @Test
     void anMdocStatusReferenceCannotSatisfyRequireValid() {
-        assertThatThrownBy(() -> verifier((d, i, t) -> {}, StatusPolicy.REQUIRE_VALID)
+        assertThatThrownBy(() -> verifier((d, i, t) -> List.of(), StatusPolicy.REQUIRE_VALID)
                         .verify(vpToken(deviceResponse(document())), query, context))
                 .isInstanceOfSatisfying(
                         VerificationFailure.class, f -> assertThat(f.code()).isEqualTo("credential_status_unknown"));
@@ -103,7 +107,7 @@ class MdocVpTokenTest {
 
     @Test
     void theDeviceResponseShapeIsChecked() {
-        VpTokenVerifier verifier = verifier((d, i, t) -> {}, StatusPolicy.REJECT_KNOWN_INVALID);
+        VpTokenVerifier verifier = verifier((d, i, t) -> List.of(), StatusPolicy.REJECT_KNOWN_INVALID);
         expect(verifier, "not base64url!", "malformed_credential");
         expect(verifier, encode(deviceResponseWith(List.of())), "malformed_credential");
         expect(verifier, encode(deviceResponseWith(List.of(document(), document()))), "malformed_credential");
