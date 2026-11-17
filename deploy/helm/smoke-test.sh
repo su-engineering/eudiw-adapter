@@ -80,8 +80,10 @@ kubectl -n "$NS" create secret generic eudiw-db --from-literal=username=eudiw \
 kubectl -n "$NS" create secret generic eudiw-data-key --from-literal=data-key="$(openssl rand -base64 32)" > /dev/null
 cd - > /dev/null
 
-echo "== Install the chart (two replicas)"
+echo "== Install the chart (two replicas, egress restricted to DNS, PostgreSQL and public addresses)"
 helm upgrade --install eudiw deploy/helm/eudiw-adapter -n "$NS" --wait --timeout 5m \
+  --set networkPolicy.egress.enabled=true \
+  --set-json 'networkPolicy.egress.cluster=[{"to":[{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"eudiw-db"}}}],"ports":[{"port":5432,"protocol":"TCP"}]}]' \
   --set image.repository=eudiw-adapter --set image.tag=smoke --set image.pullPolicy=Never \
   --set publicBaseUrl=http://localhost:18080 --set production=false \
   --set oidc.audience=eudiw-adapter \

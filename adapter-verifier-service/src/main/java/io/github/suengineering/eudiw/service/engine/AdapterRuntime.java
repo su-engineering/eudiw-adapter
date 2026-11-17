@@ -80,6 +80,10 @@ public class AdapterRuntime {
     @ConfigProperty(name = "eudiw.egress.allow-http", defaultValue = "false")
     boolean allowHttp;
 
+    /** If set, list, status list and CRL fetches may reach only these hosts. */
+    @ConfigProperty(name = "eudiw.egress.allowed-hosts")
+    java.util.Optional<java.util.List<String>> allowedHosts;
+
     /** Verify mdoc signatures on brainpool curves, with BouncyCastle (ADR-012). Off unless set. */
     @ConfigProperty(name = "eudiw.crypto.brainpool", defaultValue = "false")
     boolean brainpool;
@@ -144,14 +148,19 @@ public class AdapterRuntime {
         fingerprint = fingerprint();
         AdapterConfig loaded = ConfigLoader.load(Path.of(configFile), production);
         if (fetcher == null) {
+            Set<String> hosts = allowedHosts.orElse(java.util.List.of()).stream()
+                    .map(String::strip)
+                    .filter(h -> !h.isEmpty())
+                    .map(h -> h.toLowerCase(java.util.Locale.ROOT))
+                    .collect(java.util.stream.Collectors.toUnmodifiableSet());
             fetcher = new JdkHttpFetcher(
-                    new EgressPolicy(allowHttp, allowPrivateAddresses, Set.of()), Duration.ofSeconds(5));
+                    new EgressPolicy(allowHttp, allowPrivateAddresses, hosts), Duration.ofSeconds(5));
             // National trusted lists run to several megabytes.
             listFetcher = new JdkHttpFetcher(
-                    new EgressPolicy(allowHttp, allowPrivateAddresses, Set.of()), Duration.ofSeconds(30));
+                    new EgressPolicy(allowHttp, allowPrivateAddresses, hosts), Duration.ofSeconds(30));
             // CRLs are signed and usually published over plain HTTP; private addresses stay blocked.
             crlFetcher =
-                    new JdkHttpFetcher(new EgressPolicy(true, allowPrivateAddresses, Set.of()), Duration.ofSeconds(10));
+                    new JdkHttpFetcher(new EgressPolicy(true, allowPrivateAddresses, hosts), Duration.ofSeconds(10));
         }
         current = build(loaded);
     }

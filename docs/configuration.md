@@ -14,6 +14,7 @@ The verifier service reads environment variables for deployment settings and one
 | `EUDIW_OIDC_AUDIENCE` | yes | Audience the access tokens must carry |
 | `EUDIW_PRODUCTION` | no, default `true` | `true` refuses HTTP public URLs, development egress settings, `status_policy: ignore` and non-HTTPS completion URIs |
 | `EUDIW_EGRESS_ALLOW_PRIVATE_ADDRESSES`, `EUDIW_EGRESS_ALLOW_HTTP` | no, default `false` | Development only: let status list and trusted list fetches reach private addresses or plain HTTP |
+| `EUDIW_EGRESS_ALLOWED_HOSTS` | no | Comma-separated host names. If set, trusted list, status list and CRL fetches may reach only these hosts, on top of the address checks. Every host the configured lists, their pointers, the credentials' status lists and the CRL distribution points name must be listed |
 | `EUDIW_TRUSTED_LISTS_REFRESH_INTERVAL` | no, default `1h` | How often each node fetches and verifies the configured trusted lists |
 | `EUDIW_WEBHOOK_INTERVAL` | no, default `5s` | How often each node sends due webhook notifications |
 | `EUDIW_CONFIG_RELOAD_INTERVAL` | no, default `30s` | How often each node checks the tenants file and the files under its directory for changes and reloads them. `off` disables. See [Reloading](#reloading) |

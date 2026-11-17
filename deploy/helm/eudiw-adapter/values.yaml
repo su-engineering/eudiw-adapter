@@ -86,6 +86,28 @@ networkPolicy:
   enabled: true
   # A namespace label selector, for example {matchLabels: {kubernetes.io/metadata.name: monitoring}}
   managementNamespaceSelector: {}
+  # Restrict outbound traffic as well. Off by default, because the destinations differ per deployment: PostgreSQL,
+  # the token issuer, trusted list, status list and CRL hosts, and webhook receivers. Recommended in production;
+  # see docs/kubernetes.md.
+  egress:
+    enabled: false
+    # Where cluster DNS runs.
+    dns:
+      namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    # In-cluster destinations as NetworkPolicy egress rules, for example PostgreSQL:
+    # - to: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: eudiw-db}}}]
+    #   ports: [{port: 5432, protocol: TCP}]
+    cluster: []
+    # Ports open to public addresses. CRLs are usually published over plain HTTP, hence 80.
+    internetPorts: [443, 80]
+    # More address blocks to refuse, IPv4 or IPv6, for example a database outside the cluster you reach through
+    # `cluster` rules instead.
+    exceptCidrs: []
 
 podDisruptionBudget:
   enabled: true

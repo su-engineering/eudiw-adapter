@@ -57,7 +57,19 @@ Expose the Service's port 8080 over HTTPS at `publicBaseUrl`, for example with y
 ## Operation
 
 - **Replicas.** Any number of replicas can run. Session completion, webhook delivery and trusted list sequence numbers are coordinated in PostgreSQL. Each replica refreshes trusted lists itself.
-- **Network policy.** Enabled by default: port 8080 is open, and port 9000 only from the same namespace and the namespaces `networkPolicy.managementNamespaceSelector` selects. Egress is not restricted by the chart. The service needs PostgreSQL, the token issuer, trusted list, status list and CRL locations, and webhook receivers.
+- **Network policy.** Enabled by default: port 8080 is open, and port 9000 only from the same namespace and the namespaces `networkPolicy.managementNamespaceSelector` selects.
+- **Egress policy.** Set `networkPolicy.egress.enabled` in production. The pod may then reach cluster DNS, the in-cluster destinations you list in `networkPolicy.egress.cluster` (PostgreSQL, an in-cluster token issuer or webhook receiver), and public addresses on `networkPolicy.egress.internetPorts` (443 and 80). Private, loopback, link-local (cloud metadata), carrier-grade NAT and IPv6 transition ranges are refused. The service checks every list, status and CRL address itself, but DNS can change between that check and the connection; this policy closes that gap. It needs a CNI that enforces NetworkPolicy. For example, with PostgreSQL in namespace `eudiw-db`:
+
+  ```yaml
+  networkPolicy:
+    egress:
+      enabled: true
+      cluster:
+        - to: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: eudiw-db}}}]
+          ports: [{port: 5432, protocol: TCP}]
+  ```
+
+  To fetch lists, status lists and CRLs only from known hosts, also set `EUDIW_EGRESS_ALLOWED_HOSTS` ([configuration](configuration.md)).
 - **Configuration changes.** Update the configuration secret. Each pod picks it up within `configReload.interval` (30 seconds by default), keeps the previous configuration for open sessions, and keeps running on the old one if the new one does not validate ([Reloading](configuration.md#reloading)). Kubernetes updates mounted Secrets after a short delay, so pods can briefly serve different revisions; a session that reaches a pod without its revision makes that pod check for the new file first.
 - **Metrics.** `:9000/metrics` in Prometheus format. Set `metrics.serviceMonitor.enabled` for the Prometheus Operator, and `networkPolicy.managementNamespaceSelector` so the scraper's namespace can reach port 9000. Alert on `eudiw_trusted_lists_current == 0`, `eudiw_registration_certificate_expiry_seconds < 2592000` and `rate(eudiw_config_reloads_total{outcome="failed"}[5m]) > 0`.
 - **Tracing.** Set `tracing.enabled` and `tracing.endpoint` (an OTLP collector).

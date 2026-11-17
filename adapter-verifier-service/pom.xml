@@ -15,6 +15,21 @@
 
   <dependencyManagement>
     <dependencies>
+      <!-- Ahead of the Quarkus BOM, which still pins versions with known DoS advisories:
+           Jackson GHSA-7hhh-6rmp-j9qf, GHSA-p6pp-m3f8-5c89, GHSA-cxp5-3px4-pw24, GHSA-wv8q-qhhj-9h54 and
+           Guava GHSA-xxph-c9ww-hj94. Drop these when the Quarkus BOM catches up. -->
+      <dependency>
+        <groupId>com.fasterxml.jackson</groupId>
+        <artifactId>jackson-bom</artifactId>
+        <version>2.22.4</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>com.google.guava</groupId>
+        <artifactId>guava</artifactId>
+        <version>33.7.2-jre</version>
+      </dependency>
       <dependency>
         <groupId>io.quarkus.platform</groupId>
         <artifactId>quarkus-bom</artifactId>
