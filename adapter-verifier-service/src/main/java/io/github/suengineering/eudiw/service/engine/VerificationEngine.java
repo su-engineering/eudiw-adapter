@@ -77,6 +77,16 @@ public class VerificationEngine {
     @Inject
     io.micrometer.core.instrument.MeterRegistry registry;
 
+    /**
+     * Requests per minute that one source address may make to the wallet endpoints, counted across nodes; 0 turns
+     * the limit off. The address is the one Quarkus resolves: behind a proxy, enable proxy address forwarding, or
+     * every wallet shares the proxy's address.
+     */
+    @org.eclipse.microprofile.config.inject.ConfigProperty(
+            name = "eudiw.wallet.requests-per-minute",
+            defaultValue = "0")
+    int walletRequestsPerMinute;
+
     public record CreateRequest(String policyId, String mode, String clientReference) {}
 
     public record Created(SessionRow session, String requestUri, String launchUri) {}
@@ -171,6 +181,50 @@ public class VerificationEngine {
         }
     }
 
+    /**
+     * Counts one wallet request from {@code address} in its current one-minute window.
+     *
+     * @return seconds until the window ends when the address is over its limit, or empty when the request may go on
+     */
+    public Optional<Long> walletRequestRefused(String address) {
+        int limit = walletRequestsPerMinute;
+        if (limit <= 0 || address == null) {
+            return Optional.empty();
+        }
+        Instant now = runtime.clock().instant();
+        Instant window = now.truncatedTo(java.time.temporal.ChronoUnit.MINUTES);
+        // The space keeps these keys apart from client ids, which cannot contain one.
+        if (rateLimits.increment("wallet " + sourceKey(address), window) <= limit) {
+            return Optional.empty();
+        }
+        registry.counter("eudiw.wallet.rate.limited").increment();
+        return Optional.of(Math.max(
+                1, java.time.Duration.between(now, window.plusSeconds(60)).toSeconds()));
+    }
+
+    /** IPv4 addresses count alone; IPv6 addresses count by their /64, which one host usually holds whole. */
+    static String sourceKey(String address) {
+        if (!address.matches("\\d{1,3}(\\.\\d{1,3}){3}|[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]*")) {
+            return address; // never a host name: getByName below must not resolve anything
+        }
+        try {
+            java.net.InetAddress parsed = java.net.InetAddress.getByName(address);
+            if (parsed instanceof java.net.Inet6Address) {
+                byte[] prefix = java.util.Arrays.copyOf(parsed.getAddress(), 16);
+                java.util.Arrays.fill(prefix, 8, 16, (byte) 0);
+                return java.net.InetAddress.getByAddress(prefix).getHostAddress() + "/64";
+            }
+            return parsed.getHostAddress();
+        } catch (IllegalArgumentException | java.net.UnknownHostException e) {
+            return address;
+        }
+    }
+
+    /** For tests: changes the wallet request limit, 0 for none. */
+    public void limitWalletRequestsForTests(int perMinute) {
+        walletRequestsPerMinute = perMinute;
+    }
+
     public SessionRow status(ClientBinding caller, String id) {
         return store.find(caller.tenant().id(), caller.client().clientId(), id).orElseThrow(ApiException::notFound);
     }
@@ -200,11 +254,32 @@ public class VerificationEngine {
             throw new ApiException(400, "response_code_required", "same-device sessions require the response_code");
         }
         String codeHash = responseCode == null ? null : DataProtection.hash(responseCode);
-        byte[] ciphertext = store.consumeResult(
-                        caller.tenant().id(), caller.client().clientId(), id, codeHash, now)
+        // Decrypting and the audit row share the transaction that consumes the result: if either fails, the result
+        // stays available for the next attempt.
+        Map<String, Object> result = store.consumeResult(
+                        caller.tenant().id(),
+                        caller.client().clientId(),
+                        id,
+                        codeHash,
+                        now,
+                        ciphertext -> Json.parseObject(
+                                new String(
+                                        runtime.dataProtection()
+                                                .decrypt(session.tenantId(), "result:" + id, ciphertext),
+                                        StandardCharsets.UTF_8),
+                                "internal"),
+                        new SessionStore.AuditEvent(
+                                session.tenantId(),
+                                id,
+                                session.clientId(),
+                                "result_retrieved",
+                                "ok",
+                                null,
+                                session.configRevision(),
+                                now))
                 .orElseThrow(
                         () -> new ApiException(404, "result_not_available", "no result is available for this session"));
-        audit.record(
+        audit.announce(
                 session.tenantId(),
                 id,
                 session.clientId(),
@@ -214,8 +289,7 @@ public class VerificationEngine {
                 null,
                 session.configRevision(),
                 now);
-        byte[] plaintext = runtime.dataProtection().decrypt(session.tenantId(), "result:" + id, ciphertext);
-        return Json.parseObject(new String(plaintext, StandardCharsets.UTF_8), "internal");
+        return result;
     }
 
     /**
@@ -320,6 +394,21 @@ public class VerificationEngine {
         }
         InstanceRow row = instance.get();
         SessionRow session = store.findById(row.sessionId()).orElseThrow();
+        // Cheap checks first: a used request instance, or a session that is finished or past its expiry, never
+        // reaches decryption or credential verification. Expiry is enforced again when the session completes.
+        if (row.consumedAt() != null || !session.status().equals("pending") || !now.isBefore(session.expiresAt())) {
+            audit.record(
+                    session.tenantId(),
+                    session.id(),
+                    session.clientId(),
+                    session.policyId(),
+                    "response_received",
+                    "ignored",
+                    row.consumedAt() != null ? "request_already_used" : "session_not_pending",
+                    session.configRevision(),
+                    now);
+            return new WalletReply(400, Map.of("error", "invalid_request"));
+        }
         Optional<Tenant> sessionTenant = sessionTenant(session);
         if (sessionTenant.isEmpty()) {
             // Never verify under rules other than those the session started with.

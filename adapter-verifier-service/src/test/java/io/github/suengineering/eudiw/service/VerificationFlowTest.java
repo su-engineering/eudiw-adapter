@@ -70,6 +70,12 @@ class VerificationFlowTest {
     @Inject
     io.github.suengineering.eudiw.service.store.TrustedListSequenceStore sequenceStore;
 
+    @Inject
+    io.github.suengineering.eudiw.service.engine.VerificationEngine engine;
+
+    @Inject
+    io.micrometer.core.instrument.MeterRegistry registry;
+
     private static final String MDOC_STATUS = "https://mdoc-issuer.test.example/status/";
 
     private final TestWallet wallet = new TestWallet();
@@ -800,6 +806,116 @@ class VerificationFlowTest {
             assertThat(create("added-a", "cross_device").getString("status")).isEqualTo("pending");
         } finally {
             java.nio.file.Files.writeString(file, original);
+            runtime.reloadIfChanged();
+            runtime.reconfigureForTests(clock, (uri, accept, max) -> new byte[0]);
+            setUp();
+        }
+        assertThat(runtime.config().revision()).isEqualTo(before);
+    }
+
+    @Test
+    void aResultSurvivesAFailedAuditWrite() throws Exception {
+        JsonPath session = create("portal-a", "cross_device");
+        String id = session.getString("id");
+        Map<String, Object> request = TestWallet.fetchRequest(session.getString("wallet_launch.request_uri"));
+        assertThat(TestWallet.respond(request, presentAgeOver18(request, 1)).statusCode())
+                .isEqualTo(200);
+        String token = TestWallet.fullToken("portal-a");
+        try (Connection c = dataSource.getConnection();
+                Statement s = c.createStatement()) {
+            s.execute("CREATE FUNCTION refuse_audit() RETURNS trigger LANGUAGE plpgsql AS"
+                    + " $$ BEGIN RAISE EXCEPTION 'audit store unavailable'; END $$");
+            s.execute("CREATE TRIGGER refuse_audit BEFORE INSERT ON audit_event FOR EACH ROW"
+                    + " WHEN (NEW.action = 'result_retrieved') EXECUTE FUNCTION refuse_audit()");
+        }
+        try {
+            assertThat(given().auth()
+                            .oauth2(token)
+                            .get("/v1/verification-sessions/" + id + "/result")
+                            .statusCode())
+                    .isGreaterThanOrEqualTo(500);
+        } finally {
+            try (Connection c = dataSource.getConnection();
+                    Statement s = c.createStatement()) {
+                s.execute("DROP TRIGGER refuse_audit ON audit_event");
+                s.execute("DROP FUNCTION refuse_audit()");
+            }
+        }
+        // Nothing was consumed: the result is still there, once.
+        given().auth()
+                .oauth2(token)
+                .get("/v1/verification-sessions/" + id + "/result")
+                .then()
+                .statusCode(200)
+                .body("claims.age_over_18", org.hamcrest.Matchers.equalTo(true));
+        given().auth()
+                .oauth2(token)
+                .get("/v1/verification-sessions/" + id + "/result")
+                .then()
+                .statusCode(404);
+        assertThat(auditCount(id, "ok")).isGreaterThanOrEqualTo(2); // created and retrieved
+    }
+
+    @Test
+    void aResponseToAFinishedSessionIsRefusedBeforeVerification() throws Exception {
+        JsonPath session = create("portal-a", "cross_device");
+        String requestUri = session.getString("wallet_launch.request_uri");
+        Map<String, Object> first = TestWallet.fetchRequest(requestUri);
+        Map<String, Object> second = TestWallet.fetchRequest(requestUri);
+        Map<String, Object> late = presentAgeOver18(second, 1);
+        assertThat(TestWallet.respond(first, presentAgeOver18(first, 1)).statusCode())
+                .isEqualTo(200);
+        long verifications = verificationCount();
+        // The second request instance is unused, but the session is finished: no decryption, no verification.
+        assertThat(TestWallet.respond(second, late).statusCode()).isEqualTo(400);
+        assertThat(verificationCount()).isEqualTo(verifications);
+        assertThat(auditCount(session.getString("id"), "ignored")).isEqualTo(1);
+    }
+
+    private long verificationCount() {
+        return registry.find("eudiw.presentation.verification").timers().stream()
+                .mapToLong(io.micrometer.core.instrument.Timer::count)
+                .sum();
+    }
+
+    @Test
+    void walletEndpointsAreRateLimitedPerSourceAddress() {
+        clock.set(Instant.parse("2031-06-06T10:00:30Z"));
+        engine.limitWalletRequestsForTests(3);
+        try {
+            String unknown = "/oid4vp/requests/" + "A".repeat(43);
+            for (int i = 0; i < 3; i++) {
+                given().get(unknown).then().statusCode(404);
+            }
+            Response limited = given().get(unknown);
+            assertThat(limited.statusCode()).isEqualTo(429);
+            assertThat(limited.header("Retry-After")).isEqualTo("30");
+            given().contentType(ContentType.URLENC)
+                    .formParam("response", "x")
+                    .post("/oid4vp/responses")
+                    .then()
+                    .statusCode(429);
+            // The next minute starts a new window.
+            clock.set(Instant.parse("2031-06-06T10:01:00Z"));
+            given().get(unknown).then().statusCode(404);
+        } finally {
+            engine.limitWalletRequestsForTests(0);
+            clock.set(Instant.now());
+        }
+    }
+
+    @Test
+    void aRewrittenKeyFileIsReloadedWithoutTouchingTheTenantsFile() throws Exception {
+        java.nio.file.Path key = TestEnvironment.DIR.resolve("rp-a-key.pem");
+        String original = java.nio.file.Files.readString(key);
+        String before = runtime.config().revision();
+        try {
+            java.nio.file.Files.writeString(key, original + "\n");
+            assertThat(runtime.reloadIfChanged()).isTrue();
+            assertThat(runtime.config().revision()).isNotEqualTo(before).hasSize(64);
+            assertThat(runtime.reloadIfChanged()).isFalse();
+        } finally {
+            java.nio.file.Files.writeString(key, original);
             runtime.reloadIfChanged();
             runtime.reconfigureForTests(clock, (uri, accept, max) -> new byte[0]);
             setUp();

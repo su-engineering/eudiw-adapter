@@ -41,7 +41,7 @@ Create three secrets in the release namespace:
 | Secret | Keys | Content |
 | --- | --- | --- |
 | database | `username`, `password` | PostgreSQL 16 or later credentials |
-| data key | `data-key` | `openssl rand -base64 32` |
+| data key | `data-key`, optionally `previous-data-keys` | `openssl rand -base64 32`; old keys during a [rotation](configuration.md#rotating-the-data-key), comma-separated |
 | configuration | `tenants.json` and every file it references | Mounted read-only at `/config`; paths in `tenants.json` are relative to it ([configuration](configuration.md)) |
 
 ```bash

@@ -182,4 +182,47 @@ class ConfigValidationTest {
         AdapterConfig config = load("c", "");
         assertThat(config.client("c").orElseThrow().revision()).isEqualTo(config.revision());
     }
+
+    @Test
+    void theRevisionIsAFullSha256() throws Exception {
+        assertThat(load("c", "").revision()).matches("[0-9a-f]{64}");
+    }
+
+    @Test
+    void theConfigurationNamesEveryFileItRead() throws Exception {
+        AdapterConfig config = load("c", "");
+        assertThat(config.sources().keySet())
+                .containsExactly(
+                        dir.resolve("tenants.json").toAbsolutePath().normalize(),
+                        dir.resolve("rp.pem").toAbsolutePath().normalize(),
+                        dir.resolve("rp-key.pem").toAbsolutePath().normalize(),
+                        dir.resolve("anchors.pem").toAbsolutePath().normalize());
+        config.sources().forEach((path, hash) -> assertThat(ConfigLoader.contentHash(path))
+                .isEqualTo(hash));
+    }
+
+    @Test
+    void aChangedReferencedFileIsANewRevision() throws Exception {
+        String before = load("c", "").revision();
+        // The parsed key material is the same, but the file is not: before, only parsed certificates counted, so a
+        // rewritten key or webhook secret file was read and then ignored.
+        Files.writeString(dir.resolve("rp-key.pem"), Files.readString(dir.resolve("rp-key.pem")) + "\n");
+        assertThat(load("c", "").revision()).isNotEqualTo(before);
+    }
+
+    @Test
+    void aFailedLoadStillReportsTheFilesItRead() throws Exception {
+        Files.writeString(dir.resolve("anchors.pem"), "not a certificate");
+        java.util.Map<Path, String> sources = new java.util.LinkedHashMap<>();
+        Path file = dir.resolve("tenants.json");
+        Files.writeString(file, """
+                {"tenants":[{"id":"t","verifier":{"private_key_file":"rp-key.pem","certificate_chain_file":"rp.pem"},
+                  "clients":[{"client_id":"c","policies":["p"]}],
+                  "policies":[{"id":"p","dcql":%s,
+                    "output":{"age_over_18":{"credential":"age","path":["age_over_18"]}},
+                    "trust_anchors_file":"anchors.pem"}]}]}""".formatted(DCQL));
+        assertThatThrownBy(() -> ConfigLoader.load(file, false, sources)).isInstanceOf(ConfigException.class);
+        assertThat(sources)
+                .containsKey(dir.resolve("anchors.pem").toAbsolutePath().normalize());
+    }
 }

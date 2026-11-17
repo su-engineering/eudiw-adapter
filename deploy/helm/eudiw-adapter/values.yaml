@@ -25,9 +25,16 @@ database:
   # Secret with keys "username" and "password".
   existingSecret: ""
 
-# Secret with key "data-key": 32 random bytes, base64 (openssl rand -base64 32).
+# Secret with key "data-key": 32 random bytes, base64 (openssl rand -base64 32). During a rotation, the optional
+# key "previous-data-keys" holds the old keys, comma-separated; they only decrypt.
 dataKey:
   existingSecret: ""
+
+# Requests per minute one source address may make to the wallet endpoints; 0 turns the limit off. Behind an
+# ingress, also enable Quarkus proxy address forwarding (see docs/configuration.md), or every wallet shares the
+# ingress address.
+walletRateLimit:
+  requestsPerMinute: 0
 
 # Secret mounted read-only at /config. It must contain tenants.json and every file tenants.json references,
 # with paths relative to /config (keys, certificate chains, trust anchors, webhook secrets).

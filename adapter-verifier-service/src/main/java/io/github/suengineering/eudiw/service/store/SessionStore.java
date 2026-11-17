@@ -249,22 +249,64 @@ public class SessionStore {
      * Returns the encrypted result once and deletes it. In same-device sessions the matching response code is
      * required.
      */
-    public Optional<byte[]> consumeResult(
-            String tenantId, String clientId, String id, String responseCodeHash, Instant now) {
+    /** One audit row, written in the same transaction as the change it records. */
+    public record AuditEvent(
+            String tenantId,
+            String sessionId,
+            String clientId,
+            String action,
+            String outcome,
+            String code,
+            String revision,
+            Instant at) {}
+
+    /**
+     * Takes a verified session's result once, in one transaction with its audit row. {@code open} turns the stored
+     * ciphertext into what the caller returns; if it or the audit insert fails, nothing is committed and the result
+     * stays available.
+     */
+    public <T> Optional<T> consumeResult(
+            String tenantId,
+            String clientId,
+            String id,
+            String responseCodeHash,
+            Instant now,
+            java.util.function.Function<byte[], T> open,
+            AuditEvent event) {
         String sql = "UPDATE verification_session t SET status = 'consumed', result_ciphertext = NULL"
                 + " FROM (SELECT id, result_ciphertext AS rc FROM verification_session WHERE id = ? FOR UPDATE) old"
                 + " WHERE t.id = old.id AND t.tenant_id = ? AND t.client_id = ? AND t.status = 'verified'"
                 + " AND t.result_expires_at > ? AND (t.response_code_hash IS NULL OR t.response_code_hash = ?)"
                 + " RETURNING old.rc";
-        try (Connection c = dataSource.getConnection();
-                PreparedStatement ps = c.prepareStatement(sql)) {
-            ps.setString(1, id);
-            ps.setString(2, tenantId);
-            ps.setString(3, clientId);
-            ps.setTimestamp(4, ts(now));
-            ps.setString(5, responseCodeHash == null ? "" : responseCodeHash);
-            try (ResultSet rs = ps.executeQuery()) {
-                return rs.next() ? Optional.ofNullable(rs.getBytes(1)) : Optional.empty();
+        try (Connection c = dataSource.getConnection()) {
+            c.setAutoCommit(false);
+            try {
+                T value = null;
+                try (PreparedStatement ps = c.prepareStatement(sql)) {
+                    ps.setString(1, id);
+                    ps.setString(2, tenantId);
+                    ps.setString(3, clientId);
+                    ps.setTimestamp(4, ts(now));
+                    ps.setString(5, responseCodeHash == null ? "" : responseCodeHash);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        byte[] ciphertext = rs.next() ? rs.getBytes(1) : null;
+                        if (ciphertext != null) {
+                            value = open.apply(ciphertext);
+                        }
+                    }
+                }
+                if (value == null) {
+                    c.rollback();
+                    return Optional.empty();
+                }
+                insertAudit(c, event);
+                c.commit();
+                return Optional.of(value);
+            } catch (SQLException | RuntimeException e) {
+                c.rollback();
+                throw e;
+            } finally {
+                c.setAutoCommit(true);
             }
         } catch (SQLException e) {
             throw new StoreException(e);
@@ -320,22 +362,27 @@ public class SessionStore {
             String code,
             String revision,
             Instant now) {
+        try (Connection c = dataSource.getConnection()) {
+            insertAudit(c, new AuditEvent(tenantId, sessionId, clientId, action, outcome, code, revision, now));
+        } catch (SQLException e) {
+            throw new StoreException(e);
+        }
+    }
+
+    private static void insertAudit(Connection c, AuditEvent event) throws SQLException {
         String sql =
                 "INSERT INTO audit_event (tenant_id, session_id, client_id, action, outcome, code, config_revision,"
                         + " occurred_at) VALUES (?,?,?,?,?,?,?,?)";
-        try (Connection c = dataSource.getConnection();
-                PreparedStatement ps = c.prepareStatement(sql)) {
-            ps.setString(1, tenantId);
-            ps.setString(2, sessionId);
-            ps.setString(3, clientId);
-            ps.setString(4, action);
-            ps.setString(5, outcome);
-            ps.setString(6, code);
-            ps.setString(7, revision);
-            ps.setTimestamp(8, ts(now));
+        try (PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, event.tenantId());
+            ps.setString(2, event.sessionId());
+            ps.setString(3, event.clientId());
+            ps.setString(4, event.action());
+            ps.setString(5, event.outcome());
+            ps.setString(6, event.code());
+            ps.setString(7, event.revision());
+            ps.setTimestamp(8, ts(event.at()));
             ps.executeUpdate();
-        } catch (SQLException e) {
-            throw new StoreException(e);
         }
     }
 
