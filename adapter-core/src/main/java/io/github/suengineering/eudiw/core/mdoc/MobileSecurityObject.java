@@ -40,6 +40,8 @@ import java.util.Set;
  * @param signed when the MSO was signed
  * @param validFrom start of validity
  * @param validUntil end of validity
+ * @param statusListReference the MSO's Token Status List reference as {@code {"status_list": {"idx", "uri"}}}, when
+ *     it has one
  * @param statusPresent whether the MSO carries a status reference, which is not interpreted (ADR-012)
  */
 public record MobileSecurityObject(
@@ -52,6 +54,7 @@ public record MobileSecurityObject(
         Instant signed,
         Instant validFrom,
         Instant validUntil,
+        Optional<Map<String, Object>> statusListReference,
         boolean statusPresent) {
 
     private static final Map<String, String> DIGESTS = Map.of(
@@ -128,7 +131,27 @@ public record MobileSecurityObject(
                 signed,
                 validFrom,
                 validUntil,
+                statusListReference(mso.get("status")),
                 mso.get("status").isPresent());
+    }
+
+    /**
+     * The Token Status List reference of an MSO (Token Status List section 6.3, as carried in the MSO's {@code status}):
+     * {@code status_list} with an unsigned {@code idx} and a text {@code uri}. Another status mechanism yields empty;
+     * a malformed {@code status_list} is refused.
+     */
+    private static Optional<Map<String, Object>> statusListReference(Optional<CborItem> status) {
+        if (status.isEmpty()) {
+            return Optional.empty();
+        }
+        Optional<CborItem> reference = MdocCbor.map(status.get(), "status").get("status_list");
+        if (reference.isEmpty()) {
+            return Optional.empty();
+        }
+        CborItem.MapItem list = MdocCbor.map(reference.get(), "status_list");
+        long idx = MdocCbor.unsigned(MdocCbor.field(list, "idx"), "status_list.idx");
+        String uri = MdocCbor.text(list, "uri");
+        return Optional.of(Map.of("status_list", Map.of("idx", idx, "uri", uri)));
     }
 
     /** Whether the device key may sign the given data element (clause 9.1.2.4, key authorizations). */
