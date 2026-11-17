@@ -115,9 +115,18 @@ public final class ConfigLoader {
     }
 
     private static void track(Path path, byte[] content) {
+        track(path, sha256(content));
+    }
+
+    /**
+     * Records a file the configuration names, with its content hash, or {@code "missing"} as {@link
+     * #contentHash(Path)} reports it when it cannot be read. A file that is missing at a failed load is therefore
+     * watched too, and creating it later triggers another attempt.
+     */
+    private static void track(Path path, String hash) {
         Map<Path, String> sources = SOURCES.get();
         if (sources != null) {
-            sources.put(path.toAbsolutePath().normalize(), sha256(content));
+            sources.put(path.toAbsolutePath().normalize(), hash);
         }
     }
 
@@ -126,6 +135,7 @@ public final class ConfigLoader {
         try {
             bytes = Files.readAllBytes(file);
         } catch (IOException e) {
+            track(file, "missing");
             throw new ConfigException("cannot read configuration file " + file, e);
         }
         track(file, bytes);
@@ -510,6 +520,7 @@ public final class ConfigLoader {
             track(path, content);
             return new String(content, StandardCharsets.UTF_8);
         } catch (IOException e) {
+            track(path, "missing");
             throw new ConfigException("cannot read " + path, e);
         }
     }
@@ -616,6 +627,7 @@ public final class ConfigLoader {
             track(path, content);
             return new String(content, StandardCharsets.US_ASCII);
         } catch (IOException e) {
+            track(path, "missing");
             throw new ConfigException("cannot read " + path, e);
         }
     }

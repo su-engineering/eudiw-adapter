@@ -76,8 +76,8 @@ public class TrustedListSequenceStore implements TrustedLists.SequenceStore {
     @Override
     public String digest(String identifier) {
         try (Connection c = dataSource.getConnection();
-                PreparedStatement s =
-                        c.prepareStatement("SELECT digest FROM trusted_list_sequence WHERE identifier = ?")) {
+                PreparedStatement s = c.prepareStatement("SELECT CASE WHEN digest_sequence = sequence THEN digest END "
+                        + "FROM trusted_list_sequence WHERE identifier = ?")) {
             s.setString(1, identifier);
             try (ResultSet r = s.executeQuery()) {
                 return r.next() ? r.getString(1) : null;
@@ -89,24 +89,31 @@ public class TrustedListSequenceStore implements TrustedLists.SequenceStore {
 
     /**
      * One conditional upsert, as {@link #advance(String, long)}, that also refuses the stored number with a different
-     * content digest. A row with no digest yet (written before digests were kept) takes the new one.
+     * content digest. The stored digest counts only when it was recorded for the stored number and has the same
+     * version as the offered one ({@link TrustedLists.SequenceStore#conflicts}); otherwise the new digest replaces it.
      */
     @Override
     public boolean advance(String identifier, long sequenceNumber, String digest) {
         try (Connection c = dataSource.getConnection();
                 PreparedStatement s = c.prepareStatement(
-                        "INSERT INTO trusted_list_sequence (identifier, sequence, digest, updated_at) VALUES (?, ?, ?, ?) "
+                        "INSERT INTO trusted_list_sequence (identifier, sequence, digest, digest_sequence, updated_at) "
+                                + "VALUES (?, ?, ?, ?, ?) "
                                 + "ON CONFLICT (identifier) DO UPDATE SET sequence = EXCLUDED.sequence, "
-                                + "digest = EXCLUDED.digest, updated_at = EXCLUDED.updated_at "
+                                + "digest = EXCLUDED.digest, digest_sequence = EXCLUDED.sequence, "
+                                + "updated_at = EXCLUDED.updated_at "
                                 + "WHERE trusted_list_sequence.sequence < EXCLUDED.sequence "
                                 + "OR (trusted_list_sequence.sequence = EXCLUDED.sequence "
                                 + "AND (trusted_list_sequence.digest IS NULL "
+                                + "OR trusted_list_sequence.digest_sequence IS DISTINCT FROM trusted_list_sequence.sequence "
+                                + "OR " + VERSION.formatted("trusted_list_sequence.digest") + " <> "
+                                + VERSION.formatted("EXCLUDED.digest") + " "
                                 + "OR trusted_list_sequence.digest = EXCLUDED.digest)) "
                                 + "RETURNING sequence")) {
             s.setString(1, identifier);
             s.setLong(2, sequenceNumber);
             s.setString(3, digest);
-            s.setTimestamp(4, Timestamp.from(Instant.now()));
+            s.setLong(4, sequenceNumber);
+            s.setTimestamp(5, Timestamp.from(Instant.now()));
             try (ResultSet r = s.executeQuery()) {
                 return r.next();
             }
@@ -114,6 +121,10 @@ public class TrustedListSequenceStore implements TrustedLists.SequenceStore {
             throw new IllegalStateException("trusted list sequence unavailable", e);
         }
     }
+
+    /** SQL for the version of a digest: the part before its first colon, or empty when it has none. */
+    private static final String VERSION =
+            "(CASE WHEN position(':' in %1$s) > 0 THEN split_part(%1$s, ':', 1) ELSE '' END)";
 
     @Override
     public void record(String identifier, long sequenceNumber) {

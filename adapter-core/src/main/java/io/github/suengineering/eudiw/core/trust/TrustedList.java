@@ -107,13 +107,20 @@ public record TrustedList(
         Objects.requireNonNull(signer, "signer");
     }
 
+    /** The version of what {@link #contentDigest()} covers; raise it whenever that changes. */
+    public static final String DIGEST_VERSION = "v1";
+
     /**
      * SHA-256 over what the list says about trust: its type, territory, every service (entity, type, status,
      * certificates) and every pointer (location, type, territory, media type, signer certificates), in list order.
      * Dates and the signature are left out, so a list re-signed or re-dated under the same sequence number with the
      * same content has the same digest, while a list that changes what it trusts does not.
      *
-     * @return lowercase hex
+     * <p>The value starts with {@link #DIGEST_VERSION} and a colon. A digest recorded under another version is not
+     * compared but replaced, so a later change to what the digest covers cannot lock a list out until its next
+     * sequence number.
+     *
+     * @return {@code v1:} followed by lowercase hex
      */
     public String contentDigest() {
         try {
@@ -138,7 +145,7 @@ public record TrustedList(
                 certificates(data, pointer.signerCertificates());
             }
             data.flush();
-            return java.util.HexFormat.of().formatHex(digest.digest(out.toByteArray()));
+            return DIGEST_VERSION + ":" + java.util.HexFormat.of().formatHex(digest.digest(out.toByteArray()));
         } catch (java.io.IOException | java.security.GeneralSecurityException e) {
             throw new IllegalStateException("cannot digest trusted list", e);
         }

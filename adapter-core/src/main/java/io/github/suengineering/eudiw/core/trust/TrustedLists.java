@@ -92,8 +92,10 @@ public final class TrustedLists {
         void record(String identifier, long sequenceNumber);
 
         /**
-         * The content digest recorded with the highest sequence number, or null when none was recorded (for
-         * example a row written before digests were kept). Stores that keep no digests return null.
+         * The content digest recorded for the highest sequence number, or null when none was recorded for that
+         * number: a row written before digests were kept, or one whose number was raised without a digest (by
+         * {@link #record(String, long)}, {@link #advance(String, long)} or a node of an earlier version). Stores
+         * that keep no digests return null.
          */
         default String digest(String identifier) {
             return null;
@@ -122,8 +124,8 @@ public final class TrustedLists {
 
         /**
          * Records the sequence number and digest unless a higher number is recorded, or the same number is recorded
-         * with a different digest, as one atomic step. A store shared by several nodes should override this; the
-         * default is atomic only within one process.
+         * with a different digest of the same version, as one atomic step. A store shared by several nodes should
+         * override this; the default is atomic only within one process.
          *
          * @return whether the list may be accepted
          */
@@ -133,20 +135,36 @@ public final class TrustedLists {
                 if (sequenceNumber < highest) {
                     return false;
                 }
-                if (sequenceNumber == highest) {
-                    String recorded = digest(identifier);
-                    if (recorded != null && !recorded.equals(digest)) {
-                        return false;
-                    }
+                if (sequenceNumber == highest && conflicts(digest(identifier), digest)) {
+                    return false;
                 }
                 record(identifier, sequenceNumber, digest);
                 return true;
             }
         }
 
+        /**
+         * Whether a recorded digest refuses an offered one for the same sequence number: both present, of the same
+         * {@linkplain TrustedList#DIGEST_VERSION version}, and different. A digest of another version is replaced.
+         */
+        static boolean conflicts(String recorded, String offered) {
+            return recorded != null
+                    && offered != null
+                    && version(recorded).equals(version(offered))
+                    && !recorded.equals(offered);
+        }
+
+        /** The part of a digest before its first colon, or empty when it has none. */
+        static String version(String digest) {
+            int colon = digest.indexOf(':');
+            return colon < 0 ? "" : digest.substring(0, colon);
+        }
+
         static SequenceStore inMemory() {
             Map<String, Long> map = new ConcurrentHashMap<>();
-            Map<String, String> digests = new ConcurrentHashMap<>();
+            // Each digest is kept with the sequence number it was recorded for, and counts only while that number
+            // is still the highest.
+            Map<String, Map.Entry<Long, String>> digests = new ConcurrentHashMap<>();
             return new SequenceStore() {
                 @Override
                 public long highest(String identifier) {
@@ -160,15 +178,15 @@ public final class TrustedLists {
 
                 @Override
                 public String digest(String identifier) {
-                    return digests.get(identifier);
+                    Map.Entry<Long, String> entry = digests.get(identifier);
+                    return entry != null && entry.getKey() == highest(identifier) ? entry.getValue() : null;
                 }
 
                 @Override
                 public synchronized void record(String identifier, long sequenceNumber, String digest) {
-                    long before = highest(identifier);
                     record(identifier, sequenceNumber);
-                    if (sequenceNumber >= before && digest != null) {
-                        digests.put(identifier, digest);
+                    if (digest != null && sequenceNumber == highest(identifier)) {
+                        digests.put(identifier, Map.entry(sequenceNumber, digest));
                     }
                 }
             };
@@ -343,7 +361,7 @@ public final class TrustedLists {
         byte[] bytes = read(location, format);
         TrustedList list = format == TrustedList.Format.TSL_XML
                 ? TslXmlParser.verify(bytes, location.toString(), signers)
-                : LoteJsonParser.verify(bytes, location.toString(), signers);
+                : LoteJsonParser.verify(bytes, location.toString(), signers, clock.instant());
         if (!list.isCurrentAt(clock.instant())) {
             throw new VerificationFailure("trusted_list_expired", "trusted list is closed, expired or not yet issued");
         }

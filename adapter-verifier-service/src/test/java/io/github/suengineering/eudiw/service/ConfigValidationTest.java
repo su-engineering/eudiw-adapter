@@ -211,6 +211,27 @@ class ConfigValidationTest {
     }
 
     @Test
+    void aFailedLoadReportsAMissingFileSoItsCreationIsNoticed() throws Exception {
+        java.util.Map<Path, String> sources = new java.util.LinkedHashMap<>();
+        Path file = dir.resolve("tenants.json");
+        Files.writeString(file, """
+                {"tenants":[{"id":"t","verifier":{"private_key_file":"rp-key.pem","certificate_chain_file":"rp.pem"},
+                  "clients":[{"client_id":"c","policies":["p"]}],
+                  "policies":[{"id":"p","dcql":%s,
+                    "output":{"age_over_18":{"credential":"age","path":["age_over_18"]}},
+                    "trust_anchors_file":"not-there-yet.pem"}]}]}""".formatted(DCQL));
+        Path missing = dir.resolve("not-there-yet.pem").toAbsolutePath().normalize();
+        assertThatThrownBy(() -> ConfigLoader.load(file, false, sources)).isInstanceOf(ConfigException.class);
+        assertThat(sources).containsEntry(missing, "missing");
+        assertThat(ConfigLoader.contentHash(missing)).isEqualTo("missing");
+
+        // Once the file exists its hash differs from the one recorded, which is what makes the reloader try again.
+        Files.copy(dir.resolve("anchors.pem"), missing);
+        assertThat(ConfigLoader.contentHash(missing)).isNotEqualTo(sources.get(missing));
+        assertThat(ConfigLoader.load(file, false).sources()).containsKey(missing);
+    }
+
+    @Test
     void aFailedLoadStillReportsTheFilesItRead() throws Exception {
         Files.writeString(dir.resolve("anchors.pem"), "not a certificate");
         java.util.Map<Path, String> sources = new java.util.LinkedHashMap<>();

@@ -437,7 +437,7 @@ class TrustedListTest {
                 "2026-11-01T01:00:00+01:00",
                 "yesterday",
                 1_793_491_200L,
-                Instant.now().plus(Duration.ofHours(1)).toString())) {
+                NOW.plus(Duration.ofHours(1)).toString())) {
             JWSHeader header = new JWSHeader.Builder(JWSAlgorithm.ES256)
                     .x509CertChain(
                             List.of(Base64.encode(LOTL_SIGNER.certificate().getEncoded())))
@@ -446,9 +446,18 @@ class TrustedListTest {
                     .build();
             byte[] signed = sign(header, lote("t", 1, ISSUED, NEXT, List.of()), LOTL_SIGNER);
             assertFailure(
-                    () -> LoteJsonParser.verify(signed, "x", List.of(LOTL_SIGNER.certificate())),
+                    () -> LoteJsonParser.verify(signed, "x", List.of(LOTL_SIGNER.certificate()), NOW),
                     "trusted_list_invalid");
         }
+        // The future is judged by the caller's clock, not the host's: an hour before NOW is accepted at NOW.
+        JWSHeader past = new JWSHeader.Builder(JWSAlgorithm.ES256)
+                .x509CertChain(List.of(Base64.encode(LOTL_SIGNER.certificate().getEncoded())))
+                .criticalParams(Set.of("sigT"))
+                .customParam("sigT", NOW.minus(Duration.ofHours(1)).toString())
+                .build();
+        byte[] signedBefore = sign(past, lote("t", 1, ISSUED, NEXT, List.of()), LOTL_SIGNER);
+        assertThat(LoteJsonParser.verify(signedBefore, "x", List.of(LOTL_SIGNER.certificate()), NOW))
+                .isNotNull();
     }
 
     // ---- loading, pointers, freshness ----
@@ -784,6 +793,31 @@ class TrustedListTest {
                 .singleElement()
                 .satisfies(r -> assertThat(r.code()).isEqualTo("trusted_list_rollback"));
         assertThat(restarted.issuance().certificates()).doesNotContain(WITHDRAWN_CA.certificate());
+    }
+
+    @Test
+    void aStoredDigestCountsOnlyForItsOwnNumberAndVersion() {
+        TrustedLists.SequenceStore store = TrustedLists.SequenceStore.inMemory();
+        assertThat(store.advance("tl", 5, "v1:aa")).isTrue();
+        assertThat(store.advance("tl", 5, "v1:bb")).isFalse();
+        // The number is raised without a digest, as a node of an earlier version does: the old digest no longer
+        // speaks for the stored number, so the next list under it is not refused for the previous one's content.
+        store.record("tl", 6);
+        assertThat(store.digest("tl")).isNull();
+        assertThat(store.advance("tl", 6, "v1:cc")).isTrue();
+        assertThat(store.advance("tl", 6, "v1:dd")).isFalse();
+        // A digest of another version is replaced, not compared.
+        assertThat(store.advance("tl", 6, "v2:ee")).isTrue();
+        assertThat(store.digest("tl")).isEqualTo("v2:ee");
+        assertThat(store.advance("tl", 6, "v2:ff")).isFalse();
+        assertThat(TrustedLists.SequenceStore.conflicts(null, "v1:aa")).isFalse();
+    }
+
+    @Test
+    void theContentDigestNamesItsVersion() {
+        TrustedList list =
+                TslXmlParser.verify(signXml(nationalXml(5), TL_SIGNER), TL_AA, List.of(TL_SIGNER.certificate()));
+        assertThat(list.contentDigest()).startsWith(TrustedList.DIGEST_VERSION + ":");
     }
 
     @Test
