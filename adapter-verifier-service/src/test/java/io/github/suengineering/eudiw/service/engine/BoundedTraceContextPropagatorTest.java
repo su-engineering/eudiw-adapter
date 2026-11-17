@@ -77,13 +77,14 @@ class BoundedTraceContextPropagatorTest {
     }
 
     @Test
-    void theProviderRegistersUnderItsName() {
-        BoundedTraceContextPropagator.Provider provider = new BoundedTraceContextPropagator.Provider();
-        assertThat(provider.getName()).isEqualTo("tracecontext-bounded");
-        assertThat(java.util.ServiceLoader.load(
-                                io.opentelemetry.sdk.autoconfigure.spi.ConfigurablePropagatorProvider.class)
-                        .stream()
-                        .map(p -> (Object) p.type()))
-                .contains(BoundedTraceContextPropagator.Provider.class);
+    void withTracingOffTheHttpServerIgnoresTraceHeaders() {
+        BoundedTraceContextPropagator.TracingOff off = new BoundedTraceContextPropagator.TracingOff();
+        io.vertx.core.http.HttpServerOptions options = new io.vertx.core.http.HttpServerOptions();
+        off.sdkDisabled = false;
+        off.customizeHttpServer(options);
+        assertThat(options.getTracingPolicy()).isEqualTo(io.vertx.core.http.HttpServerOptions.DEFAULT_TRACING_POLICY);
+        off.sdkDisabled = true;
+        off.customizeHttpServer(options);
+        assertThat(options.getTracingPolicy()).isEqualTo(io.vertx.core.tracing.TracingPolicy.IGNORE);
     }
 }

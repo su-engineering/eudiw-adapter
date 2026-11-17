@@ -61,6 +61,31 @@ class TracingTest {
     InMemorySpanExporter exporter;
 
     @Test
+    void withTracingOnAnOversizedTracestateIsDroppedAndTheParentKept() {
+        exporter.reset();
+        String traceId = "4bf92f3577b34da6a3ce929d0e0e4736";
+        long started = System.nanoTime();
+        given().header("traceparent", "00-" + traceId + "-00f067aa0ba902b7-01")
+                .header("tracestate", "a=b" + " ".repeat(18_000) + "x")
+                .get("/oid4vp/requests/" + "C".repeat(43))
+                .then()
+                .statusCode(404);
+        assertThat((System.nanoTime() - started) / 1_000_000).isLessThan(1000);
+        long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
+        while (exporter.getFinishedSpanItems().stream()
+                        .noneMatch(s -> s.getTraceId().equals(traceId))
+                && System.nanoTime() < deadline) {
+            Thread.onSpinWait();
+        }
+        SpanData span = exporter.getFinishedSpanItems().stream()
+                .filter(s -> s.getTraceId().equals(traceId))
+                .findFirst()
+                .orElseThrow();
+        assertThat(span.getParentSpanId()).isEqualTo("00f067aa0ba902b7");
+        assertThat(span.getParentSpanContext().getTraceState().isEmpty()).isTrue();
+    }
+
+    @Test
     void spansCarryNeitherTheRequestHandleNorTheQuery() {
         exporter.reset();
         JsonPath session = given().auth()

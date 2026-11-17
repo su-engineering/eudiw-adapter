@@ -20,32 +20,44 @@ import io.opentelemetry.context.Context;
 import io.opentelemetry.context.propagation.TextMapGetter;
 import io.opentelemetry.context.propagation.TextMapPropagator;
 import io.opentelemetry.context.propagation.TextMapSetter;
-import io.opentelemetry.sdk.autoconfigure.spi.ConfigProperties;
-import io.opentelemetry.sdk.autoconfigure.spi.ConfigurablePropagatorProvider;
+import io.quarkus.opentelemetry.runtime.propagation.TextMapPropagatorCustomizer;
+import io.quarkus.vertx.http.HttpServerOptionsCustomizer;
+import io.vertx.core.http.HttpServerOptions;
+import io.vertx.core.tracing.TracingPolicy;
+import jakarta.enterprise.context.ApplicationScoped;
 import java.util.Collection;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 
 /**
  * The W3C trace context propagator, with an oversized {@code tracestate} dropped before it is parsed.
  *
  * <p>opentelemetry-api before 1.67.0 parses {@code tracestate} with a regular expression that takes quadratic time
- * on long runs of spaces or tabs (GHSA-ccrj-gw8r-854m): about 0.6 s of CPU for an 8 KB header. The disabled SDK keeps
- * the configured propagators, so this is treated as reachable whether or not tracing is enabled. W3C Trace Context lets a receiver discard a {@code tracestate} it will not process, and asks
- * vendors to propagate at least 512 characters, so this drops a longer one and keeps {@code traceparent}.
+ * on long runs of spaces or tabs (GHSA-ccrj-gw8r-854m): about 0.6 s of CPU for an 8 KB header. W3C Trace Context
+ * lets a receiver discard a {@code tracestate} it will not process, and asks vendors to propagate at least 512
+ * characters, so this drops a longer one and keeps {@code traceparent}.
  *
- * <p>Selected by name in {@code quarkus.otel.propagators}. Remove it once Quarkus ships opentelemetry-api 1.67.0
- * or later.
+ * <p>Two beans put it in place. With tracing on, {@link Customizer} wraps the W3C propagator Quarkus configures.
+ * With tracing off ({@code quarkus.otel.sdk.disabled=true}, the default), the SDK is built without customizers but
+ * still with the W3C propagator, so {@link TracingOff} sets the HTTP server's tracing policy to {@code IGNORE}:
+ * the tracer then returns before it reads any header. Remove all of this once Quarkus ships opentelemetry-api
+ * 1.67.0 or later.
  */
 public final class BoundedTraceContextPropagator implements TextMapPropagator {
-
-    /** The propagator's name in {@code quarkus.otel.propagators}. */
-    public static final String NAME = "tracecontext-bounded";
 
     /** The longest {@code tracestate} passed on to the W3C propagator. */
     public static final int MAX_TRACESTATE = 512;
 
     private static final String TRACESTATE = "tracestate";
 
-    private final TextMapPropagator delegate = W3CTraceContextPropagator.getInstance();
+    private final TextMapPropagator delegate;
+
+    public BoundedTraceContextPropagator(TextMapPropagator delegate) {
+        this.delegate = delegate;
+    }
+
+    public BoundedTraceContextPropagator() {
+        this(W3CTraceContextPropagator.getInstance());
+    }
 
     @Override
     public Collection<String> fields() {
@@ -81,17 +93,45 @@ public final class BoundedTraceContextPropagator implements TextMapPropagator {
         return "BoundedTraceContextPropagator";
     }
 
-    /** Registers the propagator with OpenTelemetry autoconfiguration under {@link #NAME}. */
-    public static final class Provider implements ConfigurablePropagatorProvider {
+    /** With tracing on: wraps the W3C trace context propagator. */
+    @ApplicationScoped
+    public static class Customizer implements TextMapPropagatorCustomizer {
 
         @Override
-        public TextMapPropagator getPropagator(ConfigProperties config) {
-            return new BoundedTraceContextPropagator();
+        public TextMapPropagator customize(TextMapPropagatorCustomizer.Context context) {
+            TextMapPropagator propagator = context.propagator();
+            return propagator instanceof W3CTraceContextPropagator
+                    ? new BoundedTraceContextPropagator(propagator)
+                    : propagator;
+        }
+    }
+
+    /** With tracing off: the HTTP server does not call the tracer, so no trace header is parsed. */
+    @ApplicationScoped
+    public static class TracingOff implements HttpServerOptionsCustomizer {
+
+        @ConfigProperty(name = "quarkus.otel.sdk.disabled", defaultValue = "false")
+        boolean sdkDisabled;
+
+        @Override
+        public void customizeHttpServer(HttpServerOptions options) {
+            apply(options);
         }
 
         @Override
-        public String getName() {
-            return NAME;
+        public void customizeHttpsServer(HttpServerOptions options) {
+            apply(options);
+        }
+
+        @Override
+        public void customizeDomainSocketServer(HttpServerOptions options) {
+            apply(options);
+        }
+
+        void apply(HttpServerOptions options) {
+            if (sdkDisabled) {
+                options.setTracingPolicy(TracingPolicy.IGNORE);
+            }
         }
     }
 }
