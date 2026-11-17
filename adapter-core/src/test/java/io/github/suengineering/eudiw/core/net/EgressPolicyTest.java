@@ -46,6 +46,10 @@ class EgressPolicyTest {
                 "https://[::127.0.0.1]/x",
                 "https://[64:ff9b::7f00:1]/x",
                 "https://[64:ff9b::a9fe:a9fe]/x",
+                "https://[64:ff9b::a00:1]/x",
+                "https://[64:ff9b::c0a8:101]/x",
+                "https://[64:ff9b::6440:1]/x",
+                "https://[64:ff9b:0:0:1::808:808]/x",
                 "https://[64:ff9b:1::a00:1]/x",
                 "https://[2002:7f00:1::]/x",
                 "https://[2002:a9fe:a9fe::]/x",
@@ -70,6 +74,9 @@ class EgressPolicyTest {
         assertThatCode(() -> EgressPolicy.STRICT.check(URI.create("https://8.8.8.8/list")))
                 .doesNotThrowAnyException();
         assertThatCode(() -> EgressPolicy.STRICT.check(URI.create("https://[2001:4860:4860::8888]/list")))
+                .doesNotThrowAnyException();
+        // NAT64 well-known prefix with a public IPv4 address, as DNS64 synthesizes in an IPv6-only cluster.
+        assertThatCode(() -> EgressPolicy.STRICT.check(URI.create("https://[64:ff9b::808:808]/list")))
                 .doesNotThrowAnyException();
     }
 

@@ -893,6 +893,12 @@ class VerificationFlowTest {
         assertThat(TestWallet.respond(second, late).statusCode()).isEqualTo(400);
         assertThat(verificationCount()).isEqualTo(verifications);
         assertThat(auditCount(session.getString("id"), "ignored")).isEqualTo(1);
+        // Repeating it, which needs no authentication, is counted but writes no further audit rows.
+        for (int i = 0; i < 3; i++) {
+            assertThat(TestWallet.respond(second, late).statusCode()).isEqualTo(400);
+        }
+        assertThat(auditCount(session.getString("id"), "ignored")).isEqualTo(1);
+        assertThat(verificationCount()).isEqualTo(verifications);
     }
 
     private long verificationCount() {
@@ -921,6 +927,12 @@ class VerificationFlowTest {
             // The next minute starts a new window.
             clock.set(Instant.parse("2031-06-06T10:01:00Z"));
             given().get(unknown).then().statusCode(404);
+            // No address, or a forwarded value that is not one, is never a free pass and never a fresh key.
+            clock.set(Instant.parse("2031-06-06T10:02:00Z"));
+            assertThat(engine.walletRequestRefused(null)).isEmpty();
+            assertThat(engine.walletRequestRefused("unknown")).isEmpty();
+            assertThat(engine.walletRequestRefused("_hidden-1")).isEmpty();
+            assertThat(engine.walletRequestRefused("_hidden-2")).isPresent();
         } finally {
             engine.limitWalletRequestsForTests(0);
             clock.set(Instant.now());

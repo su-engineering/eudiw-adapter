@@ -188,7 +188,7 @@ public class VerificationEngine {
      */
     public Optional<Long> walletRequestRefused(String address) {
         int limit = walletRequestsPerMinute;
-        if (limit <= 0 || address == null) {
+        if (limit <= 0) {
             return Optional.empty();
         }
         Instant now = runtime.clock().instant();
@@ -202,10 +202,14 @@ public class VerificationEngine {
                 1, java.time.Duration.between(now, window.plusSeconds(60)).toSeconds()));
     }
 
-    /** IPv4 addresses count alone; IPv6 addresses count by their /64, which one host usually holds whole. */
+    /**
+     * IPv4 addresses count alone; IPv6 addresses count by their /64, which one host usually holds whole. Anything
+     * that is not an address (none known, or a forwarded value such as {@code unknown} or an obfuscated identifier)
+     * shares one bucket, so a client cannot pick a fresh key for every request.
+     */
     static String sourceKey(String address) {
-        if (!address.matches("\\d{1,3}(\\.\\d{1,3}){3}|[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]*")) {
-            return address; // never a host name: getByName below must not resolve anything
+        if (address == null || !address.matches("\\d{1,3}(\\.\\d{1,3}){3}|[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]*")) {
+            return "unparsed"; // never a host name: getByName below must not resolve anything
         }
         try {
             java.net.InetAddress parsed = java.net.InetAddress.getByName(address);
@@ -216,7 +220,7 @@ public class VerificationEngine {
             }
             return parsed.getHostAddress();
         } catch (IllegalArgumentException | java.net.UnknownHostException e) {
-            return address;
+            return "unparsed";
         }
     }
 
@@ -396,17 +400,29 @@ public class VerificationEngine {
         SessionRow session = store.findById(row.sessionId()).orElseThrow();
         // Cheap checks first: a used request instance, or a session that is finished or past its expiry, never
         // reaches decryption or credential verification. Expiry is enforced again when the session completes.
-        if (row.consumedAt() != null || !session.status().equals("pending") || !now.isBefore(session.expiresAt())) {
-            audit.record(
-                    session.tenantId(),
-                    session.id(),
-                    session.clientId(),
-                    session.policyId(),
-                    "response_received",
-                    "ignored",
-                    row.consumedAt() != null ? "request_already_used" : "session_not_pending",
-                    session.configRevision(),
-                    now);
+        // Anyone who holds the response can repeat it without authentication, so only the first refusal per request
+        // instance writes an audit row: it uses the instance up, and later repeats are only counted. A session has at
+        // most five instances, so it gets at most five such rows.
+        if (row.consumedAt() != null) {
+            registry.counter("eudiw.wallet.response.ignored", "code", "request_already_used")
+                    .increment();
+            return new WalletReply(400, Map.of("error", "invalid_request"));
+        }
+        if (!session.status().equals("pending") || !now.isBefore(session.expiresAt())) {
+            if (store.consumeInstance(kid, now)) {
+                audit.record(
+                        session.tenantId(),
+                        session.id(),
+                        session.clientId(),
+                        session.policyId(),
+                        "response_received",
+                        "ignored",
+                        "session_not_pending",
+                        session.configRevision(),
+                        now);
+            }
+            registry.counter("eudiw.wallet.response.ignored", "code", "session_not_pending")
+                    .increment();
             return new WalletReply(400, Map.of("error", "invalid_request"));
         }
         Optional<Tenant> sessionTenant = sessionTenant(session);
@@ -435,7 +451,13 @@ public class VerificationEngine {
                     StandardCharsets.UTF_8));
             payload = AuthorizationResponses.decrypt(response, key);
             keyThumbprint = key.toPublicJWK().computeThumbprint("SHA-256").decode();
-        } catch (VerificationFailure | ParseException | ClassCastException | com.nimbusds.jose.JOSEException e) {
+        } catch (VerificationFailure
+                | ParseException
+                | ClassCastException
+                | IllegalStateException
+                | com.nimbusds.jose.JOSEException e) {
+            // IllegalStateException: the request key does not decrypt, for example because the data key that wrote
+            // it was removed. The wallet gets the same answer as for any response that cannot be read.
             return new WalletReply(400, Map.of("error", "invalid_request"));
         }
         if (!row.state().equals(payload.get("state"))) {
