@@ -193,6 +193,48 @@ class RegistrationConfigTest {
                         "[identifier, srvDescription, registryURI, intendedUseIdentifier, purpose, policyURI, credential]");
     }
 
+    /**
+     * Every replica must compute the same revision from the same files, or sessions fail on the other replica.
+     * Collections built with Map.copyOf and Set.copyOf iterate in a different order in each JVM, so this loads one
+     * configuration with several policies, anchors and a registration in separate JVMs and compares.
+     */
+    @Test
+    void theRevisionIsTheSameInEveryJvm() throws Exception {
+        Instant from = Instant.now().minus(Duration.ofDays(1));
+        Instant until = Instant.now().plus(Duration.ofDays(365));
+        StringBuilder anchors = new StringBuilder(Files.readString(dir.resolve("anchors.pem")));
+        for (int i = 0; i < 4; i++) {
+            anchors.append(pem(TestPki.rootCa("CN=Extra Root " + i, from, until).certificate()));
+        }
+        Files.writeString(dir.resolve("anchors.pem"), anchors);
+        StringBuilder policies = new StringBuilder();
+        for (int i = 0; i < 6; i++) {
+            policies.append(i == 0 ? "" : ",")
+                    .append("""
+                    {"id":"p%d","dcql":%s,"output":{"age_over_18":{"credential":"age","path":["age_over_18"]}},
+                     "trust_anchors_file":"anchors.pem","registration":{"registrar_dataset":%s}}""".formatted(i, DCQL, Json.toJson(dataset(List.of("age_over_18")))));
+        }
+        Path file = dir.resolve("tenants.json");
+        Files.writeString(file, """
+                {"tenants":[{"id":"t","verifier":{"private_key_file":"rp-key.pem","certificate_chain_file":"rp.pem"},
+                  "clients":[{"client_id":"c","policies":["p0","p1"]}],"policies":[%s]}]}""".formatted(policies));
+        String here = ConfigLoader.load(file, false).revision();
+        String java = Path.of(System.getProperty("java.home"), "bin", "java").toString();
+        for (int run = 0; run < 3; run++) {
+            Process child = new ProcessBuilder(
+                            java,
+                            "-cp",
+                            System.getProperty("java.class.path"),
+                            RevisionProbe.class.getName(),
+                            file.toString())
+                    .redirectErrorStream(true)
+                    .start();
+            String output = new String(child.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            assertThat(child.waitFor()).as(output).isZero();
+            assertThat(output).as("revision in another JVM").contains("REVISION=" + here);
+        }
+    }
+
     @Test
     void refusesAMistypedCertificate() throws Exception {
         Files.writeString(

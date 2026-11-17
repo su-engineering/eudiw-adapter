@@ -520,14 +520,23 @@ public final class ConfigLoader {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             digest.update(config);
-            for (Tenant t : tenants.values()) {
+            // Sorted everywhere: Map.copyOf and Set.copyOf iterate in a per-JVM order, and every replica must
+            // compute the same revision from the same files.
+            for (Tenant t : tenants.values().stream()
+                    .sorted(java.util.Comparator.comparing(Tenant::id))
+                    .toList()) {
                 for (X509Certificate c : t.verifier().certificateChain()) {
                     digest.update(c.getEncoded());
                 }
-                for (Policy p : t.policies().values()) {
+                for (Policy p : t.policies().values().stream()
+                        .sorted(java.util.Comparator.comparing(Policy::id))
+                        .toList()) {
+                    List<byte[]> anchors = new ArrayList<>();
                     for (TrustAnchor a : p.trustAnchors()) {
-                        digest.update(a.getTrustedCert().getEncoded());
+                        anchors.add(a.getTrustedCert().getEncoded());
                     }
+                    anchors.sort(java.util.Arrays::compare);
+                    anchors.forEach(digest::update);
                     if (p.registration().isPresent()) {
                         digest.update(Json.toJson(p.registration().get().registrarDataset())
                                 .getBytes(StandardCharsets.UTF_8));
