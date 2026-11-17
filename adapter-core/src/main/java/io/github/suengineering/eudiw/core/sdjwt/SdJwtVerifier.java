@@ -132,7 +132,8 @@ public final class SdJwtVerifier {
                 holderKey,
                 keyBindingVerified,
                 issuerKey.certificateChain(),
-                issuerKey.trustSources());
+                issuerKey.trustSources(),
+                issuerKey.anchor());
     }
 
     private static String hashAlgorithm(Map<String, Object> payload, SdJwtVerificationOptions options) {
