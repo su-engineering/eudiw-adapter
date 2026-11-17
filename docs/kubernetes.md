@@ -18,18 +18,18 @@ Each release publishes, from the [release workflow](../.github/workflows/release
 Verify the image before deploying it:
 
 ```bash
-cosign verify ghcr.io/su-engineering/eudiw-adapter:0.1.0 \
-  --certificate-identity https://github.com/su-engineering/eudiw-adapter/.github/workflows/release.yaml@refs/tags/v0.1.0 \
+cosign verify ghcr.io/su-engineering/eudiw-adapter:0.2.0 \
+  --certificate-identity https://github.com/su-engineering/eudiw-adapter/.github/workflows/release.yaml@refs/tags/v0.2.0 \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
-The chart uses the image matching its `appVersion` unless you set `image.tag`. To pin the digest cosign verified, set `image.tag` to `0.1.0@sha256:<digest>`.
+The chart uses the image matching its `appVersion` unless you set `image.tag`. To pin the digest cosign verified, set `image.tag` to `0.2.0@sha256:<digest>`.
 
 To build the image yourself instead:
 
 ```bash
 ./mvnw -pl adapter-verifier-service -am package -DskipTests
-docker build -t registry.example/eudiw-adapter:0.1.0 -f adapter-verifier-service/src/main/docker/Dockerfile .
+docker build -t registry.example/eudiw-adapter:0.2.0 -f adapter-verifier-service/src/main/docker/Dockerfile .
 ```
 
 and set `image.repository` and `image.tag`.
@@ -45,7 +45,7 @@ Create three secrets in the release namespace:
 | configuration | `tenants.json` and every file it references | Mounted read-only at `/config`; paths in `tenants.json` are relative to it ([configuration](configuration.md)) |
 
 ```bash
-helm install eudiw oci://ghcr.io/su-engineering/charts/eudiw-adapter --version 0.1.0 -n eudiw \
+helm install eudiw oci://ghcr.io/su-engineering/charts/eudiw-adapter --version 0.2.0 -n eudiw \
   --set publicBaseUrl=https://adapter.example \
   --set oidc.issuer=https://auth.example/realms/main --set oidc.audience=eudiw-adapter \
   --set database.url=jdbc:postgresql://postgres:5432/eudiw --set database.existingSecret=eudiw-db \

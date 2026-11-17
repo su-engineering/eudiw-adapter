@@ -4,7 +4,7 @@
 
 <h3>The open-source EUDI Wallet verifier for relying parties</h3>
 
-<p>Self-hosted service and Java library. Verifies SD-JWT VC presentations over OpenID4VP 1.0 and HAIP 1.0,<br>and hands your backend only the claims it asked for.</p>
+<p>Self-hosted service and Java library. Verifies SD-JWT VC and ISO mdoc presentations over OpenID4VP 1.0 and HAIP 1.0,<br>and hands your backend only the claims it asked for.</p>
 
 [![CI](https://github.com/su-engineering/eudiw-adapter/actions/workflows/ci.yaml/badge.svg)](https://github.com/su-engineering/eudiw-adapter/actions/workflows/ci.yaml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-3b82f6)](LICENSE)
@@ -12,6 +12,7 @@
 ![OpenID4VP 1.0](https://img.shields.io/badge/OpenID4VP-1.0_Final-0ea5e9)
 ![HAIP 1.0](https://img.shields.io/badge/HAIP-1.0_Final-6366f1)
 ![SD-JWT VC](https://img.shields.io/badge/SD--JWT_VC-RFC_9901-8b5cf6)
+![ISO mdoc](https://img.shields.io/badge/ISO_mdoc-18013--5-a855f7)
 [![Helm](https://img.shields.io/badge/Helm-chart-0f1689?logo=helm&logoColor=white)](docs/kubernetes.md)
 
 [**Quickstart**](#quickstart) · [**How it works**](#how-it-works) · [**Features**](#features) · [**Docs**](#documentation) · [**Security**](SECURITY.md)
@@ -151,7 +152,7 @@ Show `launch_uri` as a link on the same device or as a QR code across devices. I
 <td width="50%" valign="top">
 
 **Verification you don't have to write**<br>
-SD-JWT VC (RFC 9901): issuer signature, disclosure digests, key binding to your nonce and client identifier, Token Status List revocation and suspension.
+SD-JWT VC (RFC 9901): issuer signature, disclosure digests, key binding to your nonce and client identifier, Token Status List revocation and suspension. ISO mdoc: issuer signature, value digests, device signature over your request's session transcript.
 
 </td>
 <td width="50%" valign="top">
@@ -275,6 +276,7 @@ flowchart LR
 | OpenID4VC High Assurance Interoperability Profile (HAIP) | 1.0 Final |
 | Selective Disclosure for JWTs (SD-JWT) | RFC 9901 |
 | SD-JWT-based Verifiable Credentials (SD-JWT VC) | version referenced by HAIP 1.0 |
+| ISO/IEC 18013-5 mobile documents (mdoc) | 2021 (first edition) |
 | Token Status List | version referenced by HAIP 1.0 |
 | ETSI TS 119 602 / TS 119 612 trusted lists | V1.1.1 / V2.4.1 |
 | ETSI TS 119 472-2 / TS 119 475 relying-party registration | V1.3.1 / V1.2.1 |
@@ -292,7 +294,7 @@ Test evidence per feature: [standards and feature status](docs/standards-matrix.
 - [x] Metrics, audit log, tracing, rate limits, configuration reload
 - [x] Web component and Node and Python examples
 - [x] OpenID Foundation HAIP verifier test plan, run locally (not certified)
-- [x] ISO mdoc (`mso_mdoc`): issuer and device authentication, on `main`, not yet released
+- [x] ISO mdoc (`mso_mdoc`): issuer and device authentication
 - [ ] MSO revocation (ISO/IEC 18013-5 second edition) and the Digital Credentials API
 - [ ] The EU reference wallet on real devices, a second independent wallet, OCSP
 - [ ] Wallet attestation, `transaction_data`, certification, external review

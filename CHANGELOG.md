@@ -2,11 +2,25 @@
 
 All notable changes to eudiw-adapter. Versions follow [Semantic Versioning](https://semver.org/); before 1.0.0, a minor version can change the API or the configuration format, and the notes say how.
 
-## [Unreleased]
+## [0.2.0] - 2026-11-17
+
+ISO mdoc support. No breaking changes: existing configuration, the management API and SD-JWT VC behaviour are unchanged.
 
 ### Added
 
-- ISO mdoc (`mso_mdoc`) presentations ([ADR-012](docs/adr/0012-mdoc.md)): issuer data authentication with the IACA certificate rules for the mDL, mdoc authentication by device signature over the OpenID4VP session transcript, the DeviceResponse status rules, DCQL `[namespace, element]` paths with `intent_to_retain` and the `age_over_NN` rule, and `mso_mdoc` request metadata. MSO revocation and device MAC are not supported.
+- ISO mdoc (`mso_mdoc`) presentations over OpenID4VP 1.0 and HAIP 1.0 ([ADR-012](docs/adr/0012-mdoc.md), [configuration](docs/configuration.md#mdoc)):
+  - issuer data authentication: the mobile security object, value digests, validity, and the IACA certificate rules for the mDL (country and state, extended and key usage, `issuing_country` and `issuing_jurisdiction`);
+  - mdoc authentication by device signature over the OpenID4VP session transcript, with key authorizations for device-signed elements;
+  - the DeviceResponse version and status rules;
+  - DCQL `[namespace, element]` paths with `intent_to_retain`, and the `age_over_NN` rule (an `age_over_21: true` answers a request for `age_over_18`);
+  - `mso_mdoc` in the request's `vp_formats_supported`.
+- A strict CBOR decoder and COSE_Sign1 verification in `adapter-core`, cross-checked in tests against Authlete `cbor`.
+- The Compose demo has the eudi-dev wallet present an mdoc PID end to end, and checks that one signed over another session transcript is rejected. CI runs both.
+
+### Not supported yet
+
+- MSO revocation, which follows the second edition of ISO/IEC 18013-5. Under `require_valid`, an mdoc that carries a status reference is rejected.
+- Device MAC, which needs a reader key that the OpenID4VP flow does not have, and brainpool curves.
 
 ## [0.1.1] - 2026-11-17
 
@@ -54,5 +68,6 @@ The first release.
 
 ISO mdoc, the Digital Credentials API, OCSP, wallet attestation and `transaction_data`. Interoperability is tested against the eudi-dev wallet and the OpenID Foundation HAIP verifier test plan run locally; there is no certification and no external security review yet. See the [roadmap](ROADMAP.md).
 
+[0.2.0]: https://github.com/su-engineering/eudiw-adapter/releases/tag/v0.2.0
 [0.1.1]: https://github.com/su-engineering/eudiw-adapter/releases/tag/v0.1.1
 [0.1.0]: https://github.com/su-engineering/eudiw-adapter/releases/tag/v0.1.0
