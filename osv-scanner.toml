@@ -7,4 +7,6 @@ reason = """opentelemetry-api 1.62.0, tracestate parsing CPU. Comes with Quarkus
 tracing enabled (quarkus.otel.sdk.disabled=true by default). Take the fixed version (1.67.0) with the next Quarkus
 release that ships it. Overriding the OpenTelemetry BOM to 1.67.0 under Quarkus 3.39.5 was tried and breaks
 tracing: the Quarkus instrumentation (2.28.1) calls io.opentelemetry.api.internal.InstrumentationUtil, which
-1.67.0 no longer has, so every traced request fails with NoClassDefFoundError."""
+1.67.0 no longer has, so every traced request fails with NoClassDefFoundError. Moving the instrumentation BOM to
+2.33.1 as well fixes that, but the Quarkus OTLP exporter then fails at startup with NoSuchMethodError on
+ExporterBuilderUtil.validateEndpoint, also an internal API that changed in 1.67.0 (checked again for 0.2.1)."""
