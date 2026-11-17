@@ -50,6 +50,29 @@ public class TrustedListSequenceStore implements TrustedLists.SequenceStore {
         }
     }
 
+    /**
+     * One conditional upsert: the row is locked while the stored number is compared, so two nodes cannot both
+     * accept against the same old value. No row is returned when a higher number is already stored.
+     */
+    @Override
+    public boolean advance(String identifier, long sequenceNumber) {
+        try (Connection c = dataSource.getConnection();
+                PreparedStatement s = c.prepareStatement(
+                        "INSERT INTO trusted_list_sequence (identifier, sequence, updated_at) VALUES (?, ?, ?) "
+                                + "ON CONFLICT (identifier) DO UPDATE SET sequence = EXCLUDED.sequence, "
+                                + "updated_at = EXCLUDED.updated_at "
+                                + "WHERE trusted_list_sequence.sequence <= EXCLUDED.sequence RETURNING sequence")) {
+            s.setString(1, identifier);
+            s.setLong(2, sequenceNumber);
+            s.setTimestamp(3, Timestamp.from(Instant.now()));
+            try (ResultSet r = s.executeQuery()) {
+                return r.next();
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("trusted list sequence unavailable", e);
+        }
+    }
+
     @Override
     public void record(String identifier, long sequenceNumber) {
         try (Connection c = dataSource.getConnection();
