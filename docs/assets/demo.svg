@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="470" viewBox="0 0 900 470" role="img" aria-label="Output of deploy/compose/demo.sh">
+  <rect width="900" height="470" rx="12" fill="#0d1117"/>
+  <rect width="900" height="36" rx="12" fill="#161b22"/>
+  <rect y="24" width="900" height="12" fill="#161b22"/>
+  <circle cx="22" cy="18" r="6" fill="#f87171"/><circle cx="42" cy="18" r="6" fill="#fbbf24"/><circle cx="62" cy="18" r="6" fill="#34d399"/>
+  <text x="450" y="23" text-anchor="middle" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" fill="#8b949e">deploy/compose/demo.sh</text>
+  <g font-family="'JetBrains Mono', 'SFMono-Regular', Menlo, Consolas, monospace" font-size="14">
+    <text x="24" y="70" fill="#8b949e">$ <tspan fill="#e6edf3">./deploy/compose/demo.sh</tspan></text>
+    <text x="24" y="100" fill="#7ee787">1. The portal backend gets an access token (OAuth client credentials)</text>
+    <text x="24" y="124" fill="#7ee787">2. It starts a verification session for policy age-over-18</text>
+    <text x="48" y="146" fill="#8b949e">"status": <tspan fill="#a5d6ff">"pending"</tspan>, "wallet_launch": { "launch_uri": <tspan fill="#a5d6ff">"openid4vp://?..."</tspan> }</text>
+    <text x="24" y="172" fill="#7ee787">3. The wallet scans the QR code and presents its credential</text>
+    <text x="48" y="194" fill="#8b949e">[VP] SD-JWT presentation created: 1 disclosures selected</text>
+    <text x="48" y="216" fill="#8b949e">[VP] Encrypting response: response_mode=direct_post.jwt</text>
+    <text x="24" y="242" fill="#7ee787">4. The backend polls the session</text>
+    <text x="48" y="264" fill="#8b949e">"status": <tspan fill="#a5d6ff">"verified"</tspan></text>
+    <text x="24" y="290" fill="#7ee787">5. The backend fetches the result once. Only the requested claim is present:</text>
+    <text x="48" y="312" fill="#e6edf3">{ "claims": { <tspan fill="#ffa657">"age_over_18"</tspan>: <tspan fill="#79c0ff">true</tspan> } }</text>
+    <text x="48" y="334" fill="#8b949e"># the credential also held a name; it never left the adapter</text>
+    <text x="24" y="360" fill="#7ee787">6. A credential from an issuer the policy does not trust is rejected</text>
+    <text x="48" y="382" fill="#8b949e">"status": <tspan fill="#ff7b72">"rejected"</tspan>, "reason": <tspan fill="#ff7b72">"certificate_untrusted"</tspan></text>
+    <text x="24" y="416" fill="#e6edf3">Done.</text>
+    <text x="24" y="444" fill="#8b949e">Request signing key in SoftHSM · issuer trust from a signed ETSI list · eudi-dev wallet in HAIP mode</text>
+  </g>
+</svg>
