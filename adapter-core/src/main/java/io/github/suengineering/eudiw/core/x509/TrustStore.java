@@ -31,15 +31,25 @@ import java.util.Set;
  */
 public final class TrustStore {
 
-    private static final TrustStore EMPTY = new TrustStore(Map.of());
+    private static final TrustStore EMPTY = new TrustStore(Map.of(), Map.of());
 
     private final Map<X509Certificate, Set<String>> sources;
+    private final Map<X509Certificate, Set<String>> entityNames;
     private final Set<TrustAnchor> anchors;
 
-    private TrustStore(Map<X509Certificate, Set<String>> sources) {
+    private TrustStore(
+            Map<X509Certificate, ? extends Set<String>> sources,
+            Map<X509Certificate, ? extends Set<String>> entityNames) {
         Map<X509Certificate, Set<String>> copy = new LinkedHashMap<>();
         sources.forEach((certificate, from) -> copy.put(certificate, Set.copyOf(from)));
         this.sources = Map.copyOf(copy);
+        Map<X509Certificate, Set<String>> names = new LinkedHashMap<>();
+        entityNames.forEach((certificate, n) -> {
+            if (copy.containsKey(certificate)) {
+                names.put(certificate, Set.copyOf(n));
+            }
+        });
+        this.entityNames = Map.copyOf(names);
         Set<TrustAnchor> trustAnchors = new LinkedHashSet<>();
         for (X509Certificate certificate : copy.keySet()) {
             trustAnchors.add(new TrustAnchor(certificate, null));
@@ -58,12 +68,23 @@ public final class TrustStore {
         for (X509Certificate certificate : certificates) {
             map.put(Objects.requireNonNull(certificate, "certificate"), Set.of(source));
         }
-        return new TrustStore(map);
+        return new TrustStore(map, Map.of());
     }
 
     /** Certificates with their sources. */
     public static TrustStore ofSources(Map<X509Certificate, ? extends Set<String>> sources) {
-        return new TrustStore(Map.copyOf(sources));
+        return new TrustStore(sources, Map.of());
+    }
+
+    /**
+     * Certificates with their sources and the names of the trusted-list entities that publish them.
+     *
+     * @param entityNames per certificate, the trust service provider names of the lists that approved it
+     */
+    public static TrustStore ofSources(
+            Map<X509Certificate, ? extends Set<String>> sources,
+            Map<X509Certificate, ? extends Set<String>> entityNames) {
+        return new TrustStore(sources, entityNames);
     }
 
     /** Wraps plain trust anchors; their source is {@code "configured"}. */
@@ -74,11 +95,14 @@ public final class TrustStore {
     /** The union of both stores; a certificate present in both keeps the sources of both. */
     public TrustStore merge(TrustStore other) {
         Map<X509Certificate, Set<String>> map = new LinkedHashMap<>();
+        Map<X509Certificate, Set<String>> names = new LinkedHashMap<>();
         for (TrustStore store : new TrustStore[] {this, other}) {
             store.sources.forEach((certificate, from) ->
                     map.computeIfAbsent(certificate, c -> new LinkedHashSet<>()).addAll(from));
+            store.entityNames.forEach((certificate, n) -> names.computeIfAbsent(certificate, c -> new LinkedHashSet<>())
+                    .addAll(n));
         }
-        return new TrustStore(map);
+        return new TrustStore(map, names);
     }
 
     public Set<TrustAnchor> anchors() {
@@ -92,6 +116,11 @@ public final class TrustStore {
     /** Where a trusted certificate came from; empty when it is not in this store. */
     public Set<String> sourcesOf(X509Certificate certificate) {
         return sources.getOrDefault(certificate, Set.of());
+    }
+
+    /** Names of the trusted-list entities that publish a trusted certificate; empty for configured anchors. */
+    public Set<String> entityNamesOf(X509Certificate certificate) {
+        return entityNames.getOrDefault(certificate, Set.of());
     }
 
     public Set<X509Certificate> certificates() {

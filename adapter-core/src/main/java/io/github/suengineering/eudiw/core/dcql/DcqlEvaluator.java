@@ -25,6 +25,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Checks verified credentials against the DCQL query they answer (OpenID4VP 1.0 sections 6.4 and 8.6) and returns
@@ -57,14 +58,27 @@ public final class DcqlEvaluator {
      * @param type {@code vct} or doctype
      * @param issuer issuer identifier established during verification
      * @param claims the requested claims and their values
+     * @param issuerNames further authenticated issuer names an allow list may match
      */
-    public record SelectedCredential(String format, String type, String issuer, List<DisclosedClaim> claims) {
+    public record SelectedCredential(
+            String format, String type, String issuer, List<DisclosedClaim> claims, Set<String> issuerNames) {
         public SelectedCredential {
             claims = List.copyOf(claims);
+            issuerNames = Set.copyOf(issuerNames);
+        }
+
+        public SelectedCredential(String format, String type, String issuer, List<DisclosedClaim> claims) {
+            this(format, type, issuer, claims, Set.of());
+        }
+
+        /** Whether the issuer, or one of its other names, is in the allow list. */
+        public boolean issuerIn(Set<String> allowed) {
+            return allowed.contains(issuer) || issuerNames.stream().anyMatch(allowed::contains);
         }
 
         static SelectedCredential of(PresentedCredential credential, List<DisclosedClaim> claims) {
-            return new SelectedCredential(credential.format(), credential.type(), credential.issuer(), claims);
+            return new SelectedCredential(
+                    credential.format(), credential.type(), credential.issuer(), claims, credential.issuerNames());
         }
     }
 

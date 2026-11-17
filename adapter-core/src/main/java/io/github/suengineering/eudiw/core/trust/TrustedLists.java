@@ -303,6 +303,7 @@ public final class TrustedLists {
 
     private TrustStore build(boolean forStatus, Instant now) {
         Map<X509Certificate, Set<String>> trusted = new LinkedHashMap<>();
+        Map<X509Certificate, Set<String>> names = new LinkedHashMap<>();
         for (X509Certificate certificate : base.certificates()) {
             trusted.computeIfAbsent(certificate, c -> new LinkedHashSet<>()).addAll(base.sourcesOf(certificate));
         }
@@ -323,9 +324,11 @@ public final class TrustedLists {
                 for (X509Certificate certificate : service.certificates()) {
                     trusted.computeIfAbsent(certificate, c -> new LinkedHashSet<>())
                             .addAll(entry.sourceIds());
+                    names.computeIfAbsent(certificate, c -> new LinkedHashSet<>())
+                            .add(service.entityName());
                 }
             }
         }
-        return TrustStore.ofSources(trusted);
+        return TrustStore.ofSources(trusted, names);
     }
 }

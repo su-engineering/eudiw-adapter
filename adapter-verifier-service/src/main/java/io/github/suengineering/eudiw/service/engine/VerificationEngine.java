@@ -382,8 +382,7 @@ public class VerificationEngine {
                                     java.util.Optional.of(keyThumbprint)));
             for (List<SelectedCredential> credentials : result.credentials().values()) {
                 for (SelectedCredential credential : credentials) {
-                    if (!policy.allowedIssuers().isEmpty()
-                            && !policy.allowedIssuers().contains(credential.issuer())) {
+                    if (!policy.allowedIssuers().isEmpty() && !credential.issuerIn(policy.allowedIssuers())) {
                         throw new VerificationFailure("issuer_not_allowed", "issuer not allowed by policy");
                     }
                 }

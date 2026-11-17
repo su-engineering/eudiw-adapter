@@ -83,6 +83,8 @@ class MdocVpTokenTest {
         SelectedCredential pid = result.credentials().get("pid").get(0);
         assertThat(pid.format()).isEqualTo("mso_mdoc");
         assertThat(pid.type()).isEqualTo(DOCTYPE);
+        // An mdoc is named by its trust anchor, not by its document signer.
+        assertThat(pid.issuer()).isEqualTo(iaca().getSubjectX500Principal().getName());
         assertThat(pid.claims()).hasSize(1);
         assertThat(pid.claims().get(0).values()).containsExactly(true);
         // Device authentication receives this request's transcript.
