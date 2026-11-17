@@ -2,6 +2,12 @@
 
 All notable changes to eudiw-adapter. Versions follow [Semantic Versioning](https://semver.org/); before 1.0.0, a minor version can change the API or the configuration format, and the notes say how.
 
+## [Unreleased]
+
+### Added
+
+- ISO mdoc (`mso_mdoc`) presentations ([ADR-012](docs/adr/0012-mdoc.md)): issuer data authentication with the IACA certificate rules for the mDL, mdoc authentication by device signature over the OpenID4VP session transcript, the DeviceResponse status rules, DCQL `[namespace, element]` paths with `intent_to_retain` and the `age_over_NN` rule, and `mso_mdoc` request metadata. MSO revocation and device MAC are not supported.
+
 ## [0.1.1] - 2026-11-17
 
 ### Changed

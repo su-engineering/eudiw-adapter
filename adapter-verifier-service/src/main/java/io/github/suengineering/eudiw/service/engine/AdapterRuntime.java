@@ -179,11 +179,7 @@ public class AdapterRuntime {
                     mdoc = Optional.of(new MdocPresentationVerifier(
                             new MdocIssuerVerifier(
                                     issuance, clock, Duration.ofSeconds(60), crls, MdocIssuerVerifier.mdlOnly()),
-                            MdocDeviceAuthentication.NOT_IMPLEMENTED));
-                    LOG.warnf(
-                            "tenant %s policy %s requests mso_mdoc: mdoc device authentication is not implemented"
-                                    + " yet, so mdoc presentations are rejected (ADR-012)",
-                            tenant.id(), policy.id());
+                            MdocDeviceAuthentication.SIGNATURE));
                 }
                 VpTokenVerifier verifier = new VpTokenVerifier(
                         new SdJwtVcVerifier(

@@ -19,6 +19,10 @@ import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.agroal.api.AgroalDataSource;
+import io.github.suengineering.eudiw.core.cbor.CborEncoder;
+import io.github.suengineering.eudiw.core.cbor.CborItem;
+import io.github.suengineering.eudiw.core.mdoc.SessionTranscripts;
+import io.github.suengineering.eudiw.core.mdoc.TestMdocIssuer;
 import io.github.suengineering.eudiw.core.net.HttpFetcher;
 import io.github.suengineering.eudiw.service.engine.AdapterRuntime;
 import io.quarkus.test.common.QuarkusTestResource;
@@ -39,6 +43,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
@@ -424,7 +429,7 @@ class VerificationFlowTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    void anMdocPolicyAdvertisesMdocAndRejectsUntilDeviceAuthenticationExists() throws Exception {
+    void anMdocPolicyAdvertisesMdocAndVerifiesADeviceSignedPresentation() throws Exception {
         JsonPath session = create("portal-a", "cross_device", "mdl-age");
         Map<String, Object> request = TestWallet.fetchRequest(session.getString("wallet_launch.request_uri"));
         Map<String, Object> formats = (Map<String, Object>)
@@ -432,38 +437,97 @@ class VerificationFlowTest {
         assertThat(formats).containsKeys("dc+sd-jwt", "mso_mdoc");
         assertThat(request.get("dcql_query").toString()).contains("intent_to_retain");
 
-        // A genuine mDL from a trusted issuer reaches device authentication, which is not implemented yet.
-        io.github.suengineering.eudiw.core.cbor.CborItem document = TestEnvironment.mdocIssuer.document(
-                TestEnvironment.MDL_DOCTYPE,
-                "org.iso.18013.5.1",
-                "org.iso.18013.5.1",
-                Map.of("age_over_18", io.github.suengineering.eudiw.core.cbor.CborEncoder.bool(true)),
-                Instant.now().minusSeconds(60),
-                Instant.now().minusSeconds(60),
-                Instant.now().plus(java.time.Duration.ofDays(30)));
-        Map<io.github.suengineering.eudiw.core.cbor.CborItem, io.github.suengineering.eudiw.core.cbor.CborItem>
-                deviceResponse = new java.util.LinkedHashMap<>();
-        deviceResponse.put(
-                io.github.suengineering.eudiw.core.cbor.CborEncoder.text("version"),
-                io.github.suengineering.eudiw.core.cbor.CborEncoder.text("1.0"));
-        deviceResponse.put(
-                io.github.suengineering.eudiw.core.cbor.CborEncoder.text("documents"),
-                io.github.suengineering.eudiw.core.cbor.CborEncoder.array(document));
-        deviceResponse.put(
-                io.github.suengineering.eudiw.core.cbor.CborEncoder.text("status"),
-                io.github.suengineering.eudiw.core.cbor.CborEncoder.integer(0));
-        String presentation = java.util.Base64.getUrlEncoder()
-                .withoutPadding()
-                .encodeToString(io.github.suengineering.eudiw.core.cbor.CborEncoder.map(deviceResponse)
-                        .encoded());
-        TestWallet.respond(request, Map.of("vp_token", Map.of("mdl", List.of(presentation))));
+        TestWallet.respond(
+                request, Map.of("vp_token", Map.of("mdl", List.of(mdl(request, (String) request.get("nonce"))))));
+        given().auth()
+                .oauth2(TestWallet.fullToken("portal-a"))
+                .get("/v1/verification-sessions/" + session.getString("id"))
+                .then()
+                .body("status", org.hamcrest.Matchers.equalTo("verified"));
+    }
 
+    @Test
+    void anMdocSignedForAnotherRequestIsRejected() throws Exception {
+        JsonPath session = create("portal-a", "cross_device", "mdl-age");
+        Map<String, Object> request = TestWallet.fetchRequest(session.getString("wallet_launch.request_uri"));
+        TestWallet.respond(request, Map.of("vp_token", Map.of("mdl", List.of(mdl(request, "another-nonce")))));
         given().auth()
                 .oauth2(TestWallet.fullToken("portal-a"))
                 .get("/v1/verification-sessions/" + session.getString("id"))
                 .then()
                 .body("status", org.hamcrest.Matchers.equalTo("rejected"))
-                .body("reason", org.hamcrest.Matchers.equalTo("unsupported_format"));
+                .body("reason", org.hamcrest.Matchers.equalTo("holder_binding_invalid"));
+    }
+
+    @Test
+    void anOlderAgeAttestationAnswersTheRequestedOne() throws Exception {
+        JsonPath session = create("portal-a", "cross_device", "mdl-age");
+        Map<String, Object> request = TestWallet.fetchRequest(session.getString("wallet_launch.request_uri"));
+        TestWallet.respond(
+                request,
+                Map.of(
+                        "vp_token",
+                        Map.of(
+                                "mdl",
+                                List.of(mdl(
+                                        request,
+                                        (String) request.get("nonce"),
+                                        Map.of("age_over_21", CborEncoder.bool(true)))))));
+        given().auth()
+                .oauth2(TestWallet.fullToken("portal-a"))
+                .get("/v1/verification-sessions/" + session.getString("id") + "/result")
+                .then()
+                .body("status", org.hamcrest.Matchers.equalTo("verified"))
+                .body("claims", org.hamcrest.Matchers.equalTo(Map.of("age_over_18", true)));
+    }
+
+    /** A device-signed DeviceResponse holding an mDL, its session transcript built for {@code nonce}. */
+    @SuppressWarnings("unchecked")
+    private static String mdl(Map<String, Object> request, String nonce) throws Exception {
+        return mdl(request, nonce, Map.of("age_over_18", CborEncoder.bool(true)));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static String mdl(Map<String, Object> request, String nonce, Map<String, CborItem> elements)
+            throws Exception {
+        Map<String, Object> jwk = ((List<Map<String, Object>>)
+                        ((Map<String, Object>) ((Map<String, Object>) request.get("client_metadata")).get("jwks"))
+                                .get("keys"))
+                .get(0);
+        CborItem transcript = SessionTranscripts.openId4VpRedirect(
+                (String) request.get("client_id"),
+                nonce,
+                Optional.of(com.nimbusds
+                        .jose
+                        .jwk
+                        .JWK
+                        .parse(jwk)
+                        .computeThumbprint("SHA-256")
+                        .decode()),
+                (String) request.get("response_uri"));
+        CborItem document = TestEnvironment.mdocIssuer.document(
+                TestEnvironment.MDL_DOCTYPE,
+                "org.iso.18013.5.1",
+                "org.iso.18013.5.1",
+                elements,
+                Instant.now().minusSeconds(60),
+                Instant.now().minusSeconds(60),
+                Instant.now().plus(java.time.Duration.ofDays(30)));
+        CborItem nameSpaces = CborEncoder.embedded(CborEncoder.map(Map.of()));
+        CborItem signature = TestMdocIssuer.deviceSignature(
+                TestEnvironment.mdocIssuer.deviceKeys.getPrivate(),
+                -7,
+                TestMdocIssuer.deviceAuthentication(transcript, TestEnvironment.MDL_DOCTYPE, nameSpaces),
+                false);
+        document = TestMdocIssuer.withDeviceSigned(
+                document, nameSpaces, CborEncoder.map(Map.of(CborEncoder.text("deviceSignature"), signature)));
+        Map<CborItem, CborItem> deviceResponse = new java.util.LinkedHashMap<>();
+        deviceResponse.put(CborEncoder.text("version"), CborEncoder.text("1.0"));
+        deviceResponse.put(CborEncoder.text("documents"), CborEncoder.array(document));
+        deviceResponse.put(CborEncoder.text("status"), CborEncoder.integer(0));
+        return java.util.Base64.getUrlEncoder()
+                .withoutPadding()
+                .encodeToString(CborEncoder.map(deviceResponse).encoded());
     }
 
     @Test

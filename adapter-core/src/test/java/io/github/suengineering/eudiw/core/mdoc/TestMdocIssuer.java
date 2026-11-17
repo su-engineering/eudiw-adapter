@@ -56,6 +56,12 @@ public final class TestMdocIssuer {
     public final X509Certificate iaca;
     public final X509Certificate signer;
 
+    /** The {@code keyAuthorizations} put into the next MSO, or {@code null} for none. */
+    public CborItem keyAuthorizations;
+
+    /** The {@code deviceKey} put into the next MSO instead of {@link #deviceKeys}, or {@code null}. */
+    public CborItem deviceKeyOverride;
+
     /**
      * @param iacaSubject subject of the IACA, for example {@code "CN=Test IACA,C=DE"}
      * @param signerSubject subject of the document signer
@@ -117,7 +123,12 @@ public final class TestMdocIssuer {
         mso.put(CborEncoder.text("version"), CborEncoder.text("1.0"));
         mso.put(CborEncoder.text("digestAlgorithm"), CborEncoder.text("SHA-256"));
         mso.put(CborEncoder.text("valueDigests"), CborEncoder.map(valueDigests));
-        mso.put(CborEncoder.text("deviceKeyInfo"), CborEncoder.map(Map.of(CborEncoder.text("deviceKey"), deviceKey())));
+        Map<CborItem, CborItem> keyInfo = new LinkedHashMap<>();
+        keyInfo.put(CborEncoder.text("deviceKey"), deviceKeyOverride != null ? deviceKeyOverride : deviceKey());
+        if (keyAuthorizations != null) {
+            keyInfo.put(CborEncoder.text("keyAuthorizations"), keyAuthorizations);
+        }
+        mso.put(CborEncoder.text("deviceKeyInfo"), CborEncoder.map(keyInfo));
         mso.put(CborEncoder.text("docType"), CborEncoder.text(docType));
         Map<CborItem, CborItem> validity = new LinkedHashMap<>();
         validity.put(CborEncoder.text("signed"), tdate(signed));
@@ -155,6 +166,50 @@ public final class TestMdocIssuer {
         document.put(CborEncoder.text("docType"), CborEncoder.text(docType));
         document.put(CborEncoder.text("issuerSigned"), CborEncoder.map(issuerSigned));
         return CborEncoder.map(document);
+    }
+
+    /**
+     * The document with a {@code deviceSigned} part of the given namespaces bytes and {@code deviceAuth} map.
+     */
+    public static CborItem withDeviceSigned(CborItem document, CborItem nameSpacesBytes, CborItem deviceAuth) {
+        Map<CborItem, CborItem> deviceSigned = new LinkedHashMap<>();
+        deviceSigned.put(CborEncoder.text("nameSpaces"), nameSpacesBytes);
+        deviceSigned.put(CborEncoder.text("deviceAuth"), deviceAuth);
+        Map<CborItem, CborItem> out = new LinkedHashMap<>(((CborItem.MapItem) document).entries());
+        out.put(CborEncoder.text("deviceSigned"), CborEncoder.map(deviceSigned));
+        return CborEncoder.map(out);
+    }
+
+    /** {@code #6.24(bstr .cbor ["DeviceAuthentication", transcript, docType, nameSpacesBytes])}. */
+    public static byte[] deviceAuthentication(CborItem transcript, String docType, CborItem nameSpacesBytes) {
+        return CborEncoder.embedded(CborEncoder.array(
+                        CborEncoder.text("DeviceAuthentication"),
+                        transcript,
+                        CborEncoder.text(docType),
+                        nameSpacesBytes))
+                .encoded();
+    }
+
+    /** A detached COSE_Sign1 over {@code content}, alg {@code alg} in the protected header, signed ES256. */
+    public static CborItem deviceSignature(java.security.PrivateKey key, long alg, byte[] content, boolean attach)
+            throws Exception {
+        Map<CborItem, CborItem> protectedHeader = new LinkedHashMap<>();
+        protectedHeader.put(CborEncoder.integer(1), CborEncoder.integer(alg));
+        byte[] protectedBytes = CborEncoder.map(protectedHeader).encoded();
+        byte[] toBeSigned = CborEncoder.array(
+                        CborEncoder.text("Signature1"),
+                        CborEncoder.bytes(protectedBytes),
+                        CborEncoder.bytes(new byte[0]),
+                        CborEncoder.bytes(content))
+                .encoded();
+        Signature s = Signature.getInstance("SHA256withECDSAinP1363Format");
+        s.initSign(key);
+        s.update(toBeSigned);
+        return CborEncoder.array(
+                CborEncoder.bytes(protectedBytes),
+                CborEncoder.map(Map.of()),
+                attach ? CborEncoder.bytes(content) : CborEncoder.nil(),
+                CborEncoder.bytes(s.sign()));
     }
 
     private CborItem deviceKey() {

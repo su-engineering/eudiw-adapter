@@ -247,6 +247,44 @@ class MdocIssuerVerifierTest {
         assertThatThrownBy(() ->
                         verifyBuilt(state, mdl(state, NOW.minusSeconds(60), NOW.minusSeconds(60), "org.iso.18013.5.1")))
                 .hasMessageContaining("state");
+        // A state in the IACA must be repeated in the document signer; one only in the signer is fine.
+        TestMdocIssuer dropped = issuer("CN=Test IACA,ST=BY,C=DE", "CN=Test DS,C=DE", true);
+        assertThatThrownBy(() -> verifyBuilt(
+                        dropped, mdl(dropped, NOW.minusSeconds(60), NOW.minusSeconds(60), "org.iso.18013.5.1")))
+                .hasMessageContaining("state");
+        TestMdocIssuer added = issuer("CN=Test IACA,C=DE", "CN=Test DS,ST=BY,C=DE", true);
+        assertThat(verifyBuilt(added, mdl(added, NOW.minusSeconds(60), NOW.minusSeconds(60), "org.iso.18013.5.1"))
+                        .docType())
+                .isEqualTo(MdocIssuerVerifier.MDL_DOCTYPE);
+    }
+
+    @Test
+    void issuingCountryAndJurisdictionMustMatchTheSigner() throws Exception {
+        TestMdocIssuer issuer = issuer("CN=Test IACA,ST=BY,C=DE", "CN=Test DS,ST=BY,C=DE", true);
+        java.util.function.BiFunction<String, String, CborItem> mdl = (element, value) -> {
+            try {
+                return issuer.document(
+                        MdocIssuerVerifier.MDL_DOCTYPE,
+                        "org.iso.18013.5.1",
+                        "org.iso.18013.5.1",
+                        Map.of(element, CborEncoder.text(value)),
+                        NOW.minusSeconds(60),
+                        NOW.minusSeconds(60),
+                        NOW.plus(Duration.ofDays(30)));
+            } catch (Exception e) {
+                throw new IllegalStateException(e);
+            }
+        };
+        assertThat(verifyBuilt(issuer, mdl.apply("issuing_country", "DE")).elements())
+                .isNotEmpty();
+        assertThat(verifyBuilt(issuer, mdl.apply("issuing_jurisdiction", "BY")).elements())
+                .isNotEmpty();
+        assertThatThrownBy(() -> verifyBuilt(issuer, mdl.apply("issuing_country", "FR")))
+                .isInstanceOfSatisfying(
+                        VerificationFailure.class, f -> assertThat(f.code()).isEqualTo("credential_mismatch"));
+        assertThatThrownBy(() -> verifyBuilt(issuer, mdl.apply("issuing_jurisdiction", "BE")))
+                .isInstanceOfSatisfying(
+                        VerificationFailure.class, f -> assertThat(f.code()).isEqualTo("credential_mismatch"));
     }
 
     @Test

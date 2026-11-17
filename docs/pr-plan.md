@@ -30,7 +30,7 @@ Not in the first release: ISO mdoc, ETSI trusted list ingestion, credential issu
 - [x] Token Status List, JWT form (CWT form with mdoc)
 - [x] ISO mdoc: CBOR and COSE, MSO, value digests, issuer data authentication ([ADR-012](adr/0012-mdoc.md))
 - [x] ISO mdoc: OpenID4VP session transcript, DCQL `mso_mdoc` with `intent_to_retain`, request metadata, service integration (fail-closed)
-- [ ] ISO mdoc: device authentication, DeviceResponse status rules, eudi-dev wallet end to end
+- [x] ISO mdoc: device authentication, DeviceResponse status rules, age attestations, eudi-dev wallet end to end
 - [x] Presentation processor: `vp_token` to verified, minimized claims under a policy (SD-JWT VC)
 
 ## Service (`adapter-verifier-service`)

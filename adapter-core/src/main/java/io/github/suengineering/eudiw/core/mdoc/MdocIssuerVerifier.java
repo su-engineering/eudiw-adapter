@@ -62,6 +62,9 @@ public final class MdocIssuerVerifier {
     /** The mDL document type, to which the IACA certificate profile applies by default (ADR-012). */
     public static final String MDL_DOCTYPE = "org.iso.18013.5.1.mDL";
 
+    /** The mDL namespace, which holds {@code issuing_country} and {@code issuing_jurisdiction}. */
+    static final String MDL_NAMESPACE = "org.iso.18013.5.1";
+
     private final Supplier<TrustStore> trustStore;
     private final Clock clock;
     private final Duration clockSkew;
@@ -125,12 +128,13 @@ public final class MdocIssuerVerifier {
         if (!mso.docType().equals(docType)) {
             throw new VerificationFailure("credential_mismatch", "MSO docType differs from the document");
         }
-        if (iacaProfile.test(docType)) {
-            requireIacaProfile(path.leaf(), path.anchor());
-        }
 
         // 3. Digests of the returned elements.
         Map<String, Map<String, CborItem>> elements = issuerSignedElements(issuerSigned, mso);
+        if (iacaProfile.test(docType)) {
+            requireIacaProfile(path.leaf(), path.anchor());
+            requireIssuingCountry(path.leaf(), elements.getOrDefault(MDL_NAMESPACE, Map.of()));
+        }
 
         // 5. Validity.
         if (mso.signed().isBefore(path.leaf().getNotBefore().toInstant())
@@ -193,8 +197,9 @@ public final class MdocIssuerVerifier {
     }
 
     /**
-     * The IACA rules of clause 9.3.3 and Annex B: same country (and state or province, when both name one) in the
-     * anchor and the document signer, and the document signer extended key usage.
+     * The IACA rules of clause 9.3.3 and Annex B: same country in the anchor and the document signer, the anchor's
+     * state or province (when it names one) repeated in the document signer, and the document signer's extended
+     * key usage and digitalSignature key usage.
      */
     private static void requireIacaProfile(X509Certificate signer, X509Certificate anchor) {
         if (signer.equals(anchor)) {
@@ -214,8 +219,33 @@ public final class MdocIssuerVerifier {
         if (a.get("C") == null || !a.get("C").equals(s.get("C"))) {
             throw new VerificationFailure("certificate_chain_invalid", "document signer country differs from IACA");
         }
-        if (a.containsKey("ST") && s.containsKey("ST") && !a.get("ST").equals(s.get("ST"))) {
+        // A state or province in the IACA must be repeated, identically, in the document signer.
+        if (a.containsKey("ST") && !a.get("ST").equals(s.get("ST"))) {
             throw new VerificationFailure("certificate_chain_invalid", "document signer state differs from IACA");
+        }
+        boolean[] usage = signer.getKeyUsage();
+        if (usage == null || !usage[0]) {
+            throw new VerificationFailure(
+                    "certificate_chain_invalid", "document signer lacks the digitalSignature key usage");
+        }
+    }
+
+    /**
+     * Clause 7.2: a returned {@code issuing_country} must equal the document signer's country, and a returned
+     * {@code issuing_jurisdiction} its state or province when the certificate names one.
+     */
+    private static void requireIssuingCountry(X509Certificate signer, Map<String, CborItem> mdl) {
+        Map<String, String> s = names(signer);
+        if (mdl.get("issuing_country") instanceof CborItem item
+                && !(item instanceof CborItem.Text t && t.value().equals(s.get("C")))) {
+            throw new VerificationFailure(
+                    "credential_mismatch", "issuing_country differs from the document signer country");
+        }
+        if (s.containsKey("ST")
+                && mdl.get("issuing_jurisdiction") instanceof CborItem item
+                && !(item instanceof CborItem.Text t && t.value().equals(s.get("ST")))) {
+            throw new VerificationFailure(
+                    "credential_mismatch", "issuing_jurisdiction differs from the document signer state");
         }
     }
 
