@@ -54,7 +54,6 @@ import java.util.Objects;
 public final class AuthorizationRequests {
 
     /** ES256, ESP256, ES384, ESP384, ES512, ESP512, EdDSA, Ed25519, Ed448 (IANA COSE Algorithms). */
-    private static final List<Integer> MDOC_ALGS = List.of(-7, -9, -35, -51, -36, -52, -8, -19, -53);
 
     /** Content type of the Request URI response (OpenID4VP 1.0 section 5.10.1). */
     public static final String REQUEST_OBJECT_MEDIA_TYPE = "application/oauth-authz-req+jwt";
@@ -207,9 +206,17 @@ public final class AuthorizationRequests {
             // COSE algorithm identifiers accepted for IssuerAuth and DeviceSignature (OpenID4VP 1.0 Appendix B.2.2).
             formats.put(
                     DcqlQuery.FORMAT_MDOC,
-                    Map.of("issuerauth_alg_values", MDOC_ALGS, "deviceauth_alg_values", MDOC_ALGS));
+                    Map.of("issuerauth_alg_values", mdocAlgorithms(), "deviceauth_alg_values", mdocAlgorithms()));
         }
         metadata.put("vp_formats_supported", formats);
         return metadata;
+    }
+
+    /** The COSE algorithms accepted for mdoc signatures; the brainpool-only ones only while brainpool is enabled. */
+    static List<Integer> mdocAlgorithms() {
+        return java.util.Arrays.stream(io.github.suengineering.eudiw.core.cose.CoseAlgorithm.values())
+                .filter(io.github.suengineering.eudiw.core.cose.CoseAlgorithm::available)
+                .map(io.github.suengineering.eudiw.core.cose.CoseAlgorithm::id)
+                .toList();
     }
 }

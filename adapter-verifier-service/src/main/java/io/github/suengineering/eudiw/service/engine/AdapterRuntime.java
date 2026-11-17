@@ -80,6 +80,10 @@ public class AdapterRuntime {
     @ConfigProperty(name = "eudiw.egress.allow-http", defaultValue = "false")
     boolean allowHttp;
 
+    /** Verify mdoc signatures on brainpool curves, with BouncyCastle (ADR-012). Off unless set. */
+    @ConfigProperty(name = "eudiw.crypto.brainpool", defaultValue = "false")
+    boolean brainpool;
+
     @jakarta.inject.Inject
     io.github.suengineering.eudiw.service.store.TrustedListSequenceStore sequenceStore;
 
@@ -109,6 +113,10 @@ public class AdapterRuntime {
 
     @PostConstruct
     void init() {
+        if (brainpool) {
+            io.github.suengineering.eudiw.crypto.brainpool.BrainpoolSupport.enable();
+            LOG.info("brainpool curves enabled for mdoc signatures (eudiw.crypto.brainpool)");
+        }
         URI base = URI.create(publicBaseUrl);
         if (production) {
             if (!"https".equals(base.getScheme())) {

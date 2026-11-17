@@ -28,6 +28,7 @@
 
   <modules>
     <module>adapter-core</module>
+    <module>adapter-crypto-brainpool</module>
     <module>adapter-verifier-service</module>
   </modules>
 
@@ -51,6 +52,11 @@
         <version>${project.version}</version>
       </dependency>
       <dependency>
+        <groupId>io.github.su-engineering</groupId>
+        <artifactId>adapter-crypto-brainpool</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
         <groupId>com.nimbusds</groupId>
         <artifactId>nimbus-jose-jwt</artifactId>
         <version>${nimbus-jose-jwt.version}</version>
@@ -68,6 +74,12 @@
         <artifactId>cbor</artifactId>
         <version>${authlete-cbor.version}</version>
         <scope>test</scope>
+      </dependency>
+      <dependency>
+        <!-- Runtime only in adapter-crypto-brainpool, which is opt-in (ADR-012) -->
+        <groupId>org.bouncycastle</groupId>
+        <artifactId>bcprov-jdk18on</artifactId>
+        <version>${bouncycastle.version}</version>
       </dependency>
       <dependency>
         <!-- Test PKI generation only -->

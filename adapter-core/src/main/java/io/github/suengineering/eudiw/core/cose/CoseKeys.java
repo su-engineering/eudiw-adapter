@@ -48,7 +48,8 @@ public final class CoseKeys {
     private CoseKeys() {}
 
     /**
-     * The public key in a COSE_Key. EC2 keys on P-256, P-384 and P-521, with the y coordinate as a byte string or
+     * The public key in a COSE_Key. EC2 keys on P-256, P-384, P-521 and, when enabled, the brainpool curves, with the
+     * y coordinate as a byte string or
      * as a sign bit (point compression), and OKP keys on Ed25519 and Ed448 are supported.
      *
      * @throws VerificationFailure {@code unsupported_key} for any other key
@@ -92,17 +93,22 @@ public final class CoseKeys {
         throw new VerificationFailure("unsupported_key", "unsupported COSE key type or curve");
     }
 
+    private static final java.util.Map<Curve, ECParameterSpec> PARAMETERS =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
     static ECParameterSpec parameters(Curve curve) {
-        try {
-            AlgorithmParameters p = AlgorithmParameters.getInstance("EC");
-            p.init(new ECGenParameterSpec(curve.jdkName));
-            return p.getParameterSpec(ECParameterSpec.class);
-        } catch (GeneralSecurityException e) {
-            throw new IllegalStateException("curve unavailable: " + curve, e);
-        }
+        return PARAMETERS.computeIfAbsent(curve, c -> {
+            try {
+                AlgorithmParameters p = AlgorithmParameters.getInstance("EC");
+                p.init(new ECGenParameterSpec(c.jdkName));
+                return p.getParameterSpec(ECParameterSpec.class);
+            } catch (GeneralSecurityException e) {
+                throw new IllegalStateException("curve unavailable: " + c, e);
+            }
+        });
     }
 
-    /** y from x on a curve with p = 3 mod 4 (true for P-256, P-384 and P-521); the point is checked on decode. */
+    /** y from x on a curve with p = 3 mod 4 (true for P-256, P-384, P-521 and the four brainpool curves); the point is checked on decode. */
     private static BigInteger decompress(ECParameterSpec params, BigInteger x, boolean odd) {
         BigInteger p = ((java.security.spec.ECFieldFp) params.getCurve().getField()).getP();
         BigInteger rhs = x.pow(3)

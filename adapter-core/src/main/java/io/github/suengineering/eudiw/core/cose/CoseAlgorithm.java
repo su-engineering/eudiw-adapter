@@ -16,33 +16,49 @@
 package io.github.suengineering.eudiw.core.cose;
 
 import io.github.suengineering.eudiw.core.VerificationFailure;
+import io.github.suengineering.eudiw.core.crypto.Brainpool;
 import java.security.PublicKey;
 import java.security.interfaces.ECPublicKey;
 import java.security.interfaces.EdECPublicKey;
+import java.util.EnumSet;
+import java.util.Set;
 
 /**
  * COSE signature algorithms accepted for mdoc issuer and device signatures (IANA COSE Algorithms registry), each
- * bound to the one key type it may be used with. The header never chooses a verifier on its own: the key's curve
- * must be the one the algorithm names.
+ * bound to the key types it may be used with. The header never chooses a verifier on its own: the key's curve must
+ * be one the algorithm allows. ES256, ES384 and ES512 also allow the brainpool curve of their hash size, as ISO/IEC
+ * 18013-5 clause 9.1.5.2 does; the fully specified ESP and ESB algorithms name one curve each (RFC 9864). Brainpool
+ * curves need {@link Brainpool#enable}.
  */
 public enum CoseAlgorithm {
-    ES256(-7, Curve.P256),
-    ESP256(-9, Curve.P256),
-    ES384(-35, Curve.P384),
-    ESP384(-51, Curve.P384),
-    ES512(-36, Curve.P521),
-    ESP512(-52, Curve.P521),
-    EDDSA(-8, null),
-    ED25519(-19, Curve.ED25519),
-    ED448(-53, Curve.ED448);
+    ES256(-7, EnumSet.of(Curve.P256, Curve.BP256)),
+    ESP256(-9, EnumSet.of(Curve.P256)),
+    ES384(-35, EnumSet.of(Curve.P384, Curve.BP320, Curve.BP384)),
+    ESP384(-51, EnumSet.of(Curve.P384)),
+    ES512(-36, EnumSet.of(Curve.P521, Curve.BP512)),
+    ESP512(-52, EnumSet.of(Curve.P521)),
+    ESB256(-265, EnumSet.of(Curve.BP256)),
+    ESB320(-266, EnumSet.of(Curve.BP320)),
+    ESB384(-267, EnumSet.of(Curve.BP384)),
+    ESB512(-268, EnumSet.of(Curve.BP512)),
+    EDDSA(-8, EnumSet.of(Curve.ED25519, Curve.ED448)),
+    ED25519(-19, EnumSet.of(Curve.ED25519)),
+    ED448(-53, EnumSet.of(Curve.ED448));
 
-    /** Curves keys may use, by COSE Elliptic Curves registry value. */
+    /**
+     * Curves keys may use, by COSE Elliptic Curves registry value. The signature hash follows the curve: SHA-256 up to
+     * 256 bits, SHA-384 for brainpoolP320r1 and the 384-bit curves, SHA-512 above.
+     */
     public enum Curve {
         P256(1, "secp256r1", "SHA256withECDSAinP1363Format", 32),
         P384(2, "secp384r1", "SHA384withECDSAinP1363Format", 48),
         P521(3, "secp521r1", "SHA512withECDSAinP1363Format", 66),
         ED25519(6, "Ed25519", "Ed25519", 32),
-        ED448(7, "Ed448", "Ed448", 57);
+        ED448(7, "Ed448", "Ed448", 57),
+        BP256(256, "brainpoolP256r1", "SHA256withPLAIN-ECDSA", 32),
+        BP320(257, "brainpoolP320r1", "SHA384withPLAIN-ECDSA", 40),
+        BP384(258, "brainpoolP384r1", "SHA384withPLAIN-ECDSA", 48),
+        BP512(259, "brainpoolP512r1", "SHA512withPLAIN-ECDSA", 64);
 
         final int coseId;
         final String jdkName;
@@ -60,24 +76,30 @@ public enum CoseAlgorithm {
             return coseId;
         }
 
+        /** Whether this is a brainpool curve, which needs {@link Brainpool#enable}. */
+        public boolean brainpool() {
+            return coseId >= 256;
+        }
+
         static Curve ofCose(long id) {
             for (Curve c : values()) {
                 if (c.coseId == id) {
-                    return c;
+                    return requireAvailable(c);
                 }
             }
             throw new VerificationFailure("unsupported_key", "unsupported COSE curve " + id);
         }
 
+        /** The curve of a key, identified by its full domain parameters, never by its size alone. */
         static Curve of(PublicKey key) {
             if (key instanceof ECPublicKey ec) {
-                int bits = ec.getParams().getCurve().getField().getFieldSize();
-                return switch (bits) {
-                    case 256 -> requireNamed(ec, P256);
-                    case 384 -> requireNamed(ec, P384);
-                    case 521 -> requireNamed(ec, P521);
-                    default -> throw new VerificationFailure("unsupported_key", "unsupported EC curve");
-                };
+                for (Curve c : values()) {
+                    if (c.jcaSignature.contains("ECDSA")
+                            && Brainpool.sameCurve(CoseKeys.parameters(c), ec.getParams())) {
+                        return requireAvailable(c);
+                    }
+                }
+                throw new VerificationFailure("unsupported_key", "unsupported EC curve");
             }
             if (key instanceof EdECPublicKey ed) {
                 return switch (ed.getParams().getName()) {
@@ -89,27 +111,31 @@ public enum CoseAlgorithm {
             throw new VerificationFailure("unsupported_key", "unsupported key type");
         }
 
-        /** Brainpool curves share field sizes with NIST curves; only the NIST curves are accepted. */
-        private static Curve requireNamed(ECPublicKey key, Curve expected) {
-            if (!CoseKeys.parameters(expected).getCurve().equals(key.getParams().getCurve())) {
-                throw new VerificationFailure("unsupported_algorithm", "only NIST P-curves are supported");
+        private static Curve requireAvailable(Curve curve) {
+            if (curve.brainpool() && Brainpool.provider().isEmpty()) {
+                throw new VerificationFailure(
+                        "unsupported_algorithm", "brainpool curves are not enabled (adapter-crypto-brainpool)");
             }
-            return expected;
+            return curve;
         }
     }
 
-    private static final java.util.Set<Curve> EDWARDS = java.util.EnumSet.of(Curve.ED25519, Curve.ED448);
-
     private final int id;
-    private final Curve curve;
+    private final Set<Curve> curves;
 
-    CoseAlgorithm(int id, Curve curve) {
+    CoseAlgorithm(int id, Set<Curve> curves) {
         this.id = id;
-        this.curve = curve;
+        this.curves = curves;
     }
 
     public int id() {
         return id;
+    }
+
+    /** Whether this algorithm can be used at all now: false for the ESB algorithms while brainpool is off. */
+    public boolean available() {
+        return curves.stream().anyMatch(c -> !c.brainpool())
+                || Brainpool.provider().isPresent();
     }
 
     /**
@@ -129,9 +155,7 @@ public enum CoseAlgorithm {
             throw new VerificationFailure("unsupported_algorithm", "unsupported COSE algorithm " + headerAlg);
         }
         Curve keyCurve = Curve.of(key);
-        // Plain EdDSA (-8) names no curve: either Edwards curve fits. Every other algorithm names exactly one.
-        boolean matches = alg.curve == null ? EDWARDS.contains(keyCurve) : alg.curve == keyCurve;
-        if (!matches) {
+        if (!alg.curves.contains(keyCurve)) {
             throw new VerificationFailure("unsupported_algorithm", "COSE algorithm does not match the key");
         }
         return keyCurve;
