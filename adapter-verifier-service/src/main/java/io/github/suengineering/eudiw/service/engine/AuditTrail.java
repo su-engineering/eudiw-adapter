@@ -100,6 +100,6 @@ public class AuditTrail {
      * holds whatever the source.
      */
     static String tag(String value) {
-        return value == null ? "none" : value.replaceAll("[\\r\\n\\p{Cntrl}]", "?");
+        return value == null ? "none" : value.replaceAll("[\r\n]", "?").replaceAll("\\p{Cntrl}", "?");
     }
 }
