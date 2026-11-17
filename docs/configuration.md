@@ -179,7 +179,7 @@ A policy that asks for `mso_mdoc` adds `mso_mdoc` to `vp_formats_supported` in i
 **What comes back**
 - Only issuer-signed elements. Device-signed elements are checked against the MSO's key authorizations but never returned.
 - Values as JSON: dates as their text, byte strings (such as a portrait) as base64url.
-- A request for `age_over_NN` is also answered by a nearby attestation, as ISO/IEC 18013-5 intends. `age_over_21: true` satisfies `age_over_18`, and `age_over_16: false` answers it with false. The value is reported under the requested name.
+- A request for `age_over_NN` is also answered by a nearby attestation, as ISO/IEC 18013-5 intends. `age_over_21: true` satisfies `age_over_18`, and `age_over_16: false` answers it with false. The value is reported under the requested name. If the disclosed attestations contradict each other, for example `age_over_18: false` with `age_over_21: true`, the request gets no answer.
 
 **Naming the issuer.** An mdoc has no issuer identifier of its own. `allowed_issuers` matches either:
 - the subject name of the trust anchor the chain validated to (the IACA), in RFC 4514 form such as `CN=Test IACA,C=EU`;
@@ -237,7 +237,7 @@ Each entry of a policy's `trusted_lists`:
 ]
 ```
 
-Each node fetches the lists at startup and then every refresh interval. A list must be signed by one of its configured certificates and be within its issue and next update times, and its sequence number may not go backwards. If a refresh fails, the last verified version stays in use until its next update and is then dropped, so trust fails closed. The highest accepted sequence number of each list is kept in the database. A node reports not ready on `/health/ready` until its first refresh has run. After that, a policy with no current list rejects every presentation and is named in the `trusted-lists` health check data and in the log, but the node stays ready for other policies.
+Each node fetches the lists at startup and then every refresh interval. A list must be signed by one of its configured certificates and be within its issue and next update times, and its sequence number may not go backwards. The same sequence number is accepted again only if the list's services and pointers are unchanged. One refresh follows at most 64 pointers from a list of lists and stops fetching after five minutes; a list skipped this way keeps its last verified version until its next update. If a refresh fails, the last verified version stays in use until its next update and is then dropped, so trust fails closed. The highest accepted sequence number of each list is kept in the database. A node reports not ready on `/health/ready` until its first refresh has run. After that, a policy with no current list rejects every presentation and is named in the `trusted-lists` health check data and in the log, but the node stays ready for other policies.
 
 No list, list location or signer certificate is bundled with the service. Take them from the publishing body.
 

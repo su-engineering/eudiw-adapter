@@ -267,9 +267,11 @@ class DcqlTest {
                 .get(0);
         assertThat(claim.path().components()).containsExactly(ns, "age_over_18");
         assertThat(claim.values()).containsExactly(true);
-        // The exact element wins.
-        assertThat(evaluate.apply(Map.of("age_over_18", true, "age_over_16", false)))
+        // The exact element answers when the attestations agree.
+        assertThat(evaluate.apply(Map.of("age_over_18", true, "age_over_16", true, "age_over_65", false)))
                 .containsKey("pid");
+        // Even a disclosed exact element answers nothing when another attestation contradicts it.
+        assertFailure(() -> evaluate.apply(Map.of("age_over_18", true, "age_over_16", false)), "claims_not_satisfied");
         // Not over 16 proves not over 18, which fails values:[true].
         assertFailure(() -> evaluate.apply(Map.of("age_over_16", false)), "claims_not_satisfied");
         // Over 16 says nothing about 18, and contradicting attestations answer nothing.
@@ -293,6 +295,39 @@ class DcqlTest {
                                                 Set.of(),
                                                 Set.of())))),
                 "claims_not_satisfied");
+    }
+
+    @Test
+    void contradictingMdocAgeAttestationsAnswerNothing() {
+        String ns = "eu.europa.ec.eudi.pid.1";
+        DcqlQuery query = DcqlQuery.parse(Json.parseObject("""
+                {"credentials":[{"id":"pid","format":"mso_mdoc","meta":{"doctype_value":"%s"},
+                  "claims":[{"path":["%s","age_over_18"]}]}]}""".formatted(ns, ns), "test"));
+        java.util.function.Function<Map<String, Object>, Map<String, List<SelectedCredential>>> evaluate =
+                elements -> new DcqlEvaluator(true)
+                        .evaluate(
+                                query,
+                                Map.of(
+                                        "pid",
+                                        List.of(new PresentedCredential(
+                                                "mso_mdoc",
+                                                ns,
+                                                "iss",
+                                                Map.of(ns, elements),
+                                                true,
+                                                Set.of(),
+                                                Set.of()))));
+
+        // Not over 18 and over 21 cannot both hold; no value is reported for either reading.
+        assertFailure(() -> evaluate.apply(Map.of("age_over_18", false, "age_over_21", true)), "claims_not_satisfied");
+        // Consistent attestations still answer.
+        assertThat(evaluate.apply(Map.of("age_over_18", false, "age_over_21", false))
+                        .get("pid")
+                        .get(0)
+                        .claims()
+                        .get(0)
+                        .values())
+                .containsExactly(false);
     }
 
     @Test

@@ -20,11 +20,12 @@ Status: accepted, implemented.
    - One reference must cover the whole list (`URI=""` or the root `Id`) with exactly the enveloped and exclusive c14n transforms (TS 119 612 Annex B).
    - Only same-document references are accepted, and this is checked before validation, so nothing is fetched.
    - Validation runs in the JDK's secure validation mode.
+   - The signature method must be RSA, RSASSA-PSS (MGF1) or ECDSA with SHA-256, SHA-384 or SHA-512, and every reference digest SHA-256, SHA-384 or SHA-512. Anything else, SHA-1 and HMAC included, is refused before any digest or signature is computed.
    - Values are read only from the element the signature covers.
 4. **JAdES handling is strict.**
    - The signer comes from `x5c`, or is matched by `x5t#S256`. When both are present they must agree.
    - `sigD` (detached signatures) and `b64: false` are rejected.
-   - `crit` may list only `sigT`.
+   - `crit` may list only `sigT`. A `sigT` value must be a UTC date-time, not in the future (five minutes of clock skew allowed), and inside the signing certificate's validity.
    - RSASSA-PKCS1-v1_5 is accepted for list signatures only, because ETSI TS 119 312 still allows it. Credentials never accept it.
 5. **Freshness fails closed.**
    - A list must be within its issue and next update times, and next update may be at most six months after issue.
@@ -32,6 +33,8 @@ Status: accepted, implemented.
    - A list that fails to refresh keeps its last verified version only until that version's next update.
    - A national list is trusted only while a current LOTL still points to it and still publishes its signing certificate. When the LOTL drops the pointer or rotates the signer, or no current LOTL is left, the national list is dropped at once.
    - A lower sequence number than the highest accepted one is refused as a rollback. The service keeps the highest sequence number per list identifier in PostgreSQL, so a restart or another node does not accept an older list. The record is shared by every policy that names the same identifier, which is intended: the same identifier means the same list.
+   - The same sequence number is accepted again only with the same content. The service stores a SHA-256 digest of what the list says about trust (type, territory, services and pointers, not dates or the signature) next to the number, so a list re-signed or re-dated without changes still loads, while a list that changes what it trusts without raising the number is refused.
+   - One refresh follows at most 64 pointers from a list of lists and fetches nothing more once five minutes have passed. A list skipped this way is reported as `trusted_list_skipped` and keeps its last verified version until that version's next update.
    - A list that fails in any way, including an unexpected exception, is reported as failed without stopping the other lists or policies.
 6. **Services become anchors by type and status.**
    - Each list source names the service types whose certificates may anchor credential issuers, and optionally further types that may anchor status list tokens (for example `PID/Revocation`).

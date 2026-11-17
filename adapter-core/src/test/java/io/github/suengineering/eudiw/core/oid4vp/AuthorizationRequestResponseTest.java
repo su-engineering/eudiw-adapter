@@ -107,6 +107,23 @@ class AuthorizationRequestResponseTest {
     }
 
     @Test
+    void aResponseWithCriticalHeaderExtensionsIsRefused() throws Exception {
+        ECKey key = AuthorizationRequests.newResponseEncryptionKey();
+        JWEObject jwe = new JWEObject(
+                new JWEHeader.Builder(JWEAlgorithm.ECDH_ES, EncryptionMethod.A256GCM)
+                        .keyID(key.getKeyID())
+                        .criticalParams(java.util.Set.of("urn:example:ext"))
+                        .customParam("urn:example:ext", "x")
+                        .build(),
+                new Payload("{\"vp_token\":{\"age\":[\"x\"]},\"state\":\"s1\"}"));
+        jwe.encrypt(new ECDHEncrypter(key.toPublicJWK()));
+        String withCrit = jwe.serialize();
+        assertThatThrownBy(() -> AuthorizationResponses.decrypt(withCrit, key))
+                .isInstanceOfSatisfying(VerificationFailure.class, f -> assertThat(f.getMessage())
+                        .contains("critical header"));
+    }
+
+    @Test
     void signedRequestObjectFollowsHaip() throws Exception {
         ECKey encryptionKey = AuthorizationRequests.newResponseEncryptionKey();
         String nonce = AuthorizationRequests.randomValue();
