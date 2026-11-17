@@ -459,9 +459,37 @@ class VerificationFlowTest {
                 .body("reason", org.hamcrest.Matchers.equalTo("holder_binding_invalid"));
     }
 
+    @Test
+    void anOlderAgeAttestationAnswersTheRequestedOne() throws Exception {
+        JsonPath session = create("portal-a", "cross_device", "mdl-age");
+        Map<String, Object> request = TestWallet.fetchRequest(session.getString("wallet_launch.request_uri"));
+        TestWallet.respond(
+                request,
+                Map.of(
+                        "vp_token",
+                        Map.of(
+                                "mdl",
+                                List.of(mdl(
+                                        request,
+                                        (String) request.get("nonce"),
+                                        Map.of("age_over_21", CborEncoder.bool(true)))))));
+        given().auth()
+                .oauth2(TestWallet.fullToken("portal-a"))
+                .get("/v1/verification-sessions/" + session.getString("id") + "/result")
+                .then()
+                .body("status", org.hamcrest.Matchers.equalTo("verified"))
+                .body("claims", org.hamcrest.Matchers.equalTo(Map.of("age_over_18", true)));
+    }
+
     /** A device-signed DeviceResponse holding an mDL, its session transcript built for {@code nonce}. */
     @SuppressWarnings("unchecked")
     private static String mdl(Map<String, Object> request, String nonce) throws Exception {
+        return mdl(request, nonce, Map.of("age_over_18", CborEncoder.bool(true)));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static String mdl(Map<String, Object> request, String nonce, Map<String, CborItem> elements)
+            throws Exception {
         Map<String, Object> jwk = ((List<Map<String, Object>>)
                         ((Map<String, Object>) ((Map<String, Object>) request.get("client_metadata")).get("jwks"))
                                 .get("keys"))
@@ -481,7 +509,7 @@ class VerificationFlowTest {
                 TestEnvironment.MDL_DOCTYPE,
                 "org.iso.18013.5.1",
                 "org.iso.18013.5.1",
-                Map.of("age_over_18", CborEncoder.bool(true)),
+                elements,
                 Instant.now().minusSeconds(60),
                 Instant.now().minusSeconds(60),
                 Instant.now().plus(java.time.Duration.ofDays(30)));

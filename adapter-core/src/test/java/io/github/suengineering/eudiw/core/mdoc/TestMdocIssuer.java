@@ -59,6 +59,9 @@ public final class TestMdocIssuer {
     /** The {@code keyAuthorizations} put into the next MSO, or {@code null} for none. */
     public CborItem keyAuthorizations;
 
+    /** The {@code deviceKey} put into the next MSO instead of {@link #deviceKeys}, or {@code null}. */
+    public CborItem deviceKeyOverride;
+
     /**
      * @param iacaSubject subject of the IACA, for example {@code "CN=Test IACA,C=DE"}
      * @param signerSubject subject of the document signer
@@ -121,7 +124,7 @@ public final class TestMdocIssuer {
         mso.put(CborEncoder.text("digestAlgorithm"), CborEncoder.text("SHA-256"));
         mso.put(CborEncoder.text("valueDigests"), CborEncoder.map(valueDigests));
         Map<CborItem, CborItem> keyInfo = new LinkedHashMap<>();
-        keyInfo.put(CborEncoder.text("deviceKey"), deviceKey());
+        keyInfo.put(CborEncoder.text("deviceKey"), deviceKeyOverride != null ? deviceKeyOverride : deviceKey());
         if (keyAuthorizations != null) {
             keyInfo.put(CborEncoder.text("keyAuthorizations"), keyAuthorizations);
         }

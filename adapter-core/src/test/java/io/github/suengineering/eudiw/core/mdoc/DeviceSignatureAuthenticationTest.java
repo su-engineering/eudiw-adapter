@@ -217,6 +217,55 @@ class DeviceSignatureAuthenticationTest {
         expectResponse(CborEncoder.map(withErrors), null);
     }
 
+    @Test
+    void aDeviceKeyThatCannotSignIsRejected() throws Exception {
+        Map<CborItem, CborItem> x25519 = new LinkedHashMap<>();
+        x25519.put(CborEncoder.integer(1), CborEncoder.integer(1));
+        x25519.put(CborEncoder.integer(-1), CborEncoder.integer(4));
+        x25519.put(CborEncoder.integer(-2), CborEncoder.bytes(new byte[32]));
+        for (CborItem key : List.of(CborEncoder.map(x25519), CborEncoder.text("not a key"))) {
+            issuer.deviceKeyOverride = key;
+            expect(signed(EMPTY, TRANSCRIPT, DOCTYPE), "unsupported_key");
+        }
+    }
+
+    @Test
+    void mutatedDeviceResponsesNeverVerifyWithChangedContent() throws Exception {
+        issuer.keyAuthorizations = byNamespace("eu.europa.ec.eudi.pid.1");
+        byte[] original;
+        Map<CborItem, CborItem> response = new LinkedHashMap<>();
+        response.put(CborEncoder.text("version"), CborEncoder.text("1.0"));
+        response.put(
+                CborEncoder.text("documents"),
+                CborEncoder.array(signed(
+                        deviceNamespaces("eu.europa.ec.eudi.pid.1", "given_name", "Erika"), TRANSCRIPT, DOCTYPE)));
+        response.put(CborEncoder.text("status"), CborEncoder.integer(0));
+        original = CborEncoder.map(response).encoded();
+        MdocPresentationVerifier verifier = presentationVerifier();
+        Map<String, Object> claims = verifier.verify(base64(CborEncoder.map(response)), DOCTYPE, TRANSCRIPT)
+                .claims();
+        java.util.Random random = new java.util.Random(7);
+        int verified = 0;
+        for (int i = 0; i < 3000; i++) {
+            byte[] mutated = original.clone();
+            int flips = 1 + random.nextInt(3);
+            for (int f = 0; f < flips; f++) {
+                mutated[random.nextInt(mutated.length)] ^= (byte) (1 << random.nextInt(8));
+            }
+            try {
+                MdocPresentationVerifier.VerifiedMdoc result = verifier.verify(
+                        Base64.getUrlEncoder().withoutPadding().encodeToString(mutated), DOCTYPE, TRANSCRIPT);
+                // A flip in bytes nobody signs may still verify, for example a renamed nameSpaces key that drops
+                // every element (DCQL then fails), but never with other or changed claims.
+                assertThat(result.claims()).isIn(claims, Map.of());
+                verified++;
+            } catch (VerificationFailure expected) {
+                // every other outcome must be a VerificationFailure, never another exception
+            }
+        }
+        assertThat(verified).isLessThan(3000);
+    }
+
     // -- helpers
 
     private CborItem signed(CborItem nameSpacesBytes, CborItem transcript, String docType) throws Exception {
