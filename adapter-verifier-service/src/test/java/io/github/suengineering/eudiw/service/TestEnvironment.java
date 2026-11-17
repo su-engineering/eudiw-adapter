@@ -105,6 +105,7 @@ public class TestEnvironment implements QuarkusTestResourceLifecycleManager {
                 "off"));
         settings.put("eudiw.trusted-lists.refresh-interval", "off");
         settings.put("eudiw.webhook.interval", "off");
+        settings.put("eudiw.config.reload-interval", "off");
         return settings;
     }
 
@@ -289,7 +290,8 @@ public class TestEnvironment implements QuarkusTestResourceLifecycleManager {
                    "clients":[
                      {"client_id":"portal-a","policies":["age-over-18","age-over-18-crl"],"completion_uri":"%s",
                       "webhook":{"url":"http://127.0.0.1:%d/hook","secret_file":"portal-a.whsec"}},
-                     {"client_id":"other-app-a","policies":[]}],
+                     {"client_id":"other-app-a","policies":[]},
+                     {"client_id":"limited-a","policies":["age-over-18"],"rate_limit":{"sessions_per_minute":2}}],
                    "policies":[{"id":"age-over-18","dcql":%s,
                      "output":{"age_over_18":{"credential":"age","path":["age_over_18"]}},
                      "trust_anchors_file":"issuer-a-root.pem","allowed_issuers":["%s"],

@@ -47,6 +47,12 @@ import org.jboss.logging.Logger;
 @ApplicationScoped
 public class WebhookDispatcher {
 
+    @Inject
+    AuditTrail audit;
+
+    @Inject
+    io.micrometer.core.instrument.MeterRegistry registry;
+
     private static final Logger LOG = Logger.getLogger(WebhookDispatcher.class);
 
     /** Delay before each retry: 5 s, 5 min, 30 min, 2 h, 5 h, 10 h. */
@@ -154,16 +160,19 @@ public class WebhookDispatcher {
             audit(delivery, "failed", result, now);
             return;
         }
+        registry.counter("eudiw.webhook.retries", "tenant", delivery.tenantId(), "client", delivery.clientId())
+                .increment();
         Duration delay = RETRIES.get(retry);
         long jitter = ThreadLocalRandom.current().nextLong(Math.max(1, delay.toMillis() / 10));
         outbox.retryAt(delivery.id(), now.plus(delay).plusMillis(jitter), result);
     }
 
     private void audit(Delivery delivery, String outcome, String result, Instant now) {
-        sessions.audit(
+        audit.record(
                 delivery.tenantId(),
                 delivery.sessionId(),
                 delivery.clientId(),
+                null,
                 "webhook",
                 outcome,
                 result,

@@ -64,10 +64,13 @@ public class ProblemMapper implements ExceptionMapper<Exception> {
         body.put("code", code);
         body.put("detail", detail);
         body.put("correlation_id", correlationId);
-        return Response.status(status)
+        Response.ResponseBuilder response = Response.status(status)
                 .type("application/problem+json")
                 .header("Cache-Control", "no-store")
-                .entity(body)
-                .build();
+                .entity(body);
+        if (exception instanceof ApiException api && api.retryAfterSeconds() > 0) {
+            response.header("Retry-After", Long.toString(api.retryAfterSeconds()));
+        }
+        return response.build();
     }
 }

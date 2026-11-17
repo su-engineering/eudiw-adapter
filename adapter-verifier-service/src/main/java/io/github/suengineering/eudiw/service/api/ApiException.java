@@ -20,11 +20,22 @@ public class ApiException extends RuntimeException {
 
     private final int status;
     private final String code;
+    private final long retryAfterSeconds;
 
     public ApiException(int status, String code, String message) {
+        this(status, code, message, 0);
+    }
+
+    /** An error that tells the caller when to retry ({@code Retry-After}, RFC 9110 section 10.2.3). */
+    public ApiException(int status, String code, String message, long retryAfterSeconds) {
         super(message);
         this.status = status;
         this.code = code;
+        this.retryAfterSeconds = retryAfterSeconds;
+    }
+
+    public long retryAfterSeconds() {
+        return retryAfterSeconds;
     }
 
     public int status() {

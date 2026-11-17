@@ -67,6 +67,15 @@ public class VerificationEngine {
     @Inject
     SessionStore store;
 
+    @Inject
+    AuditTrail audit;
+
+    @Inject
+    io.github.suengineering.eudiw.service.store.RateLimitStore rateLimits;
+
+    @Inject
+    io.micrometer.core.instrument.MeterRegistry registry;
+
     public record CreateRequest(String policyId, String mode, String clientReference) {}
 
     public record Created(SessionRow session, String requestUri, String launchUri) {}
@@ -83,6 +92,7 @@ public class VerificationEngine {
         if (!caller.client().policies().contains(request.policyId())) {
             throw new ApiException(403, "policy_not_granted", "the client may not use this policy");
         }
+        enforceRateLimit(caller);
         Policy policy = tenant.policies().get(request.policyId());
         String mode = request.mode() == null ? "cross_device" : request.mode();
         if (!mode.equals("cross_device") && !mode.equals("same_device")) {
@@ -120,10 +130,11 @@ public class VerificationEngine {
                     422, "idempotency_key_reused", "the Idempotency-Key was used for a different request");
         }
         if (stored.id().equals(candidate.id())) {
-            store.audit(
+            audit.record(
                     tenant.id(),
                     stored.id(),
                     stored.clientId(),
+                    stored.policyId(),
                     "session_created",
                     "ok",
                     null,
@@ -136,6 +147,29 @@ public class VerificationEngine {
         return new Created(stored, requestUri, launch);
     }
 
+    /**
+     * Counts this creation in the client's current one-minute window, shared by every node, and refuses it with
+     * 429 and {@code Retry-After} once the window is full.
+     */
+    private void enforceRateLimit(ClientBinding caller) {
+        Instant now = runtime.clock().instant();
+        Instant window = now.truncatedTo(java.time.temporal.ChronoUnit.MINUTES);
+        int count = rateLimits.increment(caller.client().clientId(), window);
+        if (count > caller.client().sessionsPerMinute()) {
+            registry.counter(
+                            "eudiw.rate.limited",
+                            "tenant",
+                            caller.tenant().id(),
+                            "client",
+                            caller.client().clientId())
+                    .increment();
+            long retryAfter = Math.max(
+                    1, java.time.Duration.between(now, window.plusSeconds(60)).toSeconds());
+            throw new ApiException(
+                    429, "rate_limited", "too many sessions created by this client; retry later", retryAfter);
+        }
+    }
+
     public SessionRow status(ClientBinding caller, String id) {
         return store.find(caller.tenant().id(), caller.client().clientId(), id).orElseThrow(ApiException::notFound);
     }
@@ -144,10 +178,11 @@ public class VerificationEngine {
         SessionRow session = status(caller, id);
         Instant now = runtime.clock().instant();
         if (store.cancel(caller.tenant().id(), caller.client().clientId(), id, now)) {
-            store.audit(
+            audit.record(
                     session.tenantId(),
                     id,
                     session.clientId(),
+                    session.policyId(),
                     "session_cancelled",
                     "ok",
                     null,
@@ -168,10 +203,11 @@ public class VerificationEngine {
                         caller.tenant().id(), caller.client().clientId(), id, codeHash, now)
                 .orElseThrow(
                         () -> new ApiException(404, "result_not_available", "no result is available for this session"));
-        store.audit(
+        audit.record(
                 session.tenantId(),
                 id,
                 session.clientId(),
+                session.policyId(),
                 "result_retrieved",
                 "ok",
                 null,
@@ -198,12 +234,13 @@ public class VerificationEngine {
             return Optional.empty();
         }
         SessionRow session = found.get();
-        Tenant tenant = runtime.config().tenant(session.tenantId()).orElseThrow();
-        Policy policy = tenant.policies().get(session.policyId());
-        if (policy == null || !session.configRevision().equals(runtime.config().revision())) {
-            // The policy changed while this session was open; never serve it under different rules.
+        Optional<Tenant> sessionTenant = sessionTenant(session);
+        if (sessionTenant.isEmpty()) {
+            // This node no longer holds the configuration the session started under; never serve other rules.
             return Optional.empty();
         }
+        Tenant tenant = sessionTenant.get();
+        Policy policy = tenant.policies().get(session.policyId());
         ECKey key = AuthorizationRequests.newResponseEncryptionKey();
         String state = AuthorizationRequests.randomValue();
         String nonce = AuthorizationRequests.randomValue();
@@ -225,10 +262,11 @@ public class VerificationEngine {
                 now,
                 MAX_REQUEST_FETCHES);
         if (!stored) {
-            store.audit(
+            audit.record(
                     session.tenantId(),
                     session.id(),
                     session.clientId(),
+                    session.policyId(),
                     "request_fetched",
                     "refused",
                     "fetch_limit",
@@ -281,7 +319,8 @@ public class VerificationEngine {
         }
         InstanceRow row = instance.get();
         SessionRow session = store.findById(row.sessionId()).orElseThrow();
-        if (!configurationUnchanged(session)) {
+        Optional<Tenant> sessionTenant = sessionTenant(session);
+        if (sessionTenant.isEmpty()) {
             // Never verify under rules other than those the session started with.
             store.consumeInstance(kid, now);
             store.complete(
@@ -295,7 +334,7 @@ public class VerificationEngine {
                     runtime.notifies(session.tenantId(), session.clientId()));
             return new WalletReply(400, Map.of("error", "invalid_request"));
         }
-        Tenant tenant = runtime.config().tenant(session.tenantId()).orElseThrow();
+        Tenant tenant = sessionTenant.get();
         Policy policy = tenant.policies().get(session.policyId());
 
         Map<String, Object> payload;
@@ -325,8 +364,11 @@ public class VerificationEngine {
                     null,
                     now);
         }
+        io.micrometer.core.instrument.Timer.Sample timing = io.micrometer.core.instrument.Timer.start(registry);
+        String outcome = "internal_error";
         try {
-            VpTokenVerifier.Result result = runtime.verifier(session.tenantId(), session.policyId())
+            VpTokenVerifier.Result result = runtime.verifier(
+                            session.configRevision(), session.tenantId(), session.policyId())
                     .verify(
                             payload.get("vp_token"),
                             policy.query(),
@@ -342,8 +384,10 @@ public class VerificationEngine {
                     }
                 }
             }
+            outcome = "verified";
             return finish(session, tenant, policy, "verified", null, buildResult(session, policy, result, now), now);
         } catch (VerificationFailure failure) {
+            outcome = "rejected";
             return rejectPresentation(finish(session, tenant, policy, "rejected", failure.code(), null, now), session);
         } catch (RuntimeException e) {
             // The request instance is already used; leave no session pending after an unexpected error.
@@ -351,6 +395,15 @@ public class VerificationEngine {
                     "session %s: unexpected %s during verification",
                     session.id(), e.getClass().getName());
             return finish(session, tenant, policy, "rejected", "internal_error", null, now);
+        } finally {
+            timing.stop(registry.timer(
+                    "eudiw.presentation.verification",
+                    "tenant",
+                    session.tenantId(),
+                    "policy",
+                    session.policyId(),
+                    "outcome",
+                    outcome));
         }
     }
 
@@ -366,13 +419,15 @@ public class VerificationEngine {
         return new WalletReply(400, Map.of("error", "invalid_request"));
     }
 
-    private boolean configurationUnchanged(SessionRow session) {
-        return session.configRevision().equals(runtime.config().revision())
-                && runtime.config()
-                        .tenant(session.tenantId())
-                        .map(t -> t.policies().containsKey(session.policyId())
-                                && t.clients().containsKey(session.clientId()))
-                        .orElse(false);
+    /**
+     * The tenant as configured when the session started, if this node still holds that configuration and it has
+     * the session's policy and client. A reload keeps the replaced configuration for the longest session lifetime.
+     */
+    private Optional<Tenant> sessionTenant(SessionRow session) {
+        return runtime.config(session.configRevision())
+                .flatMap(c -> c.tenant(session.tenantId()))
+                .filter(t -> t.policies().containsKey(session.policyId())
+                        && t.clients().containsKey(session.clientId()));
     }
 
     private WalletReply handleWalletError(String error, String state, Instant now) {
@@ -381,7 +436,8 @@ public class VerificationEngine {
             return new WalletReply(400, Map.of("error", "invalid_request"));
         }
         SessionRow session = store.findById(instance.get().sessionId()).orElseThrow();
-        if (!configurationUnchanged(session)) {
+        Optional<Tenant> sessionTenant = sessionTenant(session);
+        if (sessionTenant.isEmpty()) {
             store.complete(
                     session.id(),
                     "rejected",
@@ -393,7 +449,7 @@ public class VerificationEngine {
                     runtime.notifies(session.tenantId(), session.clientId()));
             return new WalletReply(400, Map.of("error", "invalid_request"));
         }
-        Tenant tenant = runtime.config().tenant(session.tenantId()).orElseThrow();
+        Tenant tenant = sessionTenant.get();
         boolean denied = "access_denied".equals(error);
         return finish(
                 session,
@@ -431,10 +487,11 @@ public class VerificationEngine {
                 now,
                 runtime.notifies(session.tenantId(), session.clientId()));
         if (!completed) {
-            store.audit(
+            audit.record(
                     session.tenantId(),
                     session.id(),
                     session.clientId(),
+                    session.policyId(),
                     "response_received",
                     "ignored",
                     "session_not_pending",
@@ -442,10 +499,11 @@ public class VerificationEngine {
                     now);
             return new WalletReply(400, Map.of("error", "invalid_request"));
         }
-        store.audit(
+        audit.record(
                 session.tenantId(),
                 session.id(),
                 session.clientId(),
+                session.policyId(),
                 "response_received",
                 status,
                 code,

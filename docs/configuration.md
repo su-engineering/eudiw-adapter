@@ -16,8 +16,10 @@ The verifier service reads environment variables for deployment settings and one
 | `EUDIW_EGRESS_ALLOW_PRIVATE_ADDRESSES`, `EUDIW_EGRESS_ALLOW_HTTP` | no, default `false` | Development only: let status list and trusted list fetches reach private addresses or plain HTTP |
 | `EUDIW_TRUSTED_LISTS_REFRESH_INTERVAL` | no, default `1h` | How often each node fetches and verifies the configured trusted lists |
 | `EUDIW_WEBHOOK_INTERVAL` | no, default `5s` | How often each node sends due webhook notifications |
+| `EUDIW_CONFIG_RELOAD_INTERVAL` | no, default `30s` | How often each node checks the tenants file and the files under its directory for changes and reloads them. `off` disables. See [Reloading](#reloading) |
+| `QUARKUS_OTEL_SDK_DISABLED` | no, default `true` | `false` turns on OpenTelemetry tracing over OTLP. Set the collector with `QUARKUS_OTEL_EXPORTER_OTLP_ENDPOINT` |
 
-The public port (8080) serves the management API and the wallet endpoints. Health checks are on the management port (9000) at `/health/live` and `/health/ready`, not on the public port. Do not expose port 9000 publicly.
+The public port (8080) serves the management API and the wallet endpoints. The management port (9000) serves health checks at `/health/live`, `/health/ready` and `/health/well` (registration certificates near expiry) and Prometheus metrics at `/metrics`; none of these are on the public port. Do not expose port 9000 publicly. See [Operations](#operations).
 
 Access tokens must name the client in `azp` or `client_id` and list scopes in `scope`: `verification:create`, `verification:read`, `verification:result`, `verification:cancel`.
 
@@ -70,6 +72,7 @@ Relative paths resolve against the directory of the tenants file.
 - `client_id`: the OAuth client id in the access token. Unique across all tenants.
 - `policies`: the only policies this client may start.
 - `completion_uri`: where same-device flows send the user back, with `#response_code=...`. Required for `same_device` sessions.
+- `rate_limit`: optional. `{"sessions_per_minute": N}`, 1 to 100000, default 300. Counted per client in one-minute windows in PostgreSQL, so the limit holds across replicas. Over the limit, session creation returns 429 with `Retry-After`.
 - `webhook`: optional. `url` (HTTPS in production) receives a signed notification when one of this client's sessions is verified, rejected, denied or expired; `secret_file` holds a `whsec_` secret of 24 to 64 random bytes (generate with `echo "whsec_$(openssl rand -base64 32)"`); `previous_secret_file` optionally holds the old secret during a rotation. The notification carries no claims. See the `webhooks` section of the [OpenAPI](../openapi/management-v1.yaml) and [ADR-008](adr/0008-webhooks.md).
 
 **Policy**
@@ -104,6 +107,36 @@ At startup:
 - A query that asks for more than the certificate's `credentials` declares, a certificate whose `sub` (or intermediary) does not match the access certificate's `organizationIdentifier` or `serialNumber`, and a certificate missing members ETSI TS 119 475 requires are logged as warnings. The certificate is the registrar's and the wallet decides; fix it with them.
 
 After a certificate expires, requests carry only the dataset, and `/health/well` reports the policy. It reports a certificate 30 days before expiry too. Replace the file and restart. See [ADR-010](adr/0010-relying-party-registration.md).
+
+## Reloading
+
+Each node checks the tenants file every `EUDIW_CONFIG_RELOAD_INTERVAL` (and when a session arrives under a revision it does not know). When the file or anything under its directory changed, it loads and validates the new configuration:
+
+- If it is valid, it becomes active for new sessions. The previous configuration is kept for 15 minutes, the longest session lifetime, so sessions started under it finish under the rules they started with.
+- If it is not valid, the error is logged and counted (`eudiw_config_reloads_total{outcome="failed"}`) and the running configuration stays.
+
+Clients removed from the file lose access at once, also to their open sessions. Keys held in an HSM are reloaded with the configuration that references them; a change inside the token alone is not detected. In Kubernetes a mounted Secret is updated in place, so editing it is enough (not with `subPath` mounts).
+
+## Operations
+
+**Metrics** (Prometheus, `:9000/metrics`). Tags are configuration ids and reason codes, never session ids or request data.
+
+| Metric | Meaning |
+| --- | --- |
+| `eudiw_events_total{tenant,policy,client,action,outcome,code}` | Every audited event: `session_created`, `request_fetched`, `response_received` (outcome `verified`, `rejected`, `denied`, with the reason code), `result_retrieved`, `session_cancelled`, `webhook` |
+| `eudiw_presentation_verification_seconds{tenant,policy,outcome}` | Time to verify a presentation |
+| `eudiw_sessions_expired_total` | Sessions that expired without a response |
+| `eudiw_rate_limited_total{tenant,client}` | Session creations refused by the rate limit |
+| `eudiw_webhook_retries_total{tenant,client}` | Webhook deliveries scheduled for another attempt |
+| `eudiw_trusted_list_refreshes_total{outcome,code}`, `eudiw_trusted_lists_current{tenant,policy}` | Trusted list refreshes, and whether each policy that uses lists has a current one (0 means its verifications fail closed) |
+| `eudiw_registration_certificate_expiry_seconds{tenant,policy}` | Seconds until a registration certificate expires |
+| `eudiw_config_reloads_total{outcome}`, `eudiw_config_info{revision}` | Configuration reloads and the active revision |
+
+JVM, process and connection pool metrics are included. HTTP server metrics are not, because request paths carry request handles.
+
+**Audit log.** Every event above is also written to the `audit_event` table and as one line to the `eudiw.audit` log category: action, outcome, reason code, tenant, client, policy, session id, configuration revision and time. No claims, tokens, nonces or request handles. Route the category to your log pipeline; for JSON output add the Quarkus JSON logging extension in your build.
+
+**Tracing.** With `QUARKUS_OTEL_SDK_DISABLED=false`, the service exports OpenTelemetry spans over OTLP. Before a span is recorded the request handle in `/oid4vp/requests/{handle}` is replaced and every query string is removed, since they would let a reader fetch a request or retrieve a same-device result.
 
 ## Trusted lists
 

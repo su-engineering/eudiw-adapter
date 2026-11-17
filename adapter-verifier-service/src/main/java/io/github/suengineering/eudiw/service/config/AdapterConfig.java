@@ -66,10 +66,18 @@ public record AdapterConfig(String revision, Map<String, Tenant> tenants) {
     /**
      * @param clientId OAuth client id of the calling backend
      * @param policies policy ids this client may start
+     * @param sessionsPerMinute how many sessions the client may create per minute, across all nodes
      * @param completionUri pre-registered URI the wallet is sent back to in same-device flows
      */
     public record ClientApplication(
-            String clientId, Set<String> policies, Optional<URI> completionUri, Optional<Webhook> webhook) {}
+            String clientId,
+            Set<String> policies,
+            Optional<URI> completionUri,
+            Optional<Webhook> webhook,
+            int sessionsPerMinute) {}
+
+    /** Session creations per client and minute when the client sets no {@code rate_limit}. */
+    public static final int DEFAULT_SESSIONS_PER_MINUTE = 300;
 
     /**
      * Where and how to notify a client when its sessions end (Standard Webhooks, HMAC-SHA256).

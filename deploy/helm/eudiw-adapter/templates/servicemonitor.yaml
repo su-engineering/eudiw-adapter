@@ -1,0 +1,36 @@
+{{- if .Values.metrics.serviceMonitor.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "eudiw-adapter.fullname" . }}-management
+  labels:
+    {{- include "eudiw-adapter.labels" . | nindent 4 }}
+    app.kubernetes.io/component: management
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "eudiw-adapter.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: management
+      port: 9000
+      targetPort: management
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "eudiw-adapter.fullname" . }}
+  labels:
+    {{- include "eudiw-adapter.labels" . | nindent 4 }}
+    {{- with .Values.metrics.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "eudiw-adapter.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: management
+  endpoints:
+    - port: management
+      path: /metrics
+      interval: {{ .Values.metrics.serviceMonitor.interval }}
+{{- end }}

@@ -543,6 +543,131 @@ class VerificationFlowTest {
         }
     }
 
+    @Test
+    void aReloadKeepsOpenSessionsOnTheirOwnRulesAndRefusesABrokenFile() throws Exception {
+        java.nio.file.Path file = TestEnvironment.DIR.resolve("tenants.json");
+        String original = java.nio.file.Files.readString(file);
+        String before = runtime.config().revision();
+        try {
+            JsonPath open = create("portal-a", "cross_device");
+            Map<String, Object> request = TestWallet.fetchRequest(open.getString("wallet_launch.request_uri"));
+
+            // A new client is added while the session is open.
+            java.nio.file.Files.writeString(
+                    file,
+                    original.replace(
+                            "{\"client_id\":\"other-app-a\",\"policies\":[]}",
+                            "{\"client_id\":\"other-app-a\",\"policies\":[]},"
+                                    + "{\"client_id\":\"added-a\",\"policies\":[\"age-over-18\"]}"));
+            assertThat(runtime.reloadIfChanged()).isTrue();
+            assertThat(runtime.config().revision()).isNotEqualTo(before);
+            assertThat(create("added-a", "cross_device").getString("status")).isEqualTo("pending");
+
+            // The session that started before the reload completes under the configuration it started with.
+            assertThat(TestWallet.respond(request, presentAgeOver18(request, 1)).statusCode())
+                    .isEqualTo(200);
+            given().auth()
+                    .oauth2(TestWallet.fullToken("portal-a"))
+                    .get("/v1/verification-sessions/" + open.getString("id"))
+                    .then()
+                    .body("status", org.hamcrest.Matchers.equalTo("verified"));
+
+            // A file that does not validate is ignored and the running configuration stays.
+            String active = runtime.config().revision();
+            java.nio.file.Files.writeString(file, original.replace("\"tenant-a\"", "\"Tenant A!\""));
+            assertThat(runtime.reloadIfChanged()).isFalse();
+            assertThat(runtime.config().revision()).isEqualTo(active);
+            assertThat(create("added-a", "cross_device").getString("status")).isEqualTo("pending");
+        } finally {
+            java.nio.file.Files.writeString(file, original);
+            runtime.reloadIfChanged();
+            runtime.reconfigureForTests(clock, (uri, accept, max) -> new byte[0]);
+            setUp();
+        }
+        assertThat(runtime.config().revision()).isEqualTo(before);
+    }
+
+    @Test
+    void sessionCreationIsRateLimitedPerClientAcrossNodes() {
+        // The window lives in PostgreSQL, so every node counts against the same limit.
+        clock.set(Instant.parse("2031-05-05T10:00:10Z"));
+        for (int i = 0; i < 2; i++) {
+            assertThat(create("limited-a", "cross_device").getString("status")).isEqualTo("pending");
+        }
+        Response limited = given().auth()
+                .oauth2(TestWallet.fullToken("limited-a"))
+                .header("Idempotency-Key", UUID.randomUUID().toString())
+                .contentType(ContentType.JSON)
+                .body(Map.of("policy_id", "age-over-18"))
+                .post("/v1/verification-sessions");
+        assertThat(limited.statusCode()).isEqualTo(429);
+        assertThat(limited.jsonPath().getString("code")).isEqualTo("rate_limited");
+        assertThat(limited.header("Retry-After")).isEqualTo("50");
+
+        // Other clients are not affected, and the next minute starts a new window.
+        assertThat(create("portal-a", "cross_device").getString("status")).isEqualTo("pending");
+        clock.set(Instant.parse("2031-05-05T10:01:00Z"));
+        assertThat(create("limited-a", "cross_device").getString("status")).isEqualTo("pending");
+    }
+
+    @Test
+    void metricsHealthAndAuditStayOnTheManagementPortAndCarryNoSecrets() {
+        JsonPath session = create("portal-a", "cross_device");
+        String id = session.getString("id");
+        String requestUri = session.getString("wallet_launch.request_uri");
+        String handle = requestUri.substring(requestUri.lastIndexOf('/') + 1);
+        Map<String, Object> request = TestWallet.fetchRequest(requestUri);
+        assertThat(TestWallet.respond(request, presentAgeOver18(request, 1)).statusCode())
+                .isEqualTo(200);
+        String token = TestWallet.fullToken("portal-a");
+        given().auth()
+                .oauth2(token)
+                .get("/v1/verification-sessions/" + id + "/result")
+                .then()
+                .statusCode(200);
+
+        int management = Integer.getInteger("quarkus.management.test-port", 9001);
+        String metrics = given().port(management)
+                .get("/metrics")
+                .then()
+                .statusCode(200)
+                .extract()
+                .asString();
+        assertThat(metrics)
+                .contains("eudiw_events_total{action=\"session_created\"")
+                .contains("action=\"result_retrieved\"")
+                .contains("eudiw_presentation_verification_seconds_count{outcome=\"verified\",policy=\"age-over-18\"")
+                .contains("eudiw_registration_certificate_expiry_seconds{policy=\"age-over-18\",tenant=\"tenant-a\"}")
+                .contains("eudiw_config_info{revision=")
+                .contains("eudiw_trusted_lists_current{policy=\"age-over-18-listed\",tenant=\"tenant-b\"}")
+                .doesNotContain(id)
+                .doesNotContain(handle)
+                .doesNotContain((String) request.get("nonce"))
+                .doesNotContain(token)
+                .doesNotContain("Erika-Canary");
+
+        given().port(management)
+                .get("/health/well")
+                .then()
+                .statusCode(200)
+                .body(
+                        "checks.find { it.name == 'registration-certificates' }.status",
+                        org.hamcrest.Matchers.equalTo("UP"));
+
+        // Nothing operational on the public port.
+        for (String path : List.of("/metrics", "/q/metrics", "/health", "/q/health", "/health/well")) {
+            assertThat(given().get(path).statusCode()).as(path).isEqualTo(404);
+        }
+
+        String log = readLog();
+        assertThat(log)
+                .contains(
+                        "action=session_created outcome=ok code=none tenant=tenant-a client=portal-a policy=age-over-18 session="
+                                + id)
+                .contains("action=result_retrieved outcome=ok")
+                .doesNotContain(handle);
+    }
+
     private static String readLog() {
         try {
             // The log file rotates; read every generation.

@@ -79,15 +79,27 @@ public class AdapterRuntime {
     @jakarta.inject.Inject
     io.github.suengineering.eudiw.service.store.TrustedListSequenceStore sequenceStore;
 
-    private AdapterConfig config;
+    @jakarta.inject.Inject
+    io.micrometer.core.instrument.MeterRegistry registry;
+
+    /** One loaded configuration with the verifiers and trusted lists built for it. */
+    private record Generation(
+            AdapterConfig config, Map<String, VpTokenVerifier> verifiers, Map<String, TrustedLists> trustedLists) {}
+
+    private record Retained(Generation generation, java.time.Instant until) {}
+
+    private volatile Generation current;
+    /** Replaced configurations, kept until every session started under them has expired. */
+    private final Map<String, Retained> retained = new ConcurrentHashMap<>();
+
+    private String fingerprint;
+    private String failedFingerprint;
     private HttpFetcher listFetcher;
     private HttpFetcher crlFetcher;
     private volatile boolean trustedListsAttempted;
     private DataProtection dataProtection;
     private static final Logger LOG = Logger.getLogger(AdapterRuntime.class);
 
-    private final Map<String, VpTokenVerifier> verifiers = new ConcurrentHashMap<>();
-    private final Map<String, TrustedLists> trustedLists = new ConcurrentHashMap<>();
     private Clock clock = Clock.systemUTC();
     private HttpFetcher fetcher;
 
@@ -117,7 +129,8 @@ public class AdapterRuntime {
             throw new ConfigLoader.ConfigException("eudiw.data-key must be base64", e);
         }
         dataProtection = new DataProtection(key);
-        config = ConfigLoader.load(Path.of(configFile), production);
+        fingerprint = fingerprint();
+        AdapterConfig loaded = ConfigLoader.load(Path.of(configFile), production);
         if (fetcher == null) {
             fetcher = new JdkHttpFetcher(
                     new EgressPolicy(allowHttp, allowPrivateAddresses, Set.of()), Duration.ofSeconds(5));
@@ -128,12 +141,12 @@ public class AdapterRuntime {
             crlFetcher =
                     new JdkHttpFetcher(new EgressPolicy(true, allowPrivateAddresses, Set.of()), Duration.ofSeconds(10));
         }
-        buildVerifiers();
+        current = build(loaded);
     }
 
-    private void buildVerifiers() {
-        verifiers.clear();
-        trustedLists.clear();
+    private Generation build(AdapterConfig config) {
+        Map<String, VpTokenVerifier> verifiers = new ConcurrentHashMap<>();
+        Map<String, TrustedLists> trustedLists = new ConcurrentHashMap<>();
         for (Tenant tenant : config.tenants().values()) {
             for (Policy policy : tenant.policies().values()) {
                 TrustStore configured = TrustStore.ofAnchors(policy.trustAnchors());
@@ -175,17 +188,125 @@ public class AdapterRuntime {
                 verifiers.put(key(tenant.id(), policy.id()), verifier);
             }
         }
+        return new Generation(config, Map.copyOf(verifiers), Map.copyOf(trustedLists));
+    }
+
+    /**
+     * Reloads the configuration when the tenants file or any file under its directory changed. A configuration
+     * that fails validation is logged and ignored: the running one stays. The replaced configuration is kept for
+     * the longest session lifetime, so sessions started under it finish under the same rules. Safe to call often;
+     * an unchanged directory costs one walk over file sizes and modification times.
+     *
+     * @return whether a new configuration became active
+     */
+    public synchronized boolean reloadIfChanged() {
+        String now = fingerprint();
+        if (now.equals(fingerprint) || now.equals(failedFingerprint)) {
+            return false;
+        }
+        AdapterConfig loaded;
+        try {
+            loaded = ConfigLoader.load(Path.of(configFile), production);
+        } catch (RuntimeException e) {
+            failedFingerprint = now;
+            count("failed");
+            LOG.errorf(
+                    "configuration not reloaded, keeping revision %s: %s",
+                    current.config().revision(), e.getMessage());
+            return false;
+        }
+        fingerprint = now;
+        failedFingerprint = null;
+        if (loaded.revision().equals(current.config().revision())) {
+            return false;
+        }
+        Generation next = build(loaded);
+        refresh(next);
+        Generation previous = current;
+        current = next;
+        java.time.Instant until = clock.instant().plus(AdapterConfig.MAX_SESSION_TTL);
+        retained.put(previous.config().revision(), new Retained(previous, until));
+        retained.values().removeIf(r -> !r.until().isAfter(clock.instant()));
+        count("ok");
+        LOG.infof(
+                "configuration reloaded: revision %s replaces %s",
+                loaded.revision(), previous.config().revision());
+        return true;
+    }
+
+    private void count(String outcome) {
+        if (registry != null) {
+            registry.counter("eudiw.config.reloads", "outcome", outcome).increment();
+        }
+    }
+
+    /** Sizes and modification times of the tenants file's directory tree, plus the tenants file's content. */
+    private String fingerprint() {
+        Path file = Path.of(configFile).toAbsolutePath();
+        try {
+            java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+            digest.update(java.nio.file.Files.readAllBytes(file));
+            try (var paths = java.nio.file.Files.walk(file.getParent(), 4)) {
+                for (Path path : paths.filter(java.nio.file.Files::isRegularFile)
+                        .sorted()
+                        .limit(2000)
+                        .toList()) {
+                    digest.update((path + "\n" + java.nio.file.Files.size(path) + "\n"
+                                    + java.nio.file.Files.getLastModifiedTime(path)
+                                            .toMillis() + "\n")
+                            .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                }
+            }
+            return java.util.HexFormat.of().formatHex(digest.digest());
+        } catch (java.io.IOException | java.security.NoSuchAlgorithmException e) {
+            return "unreadable";
+        }
+    }
+
+    private Generation generation(String revision) {
+        Generation active = current;
+        if (active.config().revision().equals(revision)) {
+            return active;
+        }
+        Retained old = retained.get(revision);
+        if (old != null && old.until().isAfter(clock.instant())) {
+            return old.generation();
+        }
+        // Another node may have reloaded first: pick up a changed file before failing the session.
+        if (reloadIfChanged() && current.config().revision().equals(revision)) {
+            return current;
+        }
+        return null;
+    }
+
+    /** The configuration a session started under, while this node still holds it. */
+    public Optional<AdapterConfig> config(String revision) {
+        return Optional.ofNullable(generation(revision)).map(Generation::config);
     }
 
     /** Fetches and verifies every configured trusted list. Failures are logged by location and code only. */
     public void refreshTrustedLists() {
+        refresh(current);
+    }
+
+    private void refresh(Generation generation) {
         try {
-            for (Map.Entry<String, TrustedLists> entry : trustedLists.entrySet()) {
+            for (Map.Entry<String, TrustedLists> entry :
+                    generation.trustedLists().entrySet()) {
                 if (entry.getValue().isEmpty()) {
                     continue;
                 }
                 try {
                     for (TrustedLists.LoadResult result : entry.getValue().refresh()) {
+                        if (registry != null) {
+                            registry.counter(
+                                            "eudiw.trusted.list.refreshes",
+                                            "outcome",
+                                            result.ok() ? "ok" : "failed",
+                                            "code",
+                                            result.ok() ? "none" : result.code())
+                                    .increment();
+                        }
                         if (!result.ok()) {
                             LOG.warnf("trusted list %s not updated: %s", result.location(), result.code());
                         }
@@ -203,7 +324,8 @@ public class AdapterRuntime {
 
     /** Whether the client has a webhook, so its finished sessions queue a notification. */
     public boolean notifies(String tenantId, String clientId) {
-        return config.tenant(tenantId)
+        return current.config()
+                .tenant(tenantId)
                 .map(t -> t.clients().get(clientId))
                 .map(c -> c.webhook().isPresent())
                 .orElse(false);
@@ -212,7 +334,7 @@ public class AdapterRuntime {
     /** Client ids that have a webhook. */
     public Set<String> webhookClients() {
         Set<String> clients = new java.util.HashSet<>();
-        for (Tenant tenant : config.tenants().values()) {
+        for (Tenant tenant : current.config().tenants().values()) {
             tenant.clients().values().stream()
                     .filter(c -> c.webhook().isPresent())
                     .forEach(c -> clients.add(c.clientId()));
@@ -222,13 +344,24 @@ public class AdapterRuntime {
 
     /** Whether the first trusted list refresh has run (readiness waits for it). */
     public boolean trustedListsAttempted() {
-        return trustedListsAttempted || trustedLists.values().stream().allMatch(TrustedLists::isEmpty);
+        return trustedListsAttempted || current.trustedLists().values().stream().allMatch(TrustedLists::isEmpty);
+    }
+
+    /** Policies that use trusted lists, as {@code tenant/policy}. */
+    public List<String> policiesUsingTrustedLists() {
+        List<String> using = new ArrayList<>();
+        current.trustedLists().forEach((key, lists) -> {
+            if (!lists.isEmpty()) {
+                using.add(key.replace('\n', '/'));
+            }
+        });
+        return using;
     }
 
     /** Policies that use trusted lists but have no current list. Their verifications fail closed. */
     public List<String> policiesWithoutCurrentTrustedLists() {
         List<String> missing = new ArrayList<>();
-        trustedLists.forEach((key, lists) -> {
+        current.trustedLists().forEach((key, lists) -> {
             if (!lists.hasCurrentList()) {
                 missing.add(key.replace('\n', '/'));
             }
@@ -242,11 +375,13 @@ public class AdapterRuntime {
         this.fetcher = testFetcher;
         this.listFetcher = testFetcher;
         this.crlFetcher = testFetcher;
-        buildVerifiers();
+        retained.clear();
+        current = build(current.config());
     }
 
+    /** The active configuration. Sessions use {@link #config(String)} with the revision they started under. */
     public AdapterConfig config() {
-        return config;
+        return current.config();
     }
 
     public DataProtection dataProtection() {
@@ -261,8 +396,11 @@ public class AdapterRuntime {
         return URI.create(publicBaseUrl.endsWith("/") ? publicBaseUrl : publicBaseUrl + "/");
     }
 
-    public VpTokenVerifier verifier(String tenantId, String policyId) {
-        VpTokenVerifier verifier = verifiers.get(key(tenantId, policyId));
+    /** The verifier of a policy as configured in {@code revision}. */
+    public VpTokenVerifier verifier(String revision, String tenantId, String policyId) {
+        Generation generation = generation(revision);
+        VpTokenVerifier verifier =
+                generation == null ? null : generation.verifiers().get(key(tenantId, policyId));
         if (verifier == null) {
             throw new IllegalStateException("no verifier for policy");
         }

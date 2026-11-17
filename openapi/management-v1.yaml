@@ -60,6 +60,18 @@ paths:
           $ref: '#/components/responses/Problem'
         '422':
           $ref: '#/components/responses/Problem'
+        '429':
+          description: The client created more sessions this minute than its `rate_limit` allows (default 300,
+            counted across all nodes). Code `rate_limited`.
+          headers:
+            Retry-After:
+              description: Seconds until the next one-minute window starts.
+              schema:
+                type: integer
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /v1/verification-sessions/{id}:
     get:
       operationId: getVerificationSession

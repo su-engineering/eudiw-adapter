@@ -163,7 +163,21 @@ public final class ConfigLoader {
             if (c.containsKey("webhook")) {
                 webhook = Optional.of(webhook(object(c.get("webhook"), "webhook"), base, id, production));
             }
-            if (clients.put(clientId, new ClientApplication(clientId, Set.copyOf(granted), completion, webhook))
+            int perMinute = AdapterConfig.DEFAULT_SESSIONS_PER_MINUTE;
+            if (c.containsKey("rate_limit")) {
+                Map<String, Object> limit = object(c.get("rate_limit"), "rate_limit");
+                if (!(limit.get("sessions_per_minute") instanceof Number n)
+                        || n.doubleValue() != n.intValue()
+                        || n.intValue() < 1
+                        || n.intValue() > 100_000) {
+                    throw new ConfigException("tenant " + id + ": client " + clientId
+                            + ": rate_limit.sessions_per_minute must be an integer from 1 to 100000");
+                }
+                perMinute = n.intValue();
+            }
+            if (clients.put(
+                            clientId,
+                            new ClientApplication(clientId, Set.copyOf(granted), completion, webhook, perMinute))
                     != null) {
                 throw new ConfigException("tenant " + id + ": duplicate client " + clientId);
             }

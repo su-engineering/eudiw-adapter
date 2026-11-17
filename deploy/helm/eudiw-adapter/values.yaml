@@ -43,6 +43,25 @@ trustedLists:
 webhooks:
   interval: 5s
 
+# The service rereads the config Secret when it changes (Kubernetes updates mounted Secrets in place) and keeps
+# the running configuration if the new one does not validate. "off" disables the check.
+configReload:
+  interval: 30s
+
+metrics:
+  # Prometheus metrics at :9000/metrics. A ServiceMonitor (Prometheus Operator) and a ClusterIP Service for the
+  # management port are created only when enabled.
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    labels: {}
+
+tracing:
+  # OpenTelemetry traces over OTLP. Request handles and query strings are removed from spans.
+  enabled: false
+  # For example http://otel-collector.observability:4317
+  endpoint: ""
+
 # Extra environment variables, for example Quarkus settings.
 extraEnv: []
 # Extra volumes and mounts, for example a PKCS#11 library and its configuration.
@@ -60,9 +79,12 @@ resources:
   limits:
     memory: 1Gi
 
-# Ingress to the public port from anywhere; the management port (9000) only from this namespace.
+# Ingress to the public port from anywhere; the management port (9000) from this namespace and from the
+# namespaces selected here (for example the one Prometheus runs in).
 networkPolicy:
   enabled: true
+  # A namespace label selector, for example {matchLabels: {kubernetes.io/metadata.name: monitoring}}
+  managementNamespaceSelector: {}
 
 podDisruptionBudget:
   enabled: true

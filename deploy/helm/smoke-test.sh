@@ -107,4 +107,12 @@ SESSION=$(curl -sf -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: smoke-
 echo "$SESSION" | jq -e '.status == "pending" and (.wallet_launch.launch_uri | startswith("openid4vp://"))' > /dev/null
 HANDLE=$(echo "$SESSION" | jq -r .wallet_launch.request_uri | sed 's|.*/oid4vp/requests/||')
 curl -sf -X POST http://localhost:18080/oid4vp/requests/"$HANDLE" | grep -q '\.'
-echo "Smoke test passed: chart installed under the restricted policy, session created, request object served."
+
+echo "== Metrics on the management port only"
+kubectl -n "$NS" port-forward deploy/eudiw-eudiw-adapter 19000:9000 > /dev/null 2>&1 &
+PF2=$!
+sleep 3
+curl -sf http://localhost:19000/metrics | grep -q 'eudiw_events_total{action="session_created"'
+test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:18080/metrics)" = 404
+kill "$PF2" 2>/dev/null || true
+echo "Smoke test passed: chart installed under the restricted policy, session created, request object served, metrics scraped."

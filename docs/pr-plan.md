@@ -51,4 +51,4 @@ Not in the first release: ISO mdoc, ETSI trusted list ingestion, credential issu
 
 ## After the first release
 
-ISO mdoc, rate limits, telemetry, SBOM, `trusted_authorities` enforcement, DC API, DID trust, and later an OID4VCI issuer service.
+ISO mdoc, SBOM, DC API, DID trust, and later an OID4VCI issuer service. Done since: per-client rate limits, metrics, audit log, tracing and configuration reload ([ADR-011](adr/0011-operations.md)), relying-party registration ([ADR-010](adr/0010-relying-party-registration.md)).

@@ -15,6 +15,10 @@ spec:
         - port: 8080
     - from:
         - podSelector: {}
+        {{- with .Values.networkPolicy.managementNamespaceSelector }}
+        - namespaceSelector:
+            {{- toYaml . | nindent 12 }}
+        {{- end }}
       ports:
         - port: 9000
 {{- end }}

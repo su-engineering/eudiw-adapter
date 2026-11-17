@@ -30,8 +30,19 @@ public class Sweeper {
     @Inject
     AdapterRuntime runtime;
 
+    @Inject
+    io.github.suengineering.eudiw.service.store.RateLimitStore rateLimits;
+
+    @Inject
+    io.micrometer.core.instrument.MeterRegistry registry;
+
     @Scheduled(every = "{eudiw.sweep-interval:30s}", concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
     void sweep() {
-        store.sweep(runtime.clock().instant(), runtime.webhookClients());
+        java.time.Instant now = runtime.clock().instant();
+        int expired = store.sweep(now, runtime.webhookClients());
+        rateLimits.sweep(now.minusSeconds(120));
+        if (expired > 0) {
+            registry.counter("eudiw.sessions.expired").increment(expired);
+        }
     }
 }

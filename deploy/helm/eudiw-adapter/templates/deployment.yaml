@@ -81,6 +81,14 @@ spec:
               value: {{ .Values.trustedLists.refreshInterval | quote }}
             - name: EUDIW_WEBHOOK_INTERVAL
               value: {{ .Values.webhooks.interval | quote }}
+            - name: EUDIW_CONFIG_RELOAD_INTERVAL
+              value: {{ .Values.configReload.interval | quote }}
+            {{- if .Values.tracing.enabled }}
+            - name: QUARKUS_OTEL_SDK_DISABLED
+              value: "false"
+            - name: QUARKUS_OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ required "tracing.endpoint is required when tracing is enabled" .Values.tracing.endpoint | quote }}
+            {{- end }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
