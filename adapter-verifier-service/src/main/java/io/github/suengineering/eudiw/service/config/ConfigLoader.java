@@ -362,8 +362,11 @@ public final class ConfigLoader {
             }
             java.time.Instant now = java.time.Instant.now();
             if (parsed.expiresAt().map(exp -> !exp.isAfter(now)).orElse(false)) {
-                throw new ConfigException(where + ": the registration certificate expired at "
-                        + parsed.expiresAt().get());
+                // Not fatal: a restart after expiry must not stop every tenant. It is not sent, and
+                // /health/well reports it until the file is replaced.
+                LOG.errorf(
+                        "%s: the registration certificate expired at %s; requests carry only the registrar dataset",
+                        where, parsed.expiresAt().get());
             }
             if (!parsed.missingMembers().isEmpty()) {
                 LOG.warnf(

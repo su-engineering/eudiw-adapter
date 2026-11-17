@@ -161,13 +161,40 @@ class RegistrationConfigTest {
     }
 
     @Test
-    void refusesAnExpiredOrMistypedCertificate() throws Exception {
+    void anExpiredCertificateLoadsButIsNotSent() throws Exception {
         Files.writeString(
                 dir.resolve("old.jwt"), certificate("rc-wrp+jwt", Instant.now().minus(Duration.ofDays(1))));
-        assertThatThrownBy(() -> load(
-                        Map.of("registrar_dataset", dataset(List.of("age_over_18")), "certificate_file", "old.jwt")))
-                .isInstanceOf(ConfigException.class)
-                .hasMessageContaining("expired");
+        var registration = load(Map.of(
+                        "registrar_dataset", dataset(List.of("age_over_18")), "certificate_file", "old.jwt"))
+                .tenants()
+                .get("t")
+                .policies()
+                .get("p")
+                .registration()
+                .orElseThrow();
+        assertThat(registration.verifierInfo(Instant.now())).singleElement().satisfies(e -> assertThat(e)
+                .containsEntry("format", "registrar_dataset"));
+    }
+
+    @Test
+    void theDatasetKeepsItsOrderSoTheRevisionIsTheSameInEveryJvm() throws Exception {
+        AdapterConfig config = load(Map.of("registrar_dataset", dataset(List.of("age_over_18"))));
+        assertThat(config.tenants()
+                        .get("t")
+                        .policies()
+                        .get("p")
+                        .registration()
+                        .orElseThrow()
+                        .registrarDataset())
+                .containsKeys("identifier")
+                .extracting(java.util.Map::keySet)
+                .asString()
+                .isEqualTo(
+                        "[identifier, srvDescription, registryURI, intendedUseIdentifier, purpose, policyURI, credential]");
+    }
+
+    @Test
+    void refusesAMistypedCertificate() throws Exception {
         Files.writeString(
                 dir.resolve("typ.jwt"), certificate("JWT", Instant.now().plus(Duration.ofDays(1))));
         assertThatThrownBy(() -> load(

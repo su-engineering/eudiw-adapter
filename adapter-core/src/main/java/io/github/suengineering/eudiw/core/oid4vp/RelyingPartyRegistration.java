@@ -118,7 +118,10 @@ public final class RelyingPartyRegistration {
         if (registrarDataset.containsKey("credential") && !(registrarDataset.get("credential") instanceof List<?>)) {
             throw new IllegalArgumentException("registrar dataset credential must be an array");
         }
-        return new RelyingPartyRegistration(Map.copyOf(registrarDataset), certificate);
+        // Keep the configured member order: the configuration revision hashes this map, and it must be the same in
+        // every JVM (Map.copyOf iterates in a per-JVM order).
+        return new RelyingPartyRegistration(
+                java.util.Collections.unmodifiableMap(new LinkedHashMap<>(registrarDataset)), certificate);
     }
 
     public Map<String, Object> registrarDataset() {

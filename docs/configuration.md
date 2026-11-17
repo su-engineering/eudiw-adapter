@@ -103,7 +103,8 @@ In the EUDI Wallet ecosystem a relying party registers each intended use with it
 
 At startup:
 
-- A dataset without a required member, a certificate that is not a `rc-wrp+jwt` JWS or has expired, and a DCQL query that asks for a credential or claim the dataset's `credential` list does not declare stop startup.
+- A dataset without a required member, a certificate that is not a `rc-wrp+jwt` JWS, and a DCQL query that asks for a credential or claim the dataset's `credential` list does not declare stop startup (or are refused on reload).
+- An expired certificate is logged as an error and not sent.
 - A query that asks for more than the certificate's `credentials` declares, a certificate whose `sub` (or intermediary) does not match the access certificate's `organizationIdentifier` or `serialNumber`, and a certificate missing members ETSI TS 119 475 requires are logged as warnings. The certificate is the registrar's and the wallet decides; fix it with them.
 
 After a certificate expires, requests carry only the dataset, and `/health/well` reports the policy. It reports a certificate 30 days before expiry too. Replace the file and restart. See [ADR-010](adr/0010-relying-party-registration.md).

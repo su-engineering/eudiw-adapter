@@ -235,7 +235,7 @@ A dependency-free `<eudiw-request>` web component (QR code, wallet link, status)
 <td valign="top">
 
 **Your OAuth, your database**<br>
-Backends authenticate with any OAuth 2.0 server's client credentials. State is PostgreSQL only: no message broker, cache or vendor service.
+Backends use client-credentials JWT access tokens from your own OAuth 2.0 server (with discovery, naming the client in `azp` or `client_id`). State is PostgreSQL only: no message broker, cache or vendor service.
 
 </td>
 </tr>

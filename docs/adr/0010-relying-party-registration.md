@@ -15,7 +15,7 @@ Under Implementing Regulation (EU) 2025/848 every relying party registers its in
 1. **Per policy.** A registration covers one intended use, and a policy is one intended use here, so `registration` is configured on the policy.
 2. **The dataset is the operator's input; the certificate is a third party's artefact.**
    - The dataset is sent as configured, after checking the members TS 119 472-2 requires.
-   - The certificate is parsed, not validated against a trust framework: its signature and its provider's place on a trusted list are for the wallet to check. Startup stops only when it is not a compact JWS with `typ` `rc-wrp+jwt`, `x5c`, `sub` and `iat`, or when it has expired.
+   - The certificate is parsed, not validated against a trust framework: its signature and its provider's place on a trusted list are for the wallet to check. Startup stops only when it is not a compact JWS with `typ` `rc-wrp+jwt`, `x5c`, `sub` and `iat`. An expired certificate is logged as an error and not sent, but does not stop startup: a restart after expiry must not take every tenant down.
    - TS 119 475 is not consistent about some members (the intermediary as `intermediary.sub` or `act.sub`, `status` as a URI or an object). The parser accepts both intermediary forms and does not interpret the others.
 3. **Over-asking is caught before a wallet sees it.** The policy's DCQL query is compared with the declared credentials: same `format`, every requested type in the declared `meta`, every requested claim path equal to a declared one. A declared credential without claims declares none.
    - Against the dataset's `credential` list, a mismatch stops startup: the operator controls both.
