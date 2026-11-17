@@ -116,9 +116,8 @@ public record MobileSecurityObject(
         Instant signed = tdate(MdocCbor.field(validity, "signed"));
         Instant validFrom = tdate(MdocCbor.field(validity, "validFrom"));
         Instant validUntil = tdate(MdocCbor.field(validity, "validUntil"));
-        if (validFrom.isBefore(signed) || !validUntil.isAfter(validFrom)) {
-            throw MdocCbor.malformed("inconsistent MSO validity");
-        }
+        // How validFrom and validUntil relate to signed is an issuer rule; the reader checks each against the
+        // certificate and the current time (clause 9.3.1 step 5), so an issuer that rounds dates is not refused.
         return new MobileSecurityObject(
                 algorithm,
                 Collections.unmodifiableMap(digests),

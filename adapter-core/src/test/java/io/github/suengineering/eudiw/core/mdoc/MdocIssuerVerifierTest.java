@@ -181,6 +181,114 @@ class MdocIssuerVerifierTest {
                         VerificationFailure.class, f -> assertThat(f.code()).isEqualTo("credential_expired"));
     }
 
+    // -- rejection cases the independent fixtures cannot produce, with a synthetic issuer
+
+    private static final Instant NOW = Instant.parse("2026-06-01T12:00:00Z");
+
+    private static VerifiedIssuerSigned verifyBuilt(TestMdocIssuer issuer, CborItem document) {
+        return new MdocIssuerVerifier(
+                        () -> TrustStore.of(List.of(issuer.iaca), "test"),
+                        Clock.fixed(NOW, ZoneOffset.UTC),
+                        Duration.ofMinutes(1),
+                        null,
+                        MdocIssuerVerifier.mdlOnly())
+                .verify(document);
+    }
+
+    private static TestMdocIssuer issuer(String iaca, String signer, boolean eku) throws Exception {
+        return new TestMdocIssuer(iaca, signer, eku, NOW.minus(Duration.ofDays(30)), NOW.plus(Duration.ofDays(300)));
+    }
+
+    private static CborItem mdl(TestMdocIssuer issuer, Instant signed, Instant from, String msoNamespace)
+            throws Exception {
+        return issuer.document(
+                MdocIssuerVerifier.MDL_DOCTYPE,
+                "org.iso.18013.5.1",
+                msoNamespace,
+                Map.of("age_over_18", CborEncoder.bool(true)),
+                signed,
+                from,
+                NOW.plus(Duration.ofDays(30)));
+    }
+
+    @Test
+    void aSyntheticIssuerVerifiesAndMayRoundValidFromDown() throws Exception {
+        TestMdocIssuer issuer = issuer("CN=Test IACA,ST=BY,C=DE", "CN=Test DS,ST=BY,C=DE", true);
+        assertThat(verifyBuilt(issuer, mdl(issuer, NOW.minusSeconds(60), NOW.minusSeconds(60), "org.iso.18013.5.1"))
+                        .elements())
+                .containsKey("org.iso.18013.5.1");
+        // validFrom earlier than signed is an issuer's choice, not a reason to refuse.
+        assertThat(verifyBuilt(
+                                issuer,
+                                mdl(issuer, NOW.minusSeconds(60), NOW.minus(Duration.ofDays(1)), "org.iso.18013.5.1"))
+                        .docType())
+                .isEqualTo(MdocIssuerVerifier.MDL_DOCTYPE);
+    }
+
+    @Test
+    void anMsoSignedOutsideTheSignerValidityIsRejected() throws Exception {
+        TestMdocIssuer issuer = issuer("CN=Test IACA,C=DE", "CN=Test DS,C=DE", true);
+        CborItem document = mdl(issuer, NOW.minus(Duration.ofDays(60)), NOW.minusSeconds(60), "org.iso.18013.5.1");
+        assertThatThrownBy(() -> verifyBuilt(issuer, document))
+                .isInstanceOfSatisfying(
+                        VerificationFailure.class, f -> assertThat(f.code()).isEqualTo("certificate_chain_invalid"))
+                .hasMessageContaining("outside the certificate validity");
+    }
+
+    @Test
+    void theIacaCountryAndStateMustMatchTheSigner() throws Exception {
+        TestMdocIssuer country = issuer("CN=Test IACA,C=DE", "CN=Test DS,C=FR", true);
+        assertThatThrownBy(() -> verifyBuilt(
+                        country, mdl(country, NOW.minusSeconds(60), NOW.minusSeconds(60), "org.iso.18013.5.1")))
+                .isInstanceOfSatisfying(
+                        VerificationFailure.class, f -> assertThat(f.code()).isEqualTo("certificate_chain_invalid"))
+                .hasMessageContaining("country");
+        TestMdocIssuer state = issuer("CN=Test IACA,ST=BY,C=DE", "CN=Test DS,ST=BE,C=DE", true);
+        assertThatThrownBy(() ->
+                        verifyBuilt(state, mdl(state, NOW.minusSeconds(60), NOW.minusSeconds(60), "org.iso.18013.5.1")))
+                .hasMessageContaining("state");
+    }
+
+    @Test
+    void aNamespaceWithoutDigestsIsRejected() throws Exception {
+        TestMdocIssuer issuer = issuer("CN=Test IACA,C=DE", "CN=Test DS,C=DE", true);
+        CborItem document = mdl(issuer, NOW.minusSeconds(60), NOW.minusSeconds(60), "org.iso.18013.5.1.DE");
+        assertThatThrownBy(() -> verifyBuilt(issuer, document))
+                .isInstanceOfSatisfying(
+                        VerificationFailure.class, f -> assertThat(f.code()).isEqualTo("invalid_disclosure"));
+    }
+
+    /**
+     * Random mutations of a real Document: nothing but a VerificationFailure escapes, and whatever still verifies
+     * (a mutation can hide the optional nameSpaces entry, which discloses nothing) never carries a changed value.
+     */
+    @Test
+    void mutatedDocumentsNeverVerifyWithChangedContent() {
+        byte[] original = document("pid").encoded();
+        MdocIssuerVerifier verifier = verifier("pid", MdocIssuerVerifier.mdlOnly(), 0);
+        Map<String, Map<String, CborItem>> genuine =
+                verifier.verify(CborDecoder.decode(original)).elements();
+        java.util.Random random = new java.util.Random(9312);
+        for (int i = 0; i < 3000; i++) {
+            byte[] mutated = original.clone();
+            for (int f = 1 + random.nextInt(3); f > 0; f--) {
+                mutated[random.nextInt(mutated.length)] = (byte) random.nextInt(256);
+            }
+            VerifiedIssuerSigned verified;
+            try {
+                verified = verifier.verify(CborDecoder.decode(mutated));
+            } catch (VerificationFailure expected) {
+                continue;
+            }
+            verified.elements()
+                    .forEach((ns, values) ->
+                            values.forEach((element, value) -> assertThat(genuine.getOrDefault(ns, Map.of())
+                                            .get(element)
+                                            .encoded())
+                                    .isEqualTo(value.encoded())));
+        }
+    }
+
     // -- helpers
 
     private static void expect(CborItem document, String code) {
