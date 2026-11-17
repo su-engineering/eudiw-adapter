@@ -48,7 +48,7 @@ public record StatusDecision(Result result, int value, String reason) {
         return new StatusDecision(result, value, null);
     }
 
-    static StatusDecision indeterminate(String reason) {
+    public static StatusDecision indeterminate(String reason) {
         return new StatusDecision(Result.INDETERMINATE, -1, reason);
     }
 }

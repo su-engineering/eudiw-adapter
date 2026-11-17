@@ -112,6 +112,10 @@ public record AdapterConfig(String revision, Map<String, Tenant> tenants) {
      * @param registration the registered intended use sent in {@code verifier_info}, if configured
      * @param mdocStrictConformance refuse mdoc departures from ISO/IEC 18013-5 that are otherwise accepted with a
      *     warning (today: a device key on a curve that Table 22 does not list)
+     * @param requireStatus refuse a credential that carries no status reference the adapter can check
+     * @param statusSigner which trust anchors may sign a credential's status list
+     * @param issuerExtendedKeyUsages if non-empty, an SD-JWT VC issuer certificate must carry one of these extended
+     *     key usage OIDs
      */
     public record Policy(
             String id,
@@ -126,7 +130,10 @@ public record AdapterConfig(String revision, Map<String, Tenant> tenants) {
             Duration sessionTtl,
             Duration resultTtl,
             java.util.Optional<io.github.suengineering.eudiw.core.oid4vp.RelyingPartyRegistration> registration,
-            boolean mdocStrictConformance) {}
+            boolean mdocStrictConformance,
+            boolean requireStatus,
+            io.github.suengineering.eudiw.core.oid4vp.VpTokenVerifier.StatusSigner statusSigner,
+            Set<String> issuerExtendedKeyUsages) {}
 
     public record OutputClaim(String credentialId, ClaimsPath path) {}
 

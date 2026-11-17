@@ -42,6 +42,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -55,6 +56,8 @@ import java.util.function.Supplier;
  *
  * <p>A cached list is used only while the certificate its token validated to is still a trust anchor, so a trusted
  * list update that withdraws a status provider takes effect at once. Concurrent checks of one list share one fetch.
+ * A list that could not be fetched or verified is not fetched again for a short hold time, so a failing or slow host
+ * is not contacted on every verification; checks in that time get the same failure.
  *
  * <p>A list that cannot be fetched, verified or indexed yields {@link StatusDecision.Result#INDETERMINATE}; the
  * caller's policy decides whether that rejects the credential.
@@ -86,9 +89,19 @@ public final class StatusListChecker {
     private final int maxListBytes;
     private final Map<String, CachedList> cache;
     private final int maxCacheEntries;
-    private final Map<String, CompletableFuture<StatusList>> inFlight = new ConcurrentHashMap<>();
+    private final Map<String, CompletableFuture<Resolved>> inFlight = new ConcurrentHashMap<>();
+    private final Map<String, Failed> failures;
+    private final Duration failureHold;
+
+    /** How long a list that failed to fetch or verify is not fetched again, unless set otherwise. */
+    public static final Duration DEFAULT_FAILURE_HOLD = Duration.ofSeconds(30);
 
     private record CachedList(StatusList list, Instant until, X509Certificate anchor) {}
+
+    /** A verified list and the trust anchor its token's signer chained to. */
+    private record Resolved(StatusList list, X509Certificate anchor) {}
+
+    private record Failed(String code, String message, Instant until) {}
 
     public StatusListChecker(
             HttpFetcher fetcher,
@@ -98,6 +111,21 @@ public final class StatusListChecker {
             Duration clockSkew,
             Duration maxCacheAge,
             int maxCacheEntries) {
+        this(fetcher, trustAnchors, algorithms, clock, clockSkew, maxCacheAge, maxCacheEntries, DEFAULT_FAILURE_HOLD);
+    }
+
+    /**
+     * @param failureHold how long a list that could not be fetched or verified is not fetched again; zero disables
+     */
+    public StatusListChecker(
+            HttpFetcher fetcher,
+            Supplier<Set<TrustAnchor>> trustAnchors,
+            AlgorithmPolicy algorithms,
+            Clock clock,
+            Duration clockSkew,
+            Duration maxCacheAge,
+            int maxCacheEntries,
+            Duration failureHold) {
         this.fetcher = Objects.requireNonNull(fetcher, "fetcher");
         this.trustAnchors = Objects.requireNonNull(trustAnchors, "trustAnchors");
         this.algorithms = Objects.requireNonNull(algorithms, "algorithms");
@@ -110,6 +138,16 @@ public final class StatusListChecker {
         this.cache = new LinkedHashMap<>(16, 0.75f, true) {
             @Override
             protected boolean removeEldestEntry(Map.Entry<String, CachedList> eldest) {
+                return size() > StatusListChecker.this.maxCacheEntries;
+            }
+        };
+        this.failureHold = Objects.requireNonNull(failureHold, "failureHold");
+        if (failureHold.isNegative()) {
+            throw new IllegalArgumentException("failureHold must not be negative");
+        }
+        this.failures = new LinkedHashMap<>(16, 0.75f, false) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, Failed> eldest) {
                 return size() > StatusListChecker.this.maxCacheEntries;
             }
         };
@@ -131,6 +169,23 @@ public final class StatusListChecker {
      * @throws VerificationFailure {@code malformed_credential} when the status claim itself is malformed
      */
     public StatusDecision check(Map<String, Object> statusClaim, String cacheScope, boolean preferCwt) {
+        return check(statusClaim, cacheScope, preferCwt, Optional.empty());
+    }
+
+    /**
+     * @param statusClaim the verified {@code status} of the Referenced Token, as JSON-compatible values
+     * @param cacheScope isolates cached lists, for example tenant and trust profile revision
+     * @param preferCwt ask for the CWT form first, as for a Referenced Token in CBOR such as an mdoc
+     * @param issuerAnchor when present, the list's signer must chain to this trust anchor, the one the credential's
+     *     issuer chained to; a list signed under another anchor is indeterminate ({@code status_signer_not_issuer})
+     * @throws VerificationFailure {@code malformed_credential} when the status claim itself is malformed
+     */
+    public StatusDecision check(
+            Map<String, Object> statusClaim,
+            String cacheScope,
+            boolean preferCwt,
+            Optional<X509Certificate> issuerAnchor) {
+        Objects.requireNonNull(issuerAnchor, "issuerAnchor");
         if (!(statusClaim.get("status_list") instanceof Map<?, ?> reference)) {
             throw new VerificationFailure("malformed_credential", "status claim has no status_list");
         }
@@ -146,7 +201,11 @@ public final class StatusListChecker {
 
         StatusList list;
         try {
-            list = resolve(uri, cacheScope, preferCwt ? ACCEPT_CWT_FIRST : ACCEPT);
+            Resolved resolved = resolve(uri, cacheScope, preferCwt ? ACCEPT_CWT_FIRST : ACCEPT);
+            if (issuerAnchor.isPresent() && !issuerAnchor.get().equals(resolved.anchor())) {
+                return StatusDecision.indeterminate("status_signer_not_issuer");
+            }
+            list = resolved.list();
         } catch (VerificationFailure failure) {
             return StatusDecision.indeterminate(failure.code());
         }
@@ -159,17 +218,24 @@ public final class StatusListChecker {
         return StatusDecision.of(value);
     }
 
-    private StatusList resolve(String uri, String cacheScope, String accept) {
+    private Resolved resolve(String uri, String cacheScope, String accept) {
         String key = cacheScope + "\n" + uri;
         Instant now = clock.instant();
         synchronized (cache) {
             CachedList cached = cache.get(key);
             if (cached != null && now.isBefore(cached.until()) && isAnchor(cached.anchor())) {
-                return cached.list();
+                return new Resolved(cached.list(), cached.anchor());
+            }
+            Failed failed = failures.get(key);
+            if (failed != null) {
+                if (now.isBefore(failed.until())) {
+                    throw new VerificationFailure(failed.code(), failed.message());
+                }
+                failures.remove(key);
             }
         }
-        CompletableFuture<StatusList> mine = new CompletableFuture<>();
-        CompletableFuture<StatusList> running = inFlight.putIfAbsent(key, mine);
+        CompletableFuture<Resolved> mine = new CompletableFuture<>();
+        CompletableFuture<Resolved> running = inFlight.putIfAbsent(key, mine);
         if (running != null) {
             try {
                 return running.join();
@@ -181,9 +247,17 @@ public final class StatusListChecker {
             }
         }
         try {
-            StatusList list = fetch(uri, key, accept, now);
-            mine.complete(list);
-            return list;
+            Resolved resolved = fetch(uri, key, accept, now);
+            mine.complete(resolved);
+            return resolved;
+        } catch (VerificationFailure e) {
+            if (failureHold.isPositive()) {
+                synchronized (cache) {
+                    failures.put(key, new Failed(e.code(), e.getMessage(), now.plus(failureHold)));
+                }
+            }
+            mine.completeExceptionally(e);
+            throw e;
         } catch (RuntimeException e) {
             mine.completeExceptionally(e);
             throw e;
@@ -201,7 +275,7 @@ public final class StatusListChecker {
         return false;
     }
 
-    private StatusList fetch(String uri, String key, String accept, Instant now) {
+    private Resolved fetch(String uri, String key, String accept, Instant now) {
         byte[] body;
         try {
             body = fetcher.get(URI.create(uri), accept, maxTokenBytes);
@@ -215,7 +289,7 @@ public final class StatusListChecker {
         synchronized (cache) {
             cache.put(key, new CachedList(verified.list(), verified.cacheUntil(), verified.anchor()));
         }
-        return verified.list();
+        return new Resolved(verified.list(), verified.anchor());
     }
 
     private record Verified(StatusList list, Instant cacheUntil, X509Certificate anchor) {}

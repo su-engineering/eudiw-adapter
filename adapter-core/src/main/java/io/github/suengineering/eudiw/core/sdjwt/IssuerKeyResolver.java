@@ -42,17 +42,28 @@ public interface IssuerKeyResolver {
      * @param certificateChain the validated certificate chain, end-entity first; empty for key-based mechanisms
      * @param trustSources where the trusted certificate the chain validated to came from, for example a trusted
      *     list location; empty for key-based mechanisms
+     * @param anchor the trust anchor the chain validated to; empty for key-based mechanisms
      */
     record ResolvedIssuerKey(
             JWK key,
             String issuer,
             java.util.List<java.security.cert.X509Certificate> certificateChain,
-            java.util.Set<String> trustSources) {
+            java.util.Set<String> trustSources,
+            java.util.Optional<java.security.cert.X509Certificate> anchor) {
         public ResolvedIssuerKey {
             java.util.Objects.requireNonNull(key, "key");
             java.util.Objects.requireNonNull(issuer, "issuer");
             certificateChain = java.util.List.copyOf(certificateChain);
             trustSources = java.util.Set.copyOf(trustSources);
+            java.util.Objects.requireNonNull(anchor, "anchor");
+        }
+
+        public ResolvedIssuerKey(
+                JWK key,
+                String issuer,
+                java.util.List<java.security.cert.X509Certificate> certificateChain,
+                java.util.Set<String> trustSources) {
+            this(key, issuer, certificateChain, trustSources, java.util.Optional.empty());
         }
 
         public ResolvedIssuerKey(JWK key, String issuer) {

@@ -45,6 +45,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -223,6 +224,79 @@ class StatusListCheckerTest {
             pool.shutdownNow();
         }
         assertThat(calls).hasValue(1);
+    }
+
+    @Test
+    void aFailedListIsNotFetchedAgainDuringTheHold() {
+        AtomicReference<Instant> time = new AtomicReference<>(now);
+        Clock moving = new Clock() {
+            @Override
+            public java.time.ZoneId getZone() {
+                return ZoneOffset.UTC;
+            }
+
+            @Override
+            public Clock withZone(java.time.ZoneId zone) {
+                return this;
+            }
+
+            @Override
+            public Instant instant() {
+                return time.get();
+            }
+        };
+        StatusListChecker checker = new StatusListChecker(
+                fetcher,
+                () -> Set.of(new TrustAnchor(root.certificate(), null)),
+                AlgorithmPolicy.DEFAULT,
+                moving,
+                Duration.ofSeconds(60),
+                Duration.ofHours(1),
+                100,
+                Duration.ofSeconds(30));
+
+        served.set(null);
+        assertThat(checker.check(status(1), "t1").reason()).isEqualTo("status_list_unavailable");
+        assertThat(fetches).hasValue(1);
+        // The host recovers, but within the hold the failure is remembered and the host is left alone.
+        served.set(token(claims(ONE_BIT, 1)));
+        time.set(now.plusSeconds(29));
+        assertThat(checker.check(status(1), "t1").reason()).isEqualTo("status_list_unavailable");
+        assertThat(fetches).hasValue(1);
+        // Another scope has its own entry.
+        assertThat(checker.check(status(1), "t2").result()).isEqualTo(Result.VALID);
+        assertThat(fetches).hasValue(2);
+        time.set(now.plusSeconds(31));
+        assertThat(checker.check(status(1), "t1").result()).isEqualTo(Result.VALID);
+        assertThat(fetches).hasValue(3);
+    }
+
+    @Test
+    void anUnverifiableListIsAlsoHeld() {
+        served.set("garbage");
+        StatusListChecker checker = checker();
+
+        assertThat(checker.check(status(1), "t1").reason()).isEqualTo("status_list_invalid");
+        assertThat(checker.check(status(1), "t1").reason()).isEqualTo("status_list_invalid");
+        assertThat(fetches).hasValue(1);
+    }
+
+    @Test
+    void aListMustBeSignedUnderTheIssuerAnchorWhenOneIsGiven() {
+        Issued otherRoot = TestPki.rootCa("CN=Issuer Root", now.minusSeconds(86400), now.plusSeconds(86400));
+        served.set(token(claims(ONE_BIT, 1)));
+        StatusListChecker checker = checker();
+
+        assertThat(checker.check(status(1), "t1", false, Optional.of(root.certificate()))
+                        .result())
+                .isEqualTo(Result.VALID);
+        assertThat(checker.check(status(1), "t1", false, Optional.of(otherRoot.certificate())))
+                .satisfies(d -> {
+                    assertThat(d.result()).isEqualTo(Result.INDETERMINATE);
+                    assertThat(d.reason()).isEqualTo("status_signer_not_issuer");
+                });
+        // The cached list keeps its anchor, so the binding holds on a cache hit too.
+        assertThat(fetches).hasValue(1);
     }
 
     @Test

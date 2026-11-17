@@ -200,16 +200,15 @@ public class AdapterRuntime {
                                     ? MdocDeviceAuthentication.STRICT_SIGNATURE
                                     : MdocDeviceAuthentication.SIGNATURE));
                 }
+                X5cIssuerKeyResolver issuerKeys = (policy.checkCertificateRevocation()
+                                ? X5cIssuerKeyResolver.withTrustStore(
+                                        issuance,
+                                        clock,
+                                        new CrlRevocationChecker(crlFetcher == null ? fetcher : crlFetcher, clock, 256))
+                                : X5cIssuerKeyResolver.withTrustStore(issuance, clock))
+                        .requiringExtendedKeyUsage(policy.issuerExtendedKeyUsages());
                 VpTokenVerifier verifier = new VpTokenVerifier(
-                        new SdJwtVcVerifier(
-                                policy.checkCertificateRevocation()
-                                        ? X5cIssuerKeyResolver.withTrustStore(
-                                                issuance,
-                                                clock,
-                                                new CrlRevocationChecker(
-                                                        crlFetcher == null ? fetcher : crlFetcher, clock, 256))
-                                        : X5cIssuerKeyResolver.withTrustStore(issuance, clock),
-                                false),
+                        new SdJwtVcVerifier(issuerKeys, false),
                         mdoc,
                         policy.statusPolicy() == StatusPolicy.IGNORE ? Optional.empty() : Optional.of(checker),
                         new VpTokenVerifier.Settings(
@@ -218,7 +217,9 @@ public class AdapterRuntime {
                                 Duration.ofSeconds(60),
                                 AlgorithmPolicy.DEFAULT,
                                 policy.enforceTrustedAuthorities(),
-                                policy.statusPolicy()));
+                                policy.statusPolicy(),
+                                policy.requireStatus(),
+                                policy.statusSigner()));
                 verifiers.put(key(tenant.id(), policy.id()), verifier);
             }
         }

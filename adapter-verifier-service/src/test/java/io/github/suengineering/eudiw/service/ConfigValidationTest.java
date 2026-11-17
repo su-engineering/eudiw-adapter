@@ -18,6 +18,7 @@ package io.github.suengineering.eudiw.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.github.suengineering.eudiw.core.oid4vp.VpTokenVerifier;
 import io.github.suengineering.eudiw.core.x509.TestPki;
 import io.github.suengineering.eudiw.service.config.AdapterConfig;
 import io.github.suengineering.eudiw.service.config.ConfigLoader;
@@ -117,6 +118,48 @@ class ConfigValidationTest {
         assertThatThrownBy(() -> policy(list.formatted("\"true\"")))
                 .isInstanceOf(ConfigException.class)
                 .hasMessageContaining("follow_pointers must be true or false");
+    }
+
+    @Test
+    void statusOptionsDefaultToTheCurrentBehaviour() throws Exception {
+        AdapterConfig.Policy policy = policy("");
+        assertThat(policy.requireStatus()).isFalse();
+        assertThat(policy.statusSigner()).isEqualTo(VpTokenVerifier.StatusSigner.ANY_ANCHOR);
+        assertThat(policy.issuerExtendedKeyUsages()).isEmpty();
+    }
+
+    @Test
+    void requireStatusTakesBooleansOnlyAndNeedsAStatusPolicy() throws Exception {
+        assertThat(policy(",\"require_status\":true").requireStatus()).isTrue();
+        assertThatThrownBy(() -> policy(",\"require_status\":\"true\""))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("require_status must be true or false");
+        assertThatThrownBy(() -> policy(",\"require_status\":true,\"status_policy\":\"ignore\""))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("require_status");
+    }
+
+    @Test
+    void statusSignerIsOneOfTwoValues() throws Exception {
+        assertThat(policy(",\"status_signer\":\"credential_issuer\"").statusSigner())
+                .isEqualTo(VpTokenVerifier.StatusSigner.CREDENTIAL_ISSUER);
+        assertThat(policy(",\"status_signer\":\"any_anchor\"").statusSigner())
+                .isEqualTo(VpTokenVerifier.StatusSigner.ANY_ANCHOR);
+        assertThatThrownBy(() -> policy(",\"status_signer\":\"issuer\""))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("status_signer");
+    }
+
+    @Test
+    void issuerExtendedKeyUsagesMustBeOids() throws Exception {
+        assertThat(policy(",\"issuer_extended_key_usages\":[\"1.3.6.1.4.1.55555.1.1\"]")
+                        .issuerExtendedKeyUsages())
+                .containsExactly("1.3.6.1.4.1.55555.1.1");
+        for (String value : List.of("[]", "[\"issuer\"]", "[\"1.02.3\"]", "[1]", "\"1.2.3\"")) {
+            assertThatThrownBy(() -> policy(",\"issuer_extended_key_usages\":" + value))
+                    .as(value)
+                    .isInstanceOf(ConfigException.class);
+        }
     }
 
     @ParameterizedTest

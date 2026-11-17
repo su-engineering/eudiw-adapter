@@ -23,12 +23,14 @@ import io.github.suengineering.eudiw.core.x509.CertificateKeys;
 import io.github.suengineering.eudiw.core.x509.CertificateNames;
 import io.github.suengineering.eudiw.core.x509.CrlRevocationChecker;
 import io.github.suengineering.eudiw.core.x509.TrustStore;
+import java.security.cert.CertificateParsingException;
 import java.security.cert.TrustAnchor;
 import java.security.cert.X509Certificate;
 import java.time.Clock;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
 
@@ -39,12 +41,17 @@ import java.util.function.Supplier;
  * <p>When the credential carries an {@code iss} claim, it must be bound to the certificate (a SAN URI equal to
  * it, or a SAN dNSName equal to its host), so that a certificate trusted for one issuer cannot sign credentials
  * claiming another (SD-JWT VC section 10.2). Without {@code iss}, the issuer is the certificate subject.
+ *
+ * <p>Optionally, the end-entity certificate must carry one of a set of extended key usages, so that an anchor that
+ * also certifies other purposes, such as a broad organisational CA, cannot sign credentials with any certificate it
+ * issued ({@link #requiringExtendedKeyUsage(Set)}).
  */
 public final class X5cIssuerKeyResolver implements IssuerKeyResolver {
 
     private final Supplier<TrustStore> trustStore;
     private final Clock clock;
     private final CrlRevocationChecker revocation;
+    private final Set<String> extendedKeyUsages;
 
     /**
      * @param trustAnchors current trust anchors, consulted on every call so updates apply
@@ -55,12 +62,27 @@ public final class X5cIssuerKeyResolver implements IssuerKeyResolver {
         this.trustStore = () -> TrustStore.ofAnchors(trustAnchors.get());
         this.clock = Objects.requireNonNull(clock, "clock");
         this.revocation = null;
+        this.extendedKeyUsages = Set.of();
     }
 
-    private X5cIssuerKeyResolver(Clock clock, Supplier<TrustStore> trustStore, CrlRevocationChecker revocation) {
+    private X5cIssuerKeyResolver(
+            Clock clock,
+            Supplier<TrustStore> trustStore,
+            CrlRevocationChecker revocation,
+            Set<String> extendedKeyUsages) {
         this.trustStore = Objects.requireNonNull(trustStore, "trustStore");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.revocation = revocation;
+        this.extendedKeyUsages = Set.copyOf(extendedKeyUsages);
+    }
+
+    /**
+     * A resolver that also requires the end-entity certificate to carry at least one of these extended key usages.
+     *
+     * @param oids dotted extended key usage OIDs; empty removes the requirement
+     */
+    public X5cIssuerKeyResolver requiringExtendedKeyUsage(Set<String> oids) {
+        return new X5cIssuerKeyResolver(clock, trustStore, revocation, oids);
     }
 
     /**
@@ -69,7 +91,7 @@ public final class X5cIssuerKeyResolver implements IssuerKeyResolver {
      * @param clock time source
      */
     public static X5cIssuerKeyResolver withTrustStore(Supplier<TrustStore> trustStore, Clock clock) {
-        return new X5cIssuerKeyResolver(clock, trustStore, null);
+        return new X5cIssuerKeyResolver(clock, trustStore, null, Set.of());
     }
 
     /**
@@ -78,7 +100,7 @@ public final class X5cIssuerKeyResolver implements IssuerKeyResolver {
      */
     public static X5cIssuerKeyResolver withTrustStore(
             Supplier<TrustStore> trustStore, Clock clock, CrlRevocationChecker revocation) {
-        return new X5cIssuerKeyResolver(clock, trustStore, Objects.requireNonNull(revocation, "revocation"));
+        return new X5cIssuerKeyResolver(clock, trustStore, Objects.requireNonNull(revocation, "revocation"), Set.of());
     }
 
     @Override
@@ -93,6 +115,10 @@ public final class X5cIssuerKeyResolver implements IssuerKeyResolver {
         CertificateChainValidator.ValidatedPath path =
                 CertificateChainValidator.validatePath(chain, store.anchors(), clock.instant());
         X509Certificate leaf = path.leaf();
+        if (!extendedKeyUsages.isEmpty() && !hasExtendedKeyUsage(leaf)) {
+            throw new VerificationFailure(
+                    "issuer_untrusted", "the issuer certificate has none of the required extended key usages");
+        }
         if (revocation != null) {
             revocation.check(chain, path.anchor());
         }
@@ -106,6 +132,22 @@ public final class X5cIssuerKeyResolver implements IssuerKeyResolver {
         } else {
             throw new VerificationFailure("issuer_untrusted", "iss is not bound to the signing certificate");
         }
-        return new ResolvedIssuerKey(CertificateKeys.publicJwk(leaf), issuer, chain, store.sourcesOf(path.anchor()));
+        return new ResolvedIssuerKey(
+                CertificateKeys.publicJwk(leaf),
+                issuer,
+                chain,
+                store.sourcesOf(path.anchor()),
+                Optional.of(path.anchor()));
+    }
+
+    private boolean hasExtendedKeyUsage(X509Certificate certificate) {
+        List<String> usages;
+        try {
+            usages = certificate.getExtendedKeyUsage();
+        } catch (CertificateParsingException e) {
+            throw new VerificationFailure(
+                    "issuer_untrusted", "the issuer certificate has a malformed extended key usage");
+        }
+        return usages != null && usages.stream().anyMatch(extendedKeyUsages::contains);
     }
 }

@@ -22,6 +22,7 @@ import io.github.suengineering.eudiw.core.keys.Pkcs11Keys;
 import io.github.suengineering.eudiw.core.oid4vp.RelyingPartyRegistration;
 import io.github.suengineering.eudiw.core.oid4vp.VerifierIdentity;
 import io.github.suengineering.eudiw.core.oid4vp.VpTokenVerifier.StatusPolicy;
+import io.github.suengineering.eudiw.core.oid4vp.VpTokenVerifier.StatusSigner;
 import io.github.suengineering.eudiw.core.trust.TrustedList;
 import io.github.suengineering.eudiw.core.trust.TrustedListSource;
 import io.github.suengineering.eudiw.service.config.AdapterConfig.ClientApplication;
@@ -45,6 +46,7 @@ import java.security.spec.PKCS8EncodedKeySpec;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -66,6 +68,7 @@ public final class ConfigLoader {
     private static final org.jboss.logging.Logger LOG = org.jboss.logging.Logger.getLogger(ConfigLoader.class);
 
     private static final Pattern ID = Pattern.compile("[a-z0-9][a-z0-9._-]{0,63}");
+    private static final Pattern OID = Pattern.compile("[0-2](\\.(0|[1-9][0-9]*))+");
     /** An OAuth client id (RFC 6749 VSCHAR) without space, quote or backslash, so it is compared verbatim. */
     private static final Pattern CLIENT_ID = Pattern.compile("[\\x21\\x23-\\x5B\\x5D-\\x7E]{1,255}");
 
@@ -311,6 +314,30 @@ public final class ConfigLoader {
                 default -> throw new ConfigException(where + ": certificate_revocation must be crl or off");
             };
         }
+        boolean requireStatus = flag(json, "require_status", where);
+        if (requireStatus && statusPolicy == StatusPolicy.IGNORE) {
+            throw new ConfigException(where + ": require_status needs a status_policy other than ignore");
+        }
+        StatusSigner statusSigner = StatusSigner.ANY_ANCHOR;
+        if (json.containsKey("status_signer")) {
+            statusSigner = switch (string(json, "status_signer")) {
+                case "any_anchor" -> StatusSigner.ANY_ANCHOR;
+                case "credential_issuer" -> StatusSigner.CREDENTIAL_ISSUER;
+                default -> throw new ConfigException(where + ": status_signer must be any_anchor or credential_issuer");
+            };
+        }
+        Set<String> issuerUsages = new LinkedHashSet<>();
+        if (json.containsKey("issuer_extended_key_usages")) {
+            for (Object oid : list(json, "issuer_extended_key_usages")) {
+                if (!(oid instanceof String s) || !OID.matcher(s).matches()) {
+                    throw new ConfigException(where + ": issuer_extended_key_usages must be dotted OID strings");
+                }
+                issuerUsages.add(s);
+            }
+            if (issuerUsages.isEmpty()) {
+                throw new ConfigException(where + ": issuer_extended_key_usages must not be empty");
+            }
+        }
         boolean enforceAuthorities = flag(json, "enforce_trusted_authorities", true, where);
         Duration sessionTtl =
                 seconds(json, "session_ttl_seconds", Duration.ofMinutes(5), AdapterConfig.MAX_SESSION_TTL, where);
@@ -333,7 +360,10 @@ public final class ConfigLoader {
                 sessionTtl,
                 resultTtl,
                 registration,
-                flag(json, "mdoc_strict_conformance", where));
+                flag(json, "mdoc_strict_conformance", where),
+                requireStatus,
+                statusSigner,
+                Collections.unmodifiableSet(issuerUsages));
     }
 
     private static boolean flag(Map<String, Object> json, String name, String where) {

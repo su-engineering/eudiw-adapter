@@ -36,6 +36,8 @@ import java.util.Set;
  *     key was not resolved from certificates
  * @param trustSources where the trusted certificate that anchored the issuer came from, for example a trusted
  *     list location
+ * @param issuerAnchor the trust anchor the issuer chain validated to; empty when the issuer key was not resolved from
+ *     certificates
  */
 public record VerifiedSdJwt(
         JWSHeader header,
@@ -45,4 +47,27 @@ public record VerifiedSdJwt(
         Optional<JWK> holderKey,
         boolean keyBindingVerified,
         java.util.List<java.security.cert.X509Certificate> issuerCertificateChain,
-        Set<String> trustSources) {}
+        Set<String> trustSources,
+        Optional<java.security.cert.X509Certificate> issuerAnchor) {
+
+    public VerifiedSdJwt(
+            JWSHeader header,
+            String issuer,
+            Map<String, Object> payload,
+            Set<String> selectivelyDisclosedTopLevelClaims,
+            Optional<JWK> holderKey,
+            boolean keyBindingVerified,
+            java.util.List<java.security.cert.X509Certificate> issuerCertificateChain,
+            Set<String> trustSources) {
+        this(
+                header,
+                issuer,
+                payload,
+                selectivelyDisclosedTopLevelClaims,
+                holderKey,
+                keyBindingVerified,
+                issuerCertificateChain,
+                trustSources,
+                Optional.empty());
+    }
+}

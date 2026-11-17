@@ -106,6 +106,17 @@ class MdocVpTokenTest {
     }
 
     @Test
+    void anMdocWithAStatusListReferenceMeetsRequireStatus() {
+        VpTokenVerifier.Result result = verifier(
+                        (d, i, t) -> List.of(),
+                        StatusPolicy.REJECT_KNOWN_INVALID,
+                        true,
+                        VpTokenVerifier.StatusSigner.CREDENTIAL_ISSUER)
+                .verify(vpToken(deviceResponse(document())), query, context);
+        assertThat(result.credentials()).containsKey("pid");
+    }
+
+    @Test
     void theDeviceResponseShapeIsChecked() {
         VpTokenVerifier verifier = verifier((d, i, t) -> List.of(), StatusPolicy.REJECT_KNOWN_INVALID);
         expect(verifier, "not base64url!", "malformed_credential");
@@ -143,6 +154,14 @@ class MdocVpTokenTest {
     }
 
     private VpTokenVerifier verifier(MdocDeviceAuthentication deviceAuthentication, StatusPolicy statusPolicy) {
+        return verifier(deviceAuthentication, statusPolicy, false, VpTokenVerifier.StatusSigner.ANY_ANCHOR);
+    }
+
+    private VpTokenVerifier verifier(
+            MdocDeviceAuthentication deviceAuthentication,
+            StatusPolicy statusPolicy,
+            boolean requireStatus,
+            VpTokenVerifier.StatusSigner statusSigner) {
         X509Certificate iaca = iaca();
         Clock clock = Clock.fixed(signed().plusSeconds(3600), ZoneOffset.UTC);
         MdocIssuerVerifier issuer = new MdocIssuerVerifier(
@@ -173,7 +192,9 @@ class MdocVpTokenTest {
                         Duration.ofSeconds(60),
                         AlgorithmPolicy.DEFAULT,
                         true,
-                        statusPolicy));
+                        statusPolicy,
+                        requireStatus,
+                        statusSigner));
     }
 
     private static CborItem document() {
