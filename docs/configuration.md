@@ -76,7 +76,7 @@ Relative paths resolve against the directory of the tenants file.
 - `webhook`: optional. `url` (HTTPS in production) receives a signed notification when one of this client's sessions is verified, rejected, denied or expired; `secret_file` holds a `whsec_` secret of 24 to 64 random bytes (generate with `echo "whsec_$(openssl rand -base64 32)"`); `previous_secret_file` optionally holds the old secret during a rotation. The notification carries no claims. See the `webhooks` section of the [OpenAPI](../openapi/management-v1.yaml) and [ADR-008](adr/0008-webhooks.md).
 
 **Policy**
-- `dcql`: the DCQL query sent to wallets (OpenID4VP 1.0 section 6). Callers cannot change it.
+- `dcql`: the DCQL query sent to wallets (OpenID4VP 1.0 section 6). Callers cannot change it. Formats: `dc+sd-jwt`, and `mso_mdoc` (see [mdoc](#mdoc)).
 - `output`: result claim names mapped to a credential query id and a claims path. Every path must be requested by the query, so a result can never contain more than the policy asks for.
 - `trust_anchors_file`: PEM certificates that issuer and status list certificate chains must validate to. Scoped to this policy.
 - `trusted_lists`: signed ETSI trusted lists whose approved services become trust anchors for this policy, in addition to `trust_anchors_file`. A policy needs at least one of the two. See [Trusted lists](#trusted-lists).
@@ -138,6 +138,26 @@ JVM, process and connection pool metrics are included. HTTP server metrics are n
 **Audit log.** Every event above is also written to the `audit_event` table and as one line to the `eudiw.audit` log category: action, outcome, reason code, tenant, client, policy, session id, configuration revision and time. No claims, tokens, nonces or request handles. Route the category to your log pipeline; for JSON output add the Quarkus JSON logging extension in your build.
 
 **Tracing.** With `QUARKUS_OTEL_SDK_DISABLED=false`, the service exports OpenTelemetry spans over OTLP. Before a span is recorded the request handle in `/oid4vp/requests/{handle}` is replaced and every query string is removed, since they would let a reader fetch a request or retrieve a same-device result.
+
+
+## mdoc
+
+A policy can request an ISO mdoc with `"format": "mso_mdoc"`, a `meta.doctype_value`, and claim paths of the form `[namespace, element]`, optionally with `intent_to_retain` (OpenID4VP 1.0 Appendix B.2):
+
+```json
+"dcql": { "credentials": [ { "id": "mdl", "format": "mso_mdoc",
+  "meta": { "doctype_value": "org.iso.18013.5.1.mDL" },
+  "claims": [ { "path": ["org.iso.18013.5.1", "age_over_18"], "intent_to_retain": false } ] } ] },
+"output": { "age_over_18": { "credential": "mdl", "path": ["org.iso.18013.5.1", "age_over_18"] } }
+```
+
+- Document signer certificates validate to the policy's `trust_anchors_file` and `trusted_lists`, as for SD-JWT VC, with CRLs when `certificate_revocation` is `crl`. For the mDL doctype the IACA rules also apply: the document signer carries the mDL document signer extended key usage and the same country (and state) as the IACA.
+- `allowed_issuers` compares against the document signer certificate's subject name.
+- Values come back as JSON: dates as their text, byte strings (such as a portrait) as base64url.
+- An MSO status reference cannot be checked yet ([ADR-012](adr/0012-mdoc.md)): `require_valid` rejects such an mdoc, `reject_known_invalid` accepts it.
+
+> [!WARNING]
+> **mdoc device authentication is not implemented yet.** Until it is, every mdoc presentation is rejected with `unsupported_format`, and the service logs a warning at startup for each policy that requests `mso_mdoc`. Issuer verification, the session transcript and the request metadata are in place.
 
 ## Trusted lists
 

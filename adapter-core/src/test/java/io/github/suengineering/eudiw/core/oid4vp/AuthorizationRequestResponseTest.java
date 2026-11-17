@@ -158,6 +158,38 @@ class AuthorizationRequestResponseTest {
     }
 
     @Test
+    void mdocAlgorithmsAreAdvertisedOnlyForMdocQueries() throws Exception {
+        assertThat(formats(query)).containsOnlyKeys("dc+sd-jwt");
+        DcqlQuery mdoc = DcqlQuery.parse(io.github.suengineering.eudiw.core.json.Json.parseObject("""
+                {"credentials":[{"id":"mdl","format":"mso_mdoc","meta":{"doctype_value":"org.iso.18013.5.1.mDL"},
+                  "claims":[{"path":["org.iso.18013.5.1","age_over_18"],"intent_to_retain":false}]}]}""", "test"));
+        Map<String, Object> formats = formats(mdoc);
+        assertThat(formats).containsKeys("dc+sd-jwt", "mso_mdoc");
+        assertThat(formats.get("mso_mdoc"))
+                .isEqualTo(Map.of(
+                        "issuerauth_alg_values", List.of(-7L, -9L, -35L, -51L, -36L, -52L, -8L, -19L, -53L),
+                        "deviceauth_alg_values", List.of(-7L, -9L, -35L, -51L, -36L, -52L, -8L, -19L, -53L)));
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> formats(DcqlQuery dcql) throws Exception {
+        String jwt = AuthorizationRequests.signRequestObject(
+                identity,
+                new AuthorizationRequests.Parameters(
+                        URI.create("https://verifier.test.example/oid4vp/response"),
+                        AuthorizationRequests.randomValue(),
+                        "state-1",
+                        dcql,
+                        AuthorizationRequests.newResponseEncryptionKey(),
+                        null,
+                        Duration.ofMinutes(5)),
+                NOW);
+        Map<String, Object> metadata = (Map<String, Object>)
+                JWSObject.parse(jwt).getPayload().toJSONObject().get("client_metadata");
+        return (Map<String, Object>) metadata.get("vp_formats_supported");
+    }
+
+    @Test
     void selfSignedRequestSigningCertificateIsRefused() {
         Issued selfSigned = TestPki.selfSignedEndEntity("CN=Self", NOW.minusSeconds(60), NOW.plusSeconds(3600));
 

@@ -57,6 +57,11 @@ public class TestEnvironment implements QuarkusTestResourceLifecycleManager {
     /** Port of the local receiver for webhooks and the registration status list. */
     public static int receiverPort;
 
+    /** Issues synthetic mdocs; its IACA is the trust anchor of the {@code mdl-age} policy. */
+    public static io.github.suengineering.eudiw.core.mdoc.TestMdocIssuer mdocIssuer;
+
+    public static final String MDL_DOCTYPE = "org.iso.18013.5.1.mDL";
+
     public static final String RP_A_ID = "VATBE-0999999999";
     public static final String VCT = "https://credentials.test.example/age";
     public static final String PID_LIST_ID = "https://lists.test.example/pid-providers.jwt";
@@ -204,6 +209,9 @@ public class TestEnvironment implements QuarkusTestResourceLifecycleManager {
                 "CN=Verifier A,2.5.4.97=" + RP_A_ID, rpRoot, from, until, KeyUsage.digitalSignature, List.of());
         Issued rpB = TestPki.endEntity("CN=Verifier B", rpRoot, from, until, KeyUsage.digitalSignature, List.of());
 
+        mdocIssuer = new io.github.suengineering.eudiw.core.mdoc.TestMdocIssuer(
+                "CN=Test IACA,C=EU", "CN=Test Document Signer,C=EU", true, from, until);
+        write("mdoc-iaca.pem", pem(mdocIssuer.iaca));
         write("issuer-a-root.pem", pem(rootA.certificate()));
         write("issuer-a.pem", pem(issuerA.certificate()));
         write("issuer-a-key.pem", pem(issuerA.keyPair().getPrivate()));
@@ -288,7 +296,7 @@ public class TestEnvironment implements QuarkusTestResourceLifecycleManager {
                   {"id":"tenant-a",
                    "verifier":{"private_key_file":"rp-a-key.pem","certificate_chain_file":"rp-a.pem"},
                    "clients":[
-                     {"client_id":"portal-a","policies":["age-over-18","age-over-18-crl"],"completion_uri":"%s",
+                     {"client_id":"portal-a","policies":["age-over-18","age-over-18-crl","mdl-age"],"completion_uri":"%s",
                       "webhook":{"url":"http://127.0.0.1:%d/hook","secret_file":"portal-a.whsec"}},
                      {"client_id":"other-app-a","policies":[]},
                      {"client_id":"limited-a","policies":["age-over-18"],"rate_limit":{"sessions_per_minute":2}}],
@@ -308,7 +316,12 @@ public class TestEnvironment implements QuarkusTestResourceLifecycleManager {
                     {"id":"age-over-18-crl","dcql":%s,
                      "output":{"age_over_18":{"credential":"age","path":["age_over_18"]}},
                      "trust_anchors_file":"issuer-c-root.pem","certificate_revocation":"crl",
-                     "status_policy":"require_valid"}]},
+                     "status_policy":"require_valid"},
+                    {"id":"mdl-age","dcql":{"credentials":[{"id":"mdl","format":"mso_mdoc",
+                       "meta":{"doctype_value":"org.iso.18013.5.1.mDL"},
+                       "claims":[{"path":["org.iso.18013.5.1","age_over_18"],"intent_to_retain":false}]}]},
+                     "output":{"age_over_18":{"credential":"mdl","path":["org.iso.18013.5.1","age_over_18"]}},
+                     "trust_anchors_file":"mdoc-iaca.pem","status_policy":"reject_known_invalid"}]},
                   {"id":"tenant-b",
                    "verifier":{"private_key_file":"rp-b-key.pem","certificate_chain_file":"rp-b.pem"},
                    "clients":[{"client_id":"portal-b","policies":["age-over-18","age-over-18-listed"]}],

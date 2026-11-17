@@ -77,9 +77,17 @@ public record DcqlQuery(List<CredentialQuery> credentials, List<CredentialSetQue
      * @param path claims path pointer
      * @param values accepted values (strings, integers or booleans); empty means any value
      */
-    public record ClaimQuery(String id, ClaimsPath path, List<Object> values) {
+    /**
+     * @param intentToRetain for {@code mso_mdoc} only: whether the verifier intends to retain the value
+     *     (OpenID4VP 1.0 Appendix B.2.4); {@code null} when not stated
+     */
+    public record ClaimQuery(String id, ClaimsPath path, List<Object> values, Boolean intentToRetain) {
         public ClaimQuery {
             values = List.copyOf(values);
+        }
+
+        public ClaimQuery(String id, ClaimsPath path, List<Object> values) {
+            this(id, path, values, null);
         }
     }
 
@@ -190,7 +198,17 @@ public record DcqlQuery(List<CredentialQuery> credentials, List<CredentialSetQue
                         values.add(value instanceof Number n ? n.longValue() : value);
                     }
                 }
-                claims.add(new ClaimQuery(claimId, path, values));
+                Boolean intentToRetain = null;
+                if (claim.containsKey("intent_to_retain")) {
+                    if (!FORMAT_MDOC.equals(format)) {
+                        throw new IllegalArgumentException("intent_to_retain is only defined for mso_mdoc");
+                    }
+                    if (!(claim.get("intent_to_retain") instanceof Boolean b)) {
+                        throw new IllegalArgumentException("intent_to_retain must be a boolean");
+                    }
+                    intentToRetain = b;
+                }
+                claims.add(new ClaimQuery(claimId, path, values, intentToRetain));
             }
         }
 
@@ -267,6 +285,9 @@ public record DcqlQuery(List<CredentialQuery> credentials, List<CredentialSetQue
                     qj.put("path", q.path().components());
                     if (!q.values().isEmpty()) {
                         qj.put("values", q.values());
+                    }
+                    if (q.intentToRetain() != null) {
+                        qj.put("intent_to_retain", q.intentToRetain());
                     }
                     claims.add(qj);
                 }

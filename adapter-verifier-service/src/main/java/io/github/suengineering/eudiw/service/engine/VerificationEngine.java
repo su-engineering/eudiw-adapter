@@ -338,12 +338,14 @@ public class VerificationEngine {
         Policy policy = tenant.policies().get(session.policyId());
 
         Map<String, Object> payload;
+        byte[] keyThumbprint;
         try {
             ECKey key = (ECKey) JWK.parse(new String(
                     runtime.dataProtection().decrypt(session.tenantId(), "request-key:" + kid, row.keyCiphertext()),
                     StandardCharsets.UTF_8));
             payload = AuthorizationResponses.decrypt(response, key);
-        } catch (VerificationFailure | ParseException | ClassCastException e) {
+            keyThumbprint = key.toPublicJWK().computeThumbprint("SHA-256").decode();
+        } catch (VerificationFailure | ParseException | ClassCastException | com.nimbusds.jose.JOSEException e) {
             return new WalletReply(400, Map.of("error", "invalid_request"));
         }
         if (!row.state().equals(payload.get("state"))) {
@@ -375,7 +377,9 @@ public class VerificationEngine {
                             new VpTokenVerifier.Context(
                                     tenant.verifier().clientId(),
                                     row.nonce(),
-                                    session.tenantId() + "/" + session.policyId() + "/" + session.configRevision()));
+                                    session.tenantId() + "/" + session.policyId() + "/" + session.configRevision(),
+                                    responseUri().toString(),
+                                    java.util.Optional.of(keyThumbprint)));
             for (List<SelectedCredential> credentials : result.credentials().values()) {
                 for (SelectedCredential credential : credentials) {
                     if (!policy.allowedIssuers().isEmpty()

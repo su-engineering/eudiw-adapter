@@ -423,6 +423,50 @@ class VerificationFlowTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void anMdocPolicyAdvertisesMdocAndRejectsUntilDeviceAuthenticationExists() throws Exception {
+        JsonPath session = create("portal-a", "cross_device", "mdl-age");
+        Map<String, Object> request = TestWallet.fetchRequest(session.getString("wallet_launch.request_uri"));
+        Map<String, Object> formats = (Map<String, Object>)
+                ((Map<String, Object>) request.get("client_metadata")).get("vp_formats_supported");
+        assertThat(formats).containsKeys("dc+sd-jwt", "mso_mdoc");
+        assertThat(request.get("dcql_query").toString()).contains("intent_to_retain");
+
+        // A genuine mDL from a trusted issuer reaches device authentication, which is not implemented yet.
+        io.github.suengineering.eudiw.core.cbor.CborItem document = TestEnvironment.mdocIssuer.document(
+                TestEnvironment.MDL_DOCTYPE,
+                "org.iso.18013.5.1",
+                "org.iso.18013.5.1",
+                Map.of("age_over_18", io.github.suengineering.eudiw.core.cbor.CborEncoder.bool(true)),
+                Instant.now().minusSeconds(60),
+                Instant.now().minusSeconds(60),
+                Instant.now().plus(java.time.Duration.ofDays(30)));
+        Map<io.github.suengineering.eudiw.core.cbor.CborItem, io.github.suengineering.eudiw.core.cbor.CborItem>
+                deviceResponse = new java.util.LinkedHashMap<>();
+        deviceResponse.put(
+                io.github.suengineering.eudiw.core.cbor.CborEncoder.text("version"),
+                io.github.suengineering.eudiw.core.cbor.CborEncoder.text("1.0"));
+        deviceResponse.put(
+                io.github.suengineering.eudiw.core.cbor.CborEncoder.text("documents"),
+                io.github.suengineering.eudiw.core.cbor.CborEncoder.array(document));
+        deviceResponse.put(
+                io.github.suengineering.eudiw.core.cbor.CborEncoder.text("status"),
+                io.github.suengineering.eudiw.core.cbor.CborEncoder.integer(0));
+        String presentation = java.util.Base64.getUrlEncoder()
+                .withoutPadding()
+                .encodeToString(io.github.suengineering.eudiw.core.cbor.CborEncoder.map(deviceResponse)
+                        .encoded());
+        TestWallet.respond(request, Map.of("vp_token", Map.of("mdl", List.of(presentation))));
+
+        given().auth()
+                .oauth2(TestWallet.fullToken("portal-a"))
+                .get("/v1/verification-sessions/" + session.getString("id"))
+                .then()
+                .body("status", org.hamcrest.Matchers.equalTo("rejected"))
+                .body("reason", org.hamcrest.Matchers.equalTo("unsupported_format"));
+    }
+
+    @Test
     void expiredAndCancelledSessionsCannotBeCompleted() {
         JsonPath expiring = create("portal-a", "cross_device");
         Map<String, Object> request = TestWallet.fetchRequest(expiring.getString("wallet_launch.request_uri"));
