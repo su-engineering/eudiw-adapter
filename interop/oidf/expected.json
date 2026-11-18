@@ -1,0 +1,16 @@
+{
+ "oid4vp-1final-verifier-happy-flow": ["verified", null],
+ "oid4vp-1final-verifier-minimal-cnf-jwk": ["verified", null],
+ "oid4vp-1final-verifier-request-uri-method-post": ["verified", null],
+ "oid4vp-1final-verifier-request-uri-fetched-twice": ["verified", null],
+ "oid4vp-1final-verifier-present-credential-without-status": ["verified", null],
+ "oid4vp-1final-verifier-invalid-kb-jwt-signature": ["rejected", "invalid_key_binding"],
+ "oid4vp-1final-verifier-invalid-credential-signature": ["rejected", "invalid_signature"],
+ "oid4vp-1final-verifier-invalid-sd-hash": ["rejected", "sd_hash_mismatch"],
+ "oid4vp-1final-verifier-invalid-kb-jwt-nonce": ["rejected", "key_binding_nonce_mismatch"],
+ "oid4vp-1final-verifier-invalid-kb-jwt-aud": ["rejected", "key_binding_audience_mismatch"],
+ "oid4vp-1final-verifier-kb-jwt-iat-in-past": ["rejected", "key_binding_stale"],
+ "oid4vp-1final-verifier-kb-jwt-iat-in-future": ["rejected", "key_binding_stale"],
+ "oid4vp-1final-verifier-present-revoked-credential": ["rejected", "credential_revoked"],
+ "oid4vp-1final-verifier-wrong-vct": ["rejected", "credential_type_not_allowed"]
+}

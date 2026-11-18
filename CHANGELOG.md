@@ -2,6 +2,12 @@
 
 All notable changes to eudiw-adapter. Versions follow [Semantic Versioning](https://semver.org/); before 1.0.0, a minor version can change the API or the configuration format, and the notes say how.
 
+## [Unreleased]
+
+### Added
+
+- CI runs the OpenID Foundation OID4VP 1.0 Final + HAIP verifier test plan on every change (`oidf` job). The job fails when any of the 14 modules ends differently from `interop/oidf/expected.json` or the suite logs a failure or warning, and keeps the suite logs for 90 days. `interop/oidf/ci.sh` runs the same thing on a laptop. Every module still ends in REVIEW; this is not certification.
+
 ## [0.2.1] - 2026-11-17
 
 Security fixes from a security assessment, and hardening. The defaults keep existing installations working. Stricter trust checks are opt-in policy settings. Some invalid input that 0.2.0 accepted is now refused; see **Upgrading** before rolling out.

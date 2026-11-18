@@ -1,0 +1,39 @@
+# OpenID Foundation conformance suite, pinned to a release, for ci.sh. Based on the suite's own
+# docker-compose-prebuilt.yml. The suite serves https://localhost.emobix.co.uk:8443 (that name resolves to 127.0.0.1).
+name: eudiw-oidf-suite
+
+services:
+  mongodb:
+    image: mongo:6.0.13
+    tmpfs:
+      - /data/db
+
+  nginx:
+    image: registry.gitlab.com/openid/conformance-suite/nginx:release-v5.3.4@sha256:9a7850826fcc8690cd43373528f50e9551ba33bf8e4a40b67b13267b0aca3675
+    ports:
+      - "127.0.0.1:8443:8443"
+    networks:
+      default:
+        aliases:
+          # the suite's own requests to its public host name reach nginx, not the container's loopback
+          - localhost.emobix.co.uk
+    depends_on:
+      - server
+
+  server:
+    image: registry.gitlab.com/openid/conformance-suite:release-v5.3.4@sha256:dcc4bd1fb7e9c00f048a67373fe2bec5ecf9feb45a6b5d55e237e5c30e5312c6
+    environment:
+      BASE_URL: https://localhost.emobix.co.uk:8443
+      BASE_MTLS_URL: https://localhost.emobix.co.uk:8444
+      MONGODB_HOST: mongodb
+      SPRING_PROFILES_ACTIVE: dev
+      # placeholders the suite needs to start; no login is used
+      OIDC_GOOGLE_CLIENTID: google-client
+      OIDC_GOOGLE_SECRET: google-secret
+      OIDC_GITLAB_CLIENTID: gitlab-client
+      OIDC_GITLAB_SECRET: gitlab-secret
+    # the suite, acting as the wallet, reaches the adapter running on the host
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - mongodb

@@ -1,0 +1,8 @@
+# Written by setup.sh, ci.sh and run.py on each run
+tenants.json
+suite-config.json
+data-key
+token-public.b64
+suite-tls.pem
+results.json
+out/
