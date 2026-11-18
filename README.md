@@ -76,7 +76,9 @@ The demo runs PostgreSQL, Keycloak (as your OAuth server) and the adapter, then 
 - The credential also holds a name, but only `age_over_18` comes back.
 - The same check then runs with an ISO mdoc PID, and an mdoc signed over another session's transcript is rejected.
 
-The same demo runs in CI on every commit. It uses plain HTTP on localhost with `EUDIW_PRODUCTION=false`; production requires HTTPS.
+With the demo running, `./deploy/compose/waltid/run.sh` repeats the SD-JWT VC check with a second, unrelated wallet, [walt.id Wallet API 2](https://github.com/walt-id/waltid-identity/tree/main/waltid-services/waltid-wallet-api2).
+
+The same demo and the walt.id run happen in CI on every commit. The demo uses plain HTTP on localhost with `EUDIW_PRODUCTION=false`; production requires HTTPS.
 
 With the demo running, `node examples/node/server.mjs` serves an example page on http://localhost:3000 that runs the same check in the browser with the [`<eudiw-request>`](clients/web) component and shows each protocol step as it happens ([how to run it](examples/README.md)).
 
@@ -305,7 +307,8 @@ Test evidence per feature: [standards and feature status](docs/standards-matrix.
 - [x] OpenID Foundation HAIP verifier test plan in CI on every change (not certified)
 - [x] ISO mdoc (`mso_mdoc`): issuer and device authentication
 - [ ] Digital Credentials API
-- [ ] The EU reference wallet on real devices, a second independent wallet, OCSP
+- [x] A second independent wallet in CI (walt.id Wallet API 2, SD-JWT VC)
+- [ ] The EU reference wallet on real devices, OCSP
 - [ ] Wallet attestation, `transaction_data`, certification, external review
 
 The full, ordered list is in [ROADMAP.md](ROADMAP.md).

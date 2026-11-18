@@ -76,6 +76,8 @@ jobs:
         run: ./mvnw -B -ntp -pl adapter-verifier-service -am package -DskipTests
       - name: Run the Compose demo end to end
         run: ./deploy/compose/demo.sh
+      - name: Second wallet (walt.id Wallet API 2) against the demo
+        run: ./deploy/compose/waltid/run.sh
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
@@ -101,7 +103,9 @@ jobs:
           if-no-files-found: ignore
       - name: Service logs
         if: always()
-        run: docker compose -f deploy/compose/docker-compose.yml logs adapter | tail -200
+        run: |
+          docker compose -f deploy/compose/docker-compose.yml logs adapter | tail -200
+          docker compose -f deploy/compose/docker-compose.yml --profile waltid logs waltid-wallet | tail -100
 
   oidf:
     needs: verify
