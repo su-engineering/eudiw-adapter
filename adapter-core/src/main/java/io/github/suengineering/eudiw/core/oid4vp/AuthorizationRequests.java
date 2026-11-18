@@ -21,9 +21,7 @@ import com.nimbusds.jose.JWEAlgorithm;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.JWSObject;
-import com.nimbusds.jose.JWSSigner;
 import com.nimbusds.jose.Payload;
-import com.nimbusds.jose.crypto.ECDSASigner;
 import com.nimbusds.jose.jwk.Curve;
 import com.nimbusds.jose.jwk.ECKey;
 import com.nimbusds.jose.jwk.KeyUse;
@@ -31,7 +29,7 @@ import com.nimbusds.jose.jwk.gen.ECKeyGenerator;
 import com.nimbusds.jose.util.Base64;
 import io.github.suengineering.eudiw.core.dcql.DcqlQuery;
 import io.github.suengineering.eudiw.core.json.Json;
-import io.github.suengineering.eudiw.core.keys.HsmEs256Signer;
+import io.github.suengineering.eudiw.core.keys.Es256JwsSigner;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -165,11 +163,7 @@ public final class AuthorizationRequests {
                 .build();
         JWSObject jws = new JWSObject(header, new Payload(Json.toJson(claims)));
         try {
-            JWSSigner signer = identity.provider().isPresent()
-                    ? new HsmEs256Signer(
-                            identity.signingKey(), identity.provider().get())
-                    : new ECDSASigner(identity.signingKey(), Curve.P_256);
-            jws.sign(signer);
+            jws.sign(new Es256JwsSigner(identity.signer()));
         } catch (JOSEException e) {
             throw new IllegalStateException("request object cannot be signed", e);
         }

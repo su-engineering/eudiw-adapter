@@ -16,43 +16,21 @@
 package io.github.suengineering.eudiw.core.keys;
 
 import com.nimbusds.jose.JOSEException;
-import com.nimbusds.jose.JWSAlgorithm;
-import com.nimbusds.jose.JWSHeader;
-import com.nimbusds.jose.JWSSigner;
 import com.nimbusds.jose.crypto.impl.ECDSA;
-import com.nimbusds.jose.jca.JCAContext;
-import com.nimbusds.jose.util.Base64URL;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.security.PrivateKey;
 import java.security.Provider;
 import java.security.Signature;
-import java.util.Objects;
-import java.util.Set;
 
 /**
  * ES256 with a key held by a provider such as SunPKCS11. The SHA-256 digest is computed locally and the token
  * performs plain ECDSA ({@code NONEwithECDSA}, PKCS#11 {@code CKM_ECDSA}), the mechanism every HSM offers; the DER
  * signature is converted to the JOSE {@code R || S} form.
  */
-public final class HsmEs256Signer implements JWSSigner {
+public final class HsmEs256Signer {
 
-    private final PrivateKey key;
-    private final Provider provider;
-    private final JCAContext context = new JCAContext();
-
-    public HsmEs256Signer(PrivateKey key, Provider provider) {
-        this.key = Objects.requireNonNull(key, "key");
-        this.provider = Objects.requireNonNull(provider, "provider");
-    }
-
-    @Override
-    public Base64URL sign(JWSHeader header, byte[] signingInput) throws JOSEException {
-        if (!JWSAlgorithm.ES256.equals(header.getAlgorithm())) {
-            throw new JOSEException("only ES256 is supported");
-        }
-        return Base64URL.encode(signConcat(key, provider, signingInput));
-    }
+    private HsmEs256Signer() {}
 
     /** ECDSA P-256 over SHA-256 of {@code data}, as the 64 byte {@code R || S} value. */
     public static byte[] signConcat(PrivateKey key, Provider provider, byte[] data) throws JOSEException {
@@ -65,15 +43,5 @@ public final class HsmEs256Signer implements JWSSigner {
         } catch (GeneralSecurityException e) {
             throw new JOSEException("signing with the HSM key failed: " + e.getMessage(), e);
         }
-    }
-
-    @Override
-    public Set<JWSAlgorithm> supportedJWSAlgorithms() {
-        return Set.of(JWSAlgorithm.ES256);
-    }
-
-    @Override
-    public JCAContext getJCAContext() {
-        return context;
     }
 }

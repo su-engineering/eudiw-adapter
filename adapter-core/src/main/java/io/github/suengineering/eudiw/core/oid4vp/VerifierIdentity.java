@@ -17,7 +17,7 @@ package io.github.suengineering.eudiw.core.oid4vp;
 
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.crypto.impl.ECDSA;
-import io.github.suengineering.eudiw.core.keys.HsmEs256Signer;
+import io.github.suengineering.eudiw.core.keys.RequestSigner;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
@@ -37,21 +37,26 @@ import java.util.Optional;
  * The verifier's request-signing identity for the {@code x509_hash} Client Identifier Prefix (OpenID4VP 1.0
  * section 5.9.3, required by HAIP 1.0 section 5).
  *
- * @param signingKey private key matching the end-entity certificate: an in-memory key, or an opaque handle to a key
- *     in an HSM or KMS (for example from the PKCS#11 provider)
+ * @param signer the request-signing key, wherever it is held: in memory, in an HSM, or in a key service
  * @param certificateChain end-entity certificate first; must not contain the trust anchor or a self-signed leaf
- * @param provider the JCA provider that holds the key, when it is not the default (for example SunPKCS11)
  */
-public record VerifierIdentity(
-        PrivateKey signingKey, List<X509Certificate> certificateChain, Optional<Provider> provider) {
+public record VerifierIdentity(RequestSigner signer, List<X509Certificate> certificateChain) {
 
+    /** A key held in memory. */
     public VerifierIdentity(PrivateKey signingKey, List<X509Certificate> certificateChain) {
-        this(signingKey, certificateChain, Optional.empty());
+        this(RequestSigner.of(signingKey), certificateChain);
+    }
+
+    /** A key held in memory, or a handle from {@code provider} (for example SunPKCS11) when one is given. */
+    public VerifierIdentity(
+            PrivateKey signingKey, List<X509Certificate> certificateChain, Optional<Provider> provider) {
+        this(
+                provider.map(p -> RequestSigner.of(signingKey, p)).orElseGet(() -> RequestSigner.of(signingKey)),
+                certificateChain);
     }
 
     public VerifierIdentity {
-        Objects.requireNonNull(signingKey, "signingKey");
-        Objects.requireNonNull(provider, "provider");
+        Objects.requireNonNull(signer, "signer");
         certificateChain = List.copyOf(certificateChain);
         if (certificateChain.isEmpty()) {
             throw new IllegalArgumentException("certificate chain must not be empty");
@@ -60,27 +65,18 @@ public record VerifierIdentity(
         if (leaf.getSubjectX500Principal().equals(leaf.getIssuerX500Principal())) {
             throw new IllegalArgumentException("the request-signing certificate must not be self-signed (HAIP 1.0)");
         }
-        if (!"EC".equals(signingKey.getAlgorithm())
-                || !(leaf.getPublicKey() instanceof ECPublicKey publicKey)
+        if (!(leaf.getPublicKey() instanceof ECPublicKey publicKey)
                 || publicKey.getParams().getCurve().getField().getFieldSize() != 256) {
             throw new IllegalArgumentException("the request-signing key must be EC P-256 (ES256, HAIP 1.0)");
         }
-        proveKeyMatches(leaf, signingKey, provider);
+        proveKeyMatches(leaf, signer);
     }
 
     /** Signs a probe with the key and verifies it with the certificate, so a wrong HSM key fails at startup. */
-    private static void proveKeyMatches(X509Certificate leaf, PrivateKey privateKey, Optional<Provider> provider) {
+    private static void proveKeyMatches(X509Certificate leaf, RequestSigner signer) {
         try {
             byte[] probe = "eudiw-adapter request signing key check".getBytes(StandardCharsets.US_ASCII);
-            byte[] concat;
-            if (provider.isPresent()) {
-                concat = HsmEs256Signer.signConcat(privateKey, provider.get(), probe);
-            } else {
-                Signature signer = Signature.getInstance("SHA256withECDSA");
-                signer.initSign(privateKey);
-                signer.update(probe);
-                concat = ECDSA.transcodeSignatureToConcat(signer.sign(), 64);
-            }
+            byte[] concat = signer.signEs256(probe);
             Signature verifier = Signature.getInstance("SHA256withECDSA");
             verifier.initVerify(leaf.getPublicKey());
             verifier.update(probe);
