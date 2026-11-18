@@ -6,6 +6,7 @@ All notable changes to eudiw-adapter. Versions follow [Semantic Versioning](http
 
 ### Added
 
+- Request-signing keys in AWS KMS: `verifier.aws_kms` with `key_id` and optional `region` and `endpoint`. Credentials come from the AWS SDK's default chain (including EKS web identity). The new `adapter-kms-aws` module brings the AWS SDK (KMS, STS and the JDK HTTP client only, about 6 MB) into the service image ([ADR-015](docs/adr/0015-aws-kms-request-signing.md)).
 - Request-signing keys in HashiCorp Vault's Transit engine: `verifier.vault_transit` with `address`, `key_name`, `token_file` and optional `mount`, `key_version` and `namespace`. The token file is read on every signature and is not part of the configuration revision. Every signature, with any key source, is now checked against the request-signing certificate, so a key rotated in a key service fails closed; a signing failure is a `503` with `Retry-After` to the wallet ([ADR-014](docs/adr/0014-remote-request-signing.md)).
 - walt.id Wallet API 2 also presents an ISO mdoc PID in the `demo` job, so a second wallet now signs the OpenID4VP session transcript for mdoc.
 - CI runs the OpenID Foundation OID4VP 1.0 Final + HAIP verifier test plan on every change (`oidf` job). The job fails when any of the 14 modules ends differently from `interop/oidf/expected.json` or the suite logs a failure or warning, and keeps the suite logs for 90 days. `interop/oidf/ci.sh` runs the same thing on a laptop. Every module still ends in REVIEW; this is not certification.

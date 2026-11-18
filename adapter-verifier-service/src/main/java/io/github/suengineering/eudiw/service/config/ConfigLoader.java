@@ -26,6 +26,7 @@ import io.github.suengineering.eudiw.core.oid4vp.VpTokenVerifier.StatusPolicy;
 import io.github.suengineering.eudiw.core.oid4vp.VpTokenVerifier.StatusSigner;
 import io.github.suengineering.eudiw.core.trust.TrustedList;
 import io.github.suengineering.eudiw.core.trust.TrustedListSource;
+import io.github.suengineering.eudiw.kms.aws.AwsKmsSigner;
 import io.github.suengineering.eudiw.service.config.AdapterConfig.ClientApplication;
 import io.github.suengineering.eudiw.service.config.AdapterConfig.OutputClaim;
 import io.github.suengineering.eudiw.service.config.AdapterConfig.Policy;
@@ -168,16 +169,20 @@ public final class ConfigLoader {
         String id = id(json.get("id"), "tenant id");
         Map<String, Object> verifier = object(json.get("verifier"), "verifier");
         List<X509Certificate> chain = certificates(read(base, string(verifier, "certificate_chain_file")));
-        long keySources = java.util.stream.Stream.of("private_key_file", "pkcs11", "vault_transit")
+        long keySources = java.util.stream.Stream.of("private_key_file", "pkcs11", "vault_transit", "aws_kms")
                 .filter(verifier::containsKey)
                 .count();
         if (keySources != 1) {
             throw new ConfigException("tenant " + id
-                    + ": set exactly one of verifier.private_key_file, verifier.pkcs11 and verifier.vault_transit");
+                    + ": set exactly one of verifier.private_key_file, verifier.pkcs11, verifier.vault_transit"
+                    + " and verifier.aws_kms");
         }
         VerifierIdentity identity;
         try {
-            if (verifier.containsKey("vault_transit")) {
+            if (verifier.containsKey("aws_kms")) {
+                identity = new VerifierIdentity(
+                        new AwsKmsSigner(awsKms(object(verifier.get("aws_kms"), "aws_kms"), production)), chain);
+            } else if (verifier.containsKey("vault_transit")) {
                 identity = new VerifierIdentity(
                         new VaultTransitSigner(
                                 vaultTransit(object(verifier.get("vault_transit"), "vault_transit"), base, production)),
@@ -626,6 +631,29 @@ public final class ConfigLoader {
         } catch (GeneralSecurityException e) {
             throw new ConfigException("certificates cannot be parsed", e);
         }
+    }
+
+    /** Credentials are never configured here: the AWS SDK takes them from its default chain. */
+    private static AwsKmsSigner.Settings awsKms(Map<String, Object> json, boolean production) {
+        Optional<URI> endpoint = Optional.empty();
+        if (json.containsKey("endpoint")) {
+            try {
+                URI uri = new URI(string(json, "endpoint"));
+                if (!("https".equals(uri.getScheme()) || "http".equals(uri.getScheme())) || uri.getHost() == null) {
+                    throw new ConfigException("aws_kms.endpoint must be an http or https URL");
+                }
+                if (production && !"https".equals(uri.getScheme())) {
+                    throw new ConfigException("aws_kms.endpoint must use https in production");
+                }
+                endpoint = Optional.of(uri);
+            } catch (java.net.URISyntaxException e) {
+                throw new ConfigException("aws_kms.endpoint is not a URL");
+            }
+        }
+        return new AwsKmsSigner.Settings(
+                string(json, "key_id"),
+                json.containsKey("region") ? Optional.of(string(json, "region")) : Optional.empty(),
+                endpoint);
     }
 
     /**

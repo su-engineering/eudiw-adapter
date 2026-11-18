@@ -51,6 +51,10 @@
       <artifactId>adapter-crypto-brainpool</artifactId>
     </dependency>
     <dependency>
+      <groupId>io.github.su-engineering</groupId>
+      <artifactId>adapter-kms-aws</artifactId>
+    </dependency>
+    <dependency>
       <groupId>com.nimbusds</groupId>
       <artifactId>nimbus-jose-jwt</artifactId>
       <version>${nimbus-jose-jwt.version}</version>

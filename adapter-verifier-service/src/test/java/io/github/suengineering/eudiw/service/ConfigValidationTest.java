@@ -112,7 +112,7 @@ class ConfigValidationTest {
                          "vault_transit":{"address":"https://vault.test","key_name":"rp","token_file":"vault-token"}}""", false))
                 .isInstanceOf(ConfigException.class)
                 .hasMessageContaining(
-                        "exactly one of verifier.private_key_file, verifier.pkcs11 and verifier.vault_transit");
+                        "exactly one of verifier.private_key_file, verifier.pkcs11, verifier.vault_transit and verifier.aws_kms");
         assertThatThrownBy(() -> loadVerifier("{\"certificate_chain_file\":\"rp.pem\"}", false))
                 .isInstanceOf(ConfigException.class)
                 .hasMessageContaining("exactly one of");

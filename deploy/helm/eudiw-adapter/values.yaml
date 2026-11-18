@@ -133,6 +133,11 @@ podDisruptionBudget:
   enabled: true
   minAvailable: 1
 
+# Annotations on the service account, for example the IAM role for a request-signing key in AWS KMS:
+# {eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/eudiw-adapter}
+serviceAccount:
+  annotations: {}
+
 podAnnotations: {}
 nodeSelector: {}
 tolerations: []
