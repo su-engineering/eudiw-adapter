@@ -37,7 +37,7 @@ services:
   adapter:
     # The released image, pinned by digest. The request-signing key is a file here; the full demo in
     # deploy/compose keeps it in SoftHSM.
-    image: ghcr.io/su-engineering/eudiw-adapter:0.2.1@sha256:1a183930fd71b3250be6168701de464637e639f4e30090dc794813aa6b7f6bc1
+    image: ghcr.io/su-engineering/eudiw-adapter:0.3.0@sha256:4a181c771aa790d5623adca8e9cc3f28efa265313e83f9bd842f4123107f9c54
     depends_on:
       keygen:
         condition: service_completed_successfully
