@@ -1,0 +1,82 @@
+# The eudiw-adapter demo without a clone or a build: the released image, synthetic keys and credentials, and the
+# eudi-dev test wallet. run.sh downloads this file and the ones it mounts. Not a production setup.
+name: eudiw-adapter-quickstart
+
+services:
+  keygen:
+    image: alpine/openssl:3.5.4
+    entrypoint: ["/bin/sh", "/generate-keys.sh", "/keys"]
+    volumes:
+      - ./generate-keys.sh:/generate-keys.sh:ro
+      - keys:/keys
+
+  postgres:
+    image: postgres:16.10-alpine
+    environment:
+      POSTGRES_DB: eudiw
+      POSTGRES_USER: eudiw
+      POSTGRES_PASSWORD: demo-only-password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U eudiw -d eudiw"]
+      interval: 2s
+      retries: 30
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.1
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: demo-only-admin
+      KC_HOSTNAME: http://localhost:8081
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+    volumes:
+      - ./keycloak-realm.json:/opt/keycloak/data/import/demo-realm.json:ro
+    ports:
+      - "127.0.0.1:8081:8080"
+
+  adapter:
+    # The released image, pinned by digest. The request-signing key is a file here; the full demo in
+    # deploy/compose keeps it in SoftHSM.
+    image: ghcr.io/su-engineering/eudiw-adapter:0.2.1@sha256:1a183930fd71b3250be6168701de464637e639f4e30090dc794813aa6b7f6bc1
+    depends_on:
+      keygen:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+    environment:
+      EUDIW_CONFIG_FILE: /config/tenants.json
+      EUDIW_PUBLIC_BASE_URL: http://adapter:8080
+      EUDIW_PRODUCTION: "false"
+      EUDIW_DB_URL: jdbc:postgresql://postgres:5432/eudiw
+      EUDIW_DB_USER: eudiw
+      EUDIW_DB_PASSWORD: demo-only-password
+      EUDIW_OIDC_ISSUER: http://keycloak:8080/realms/demo
+      EUDIW_OIDC_AUDIENCE: eudiw-adapter
+      QUARKUS_OIDC_TOKEN_ISSUER: http://localhost:8081/realms/demo
+      QUARKUS_OIDC_CONNECTION_DELAY: 90s
+    entrypoint:
+      - /bin/sh
+      - -c
+      - EUDIW_DATA_KEY=$$(cat /keys/data-key) exec java -XX:MaxRAMPercentage=75 -jar /app/quarkus-run.jar
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      - ./tenants.json:/config/tenants.json:ro
+      - keys:/keys:ro
+    ports:
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:9000:9000"
+
+  wallet:
+    image: ghcr.io/eudi-dev/eudi-dev:v3.8.0
+    profiles: ["wallet"]
+    entrypoint: ["/bin/sh", "/wallet.sh"]
+    volumes:
+      - ./wallet.sh:/wallet.sh:ro
+      - keys:/keys:ro
+
+volumes:
+  keys:

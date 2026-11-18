@@ -59,7 +59,15 @@ That's all. Nothing else the wallet disclosed ever reaches your systems.
 
 ## Quickstart
 
-Requirements: Docker, Java 21, `curl`, `jq`.
+Requirements: Docker, `curl`, `jq`; Java 21 for the full demo.
+
+Without cloning anything (Docker, `curl` and `jq` only; runs the released image with a file key):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/su-engineering/eudiw-adapter/main/deploy/quickstart/run.sh | sh
+```
+
+The full demo, built from source:
 
 ```bash
 git clone https://github.com/su-engineering/eudiw-adapter.git && cd eudiw-adapter
