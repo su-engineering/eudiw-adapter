@@ -1,6 +1,6 @@
 # ADR-017: OpenID4VP over the W3C Digital Credentials API
 
-Status: accepted, implemented (server side). Tested with the adapter's own test wallet; a browser test against an independent wallet follows.
+Status: accepted, implemented (server side). Tested in Chromium against eudi-dev's DC API extension and wallet server in CI.
 
 ## Context
 
@@ -21,5 +21,6 @@ The W3C Digital Credentials API lets a web page ask the browser for a credential
 - The integrator's page needs one call and one relay: `const c = await navigator.credentials.get(session.dc_api.request)`, then post `c.data` to its backend, which posts it to `response_url`. The adapter never sees the browser.
 - The Origin check of `expected_origins` is the wallet's job (appendix A.2); the adapter's own check is that the presentation names the session's origin. A page on another origin cannot get a presentation the adapter accepts for this session.
 - A retry of the creation with the same `Idempotency-Key` returns a fresh request for the same session, counted against the session's request limit.
-- Tested so far with the spec's B.2.6.2 transcript example and the adapter's test wallet: SD-JWT VC and mdoc bound to the origin verify; a presentation for the Client Identifier, an mdoc signed over the redirect transcript, unencrypted responses, crossings between flows, wallet errors and unregistered origins are refused. Not yet tested against an independent wallet; the OIDF conformance suite (release v5.3.4) has no verifier test for the DC API.
+- Tested with the spec's B.2.6.2 transcript example and the adapter's test wallet: SD-JWT VC and mdoc bound to the origin verify; a presentation for the Client Identifier, an mdoc signed over the redirect transcript, unencrypted responses, crossings between flows, wallet errors and unregistered origins are refused.
+- Tested in a real browser in CI's `demo` job ([`deploy/compose/dc-api`](../../deploy/compose/dc-api)): a relying-party page in headless Chromium calls `navigator.credentials.get()` with `dc_api.request`; eudi-dev's browser extension, which takes the place of the platform's wallet selector, passes the request and the page's Origin to an eudi-dev wallet server (v3.8.0, `--haip`). An SD-JWT VC and an mdoc PID verify, so eudi-dev's Key Binding JWT `aud` and its `OpenID4VPDCAPIHandover` transcript match the adapter's. A session created for another registered origin rejects the presentation the page gets (`key_binding_audience_mismatch`): eudi-dev in debug mode only warns that the page's origin is not in `expected_origins`, so this checks the adapter's own binding. Not tested with a phone wallet through a platform's Digital Credentials API; the OIDF conformance suite (release v5.3.4) has no verifier test for the DC API.
 - During a rolling upgrade, pods without this version do not know mode `dc_api`; replace all pods before clients use it. Migration `V7` widens the mode check and adds the origin column.
