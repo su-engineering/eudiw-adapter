@@ -153,6 +153,53 @@ paths:
           $ref: '#/components/responses/Problem'
         '404':
           $ref: '#/components/responses/Problem'
+  /v1/verification-sessions/{id}/dc-api-response:
+    post:
+      operationId: postDcApiResponse
+      summary: Relay a Digital Credentials API response
+      description: |
+        For sessions created with mode `dc_api`. The client's backend posts the `data` property of the
+        DigitalCredential its page received from `navigator.credentials.get()`, unchanged: `{"data": {"response":
+        "<JWE>"}}`, or `{"data": {"error": "access_denied"}}` when the wallet declined. The response is decrypted
+        and verified bound to the session's origin (Key Binding JWT `aud` of `origin:<origin>`, or the
+        `OpenID4VPDCAPIHandover` session transcript for mdoc). An unencrypted `vp_token` rejects the session
+        (`response_not_encrypted`). Requires scope `verification:create`.
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [data]
+              properties:
+                data:
+                  type: object
+                  additionalProperties: true
+      responses:
+        '200':
+          description: The session after the response, `verified`, `rejected` or `denied`. Fetch the result as usual.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '400':
+          description: |
+            `not_dc_api_session`, or `invalid_request` when the response cannot be read or was made for another
+            session. The session stays pending.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          description: The session is no longer pending, or this request was already answered.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /v1/verification-sessions/{id}/cancel:
     post:
       operationId: cancelVerificationSession
@@ -264,12 +311,21 @@ components:
           description: A policy granted to the calling client.
         mode:
           type: string
-          enum: [cross_device, same_device]
+          enum: [cross_device, same_device, dc_api]
           default: cross_device
           description: |
             `same_device` sends the wallet back to the client's registered completion URI with a one-time
             `response_code`, which result retrieval requires (protects against session fixation, OpenID4VP 1.0
-            section 14.2). `cross_device` (QR code) cannot detect a relayed request.
+            section 14.2). `cross_device` (QR code) cannot detect a relayed request. `dc_api` uses the W3C Digital
+            Credentials API in the user's browser: the response carries `dc_api.request` for
+            `navigator.credentials.get()`, and the client's backend relays what the page receives to
+            `dc_api.response_url`. Needs `origin`. See ADR-017.
+        origin:
+          type: string
+          description: |
+            For `dc_api`: the Origin of the page that calls the Digital Credentials API, one of the client's
+            configured `dc_api_origins`, compared exactly (for example `https://shop.example`). The presentation is
+            bound to it. Not allowed with the other modes.
         client_reference:
           type: string
           pattern: '^[A-Za-z0-9._:-]{1,128}$'
@@ -335,8 +391,24 @@ components:
       allOf:
         - $ref: '#/components/schemas/Session'
         - type: object
-          required: [wallet_launch, poll_url, events_url]
+          required: [poll_url, events_url]
+          description: Exactly one of `wallet_launch` (redirect modes) and `dc_api` (mode `dc_api`) is present.
           properties:
+            dc_api:
+              type: object
+              required: [request, response_url]
+              properties:
+                request:
+                  type: object
+                  description: |
+                    The argument for `navigator.credentials.get()`: `{"digital": {"requests": [{"protocol":
+                    "openid4vp-v1-signed", "data": {"request": "<signed request>"}}]}}`. The request is signed with
+                    the tenant's access certificate (`x509_hash`), names the session's origin in
+                    `expected_origins` and asks for an encrypted response (`dc_api.jwt`). A retry with the same
+                    `Idempotency-Key` returns a fresh request for the same session.
+                response_url:
+                  type: string
+                  description: Where the client's backend posts the `data` of the returned DigitalCredential.
             wallet_launch:
               type: object
               required: [request_uri, launch_uri, qr_payload]

@@ -258,14 +258,63 @@ public final class ConfigLoader {
                 }
                 perMinute = n.intValue();
             }
+            List<String> dcApiOrigins = new ArrayList<>();
+            if (c.containsKey("dc_api_origins")) {
+                for (Object origin : list(c, "dc_api_origins")) {
+                    dcApiOrigins.add(dcApiOrigin(origin, production, "tenant " + id + ": client " + clientId));
+                }
+                if (dcApiOrigins.isEmpty()) {
+                    throw new ConfigException(
+                            "tenant " + id + ": client " + clientId + ": dc_api_origins must not be empty");
+                }
+            }
             if (clients.put(
                             clientId,
-                            new ClientApplication(clientId, Set.copyOf(granted), completion, webhook, perMinute))
+                            new ClientApplication(
+                                    clientId,
+                                    Set.copyOf(granted),
+                                    completion,
+                                    webhook,
+                                    perMinute,
+                                    List.copyOf(dcApiOrigins)))
                     != null) {
                 throw new ConfigException("tenant " + id + ": duplicate client " + clientId);
             }
         }
         return new Tenant(id, identity, walletInvocation, Map.copyOf(clients), Map.copyOf(policies));
+    }
+
+    /**
+     * An Origin a client's pages call the Digital Credentials API from: scheme, host and port only, in the form a
+     * browser reports it (lower case, no default port, no path), so it can be compared exactly. https in production.
+     */
+    public static String dcApiOrigin(Object value, boolean production, String where) {
+        if (!(value instanceof String origin)) {
+            throw new ConfigException(where + ": dc_api_origins must be strings");
+        }
+        URI uri;
+        try {
+            uri = new URI(origin);
+        } catch (java.net.URISyntaxException e) {
+            throw new ConfigException(where + ": dc_api_origins entry is not an origin: " + origin);
+        }
+        String scheme = uri.getScheme();
+        boolean defaultPort = uri.getPort() == -1;
+        String canonical = scheme + "://" + uri.getHost() + (defaultPort ? "" : ":" + uri.getPort());
+        if (scheme == null
+                || !(scheme.equals("https") || scheme.equals("http"))
+                || uri.getHost() == null
+                || !canonical.equals(origin)
+                || !canonical.equals(canonical.toLowerCase(java.util.Locale.ROOT))
+                || (scheme.equals("https") && uri.getPort() == 443)
+                || (scheme.equals("http") && uri.getPort() == 80)) {
+            throw new ConfigException(where + ": dc_api_origins entries must be origins such as https://shop.example,"
+                    + " lower case, without a path or a default port: " + origin);
+        }
+        if (production && !scheme.equals("https")) {
+            throw new ConfigException(where + ": dc_api_origins must use https in production");
+        }
+        return origin;
     }
 
     private static AdapterConfig.Webhook webhook(

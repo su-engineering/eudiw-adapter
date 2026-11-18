@@ -94,10 +94,19 @@ public class VerificationEngine {
      *     empty for none
      */
     public record CreateRequest(
-            String policyId, String mode, String clientReference, List<Map<String, Object>> transactionData) {
+            String policyId,
+            String mode,
+            String clientReference,
+            List<Map<String, Object>> transactionData,
+            String origin) {
 
         public CreateRequest(String policyId, String mode, String clientReference) {
-            this(policyId, mode, clientReference, List.of());
+            this(policyId, mode, clientReference, List.of(), null);
+        }
+
+        public CreateRequest(
+                String policyId, String mode, String clientReference, List<Map<String, Object>> transactionData) {
+            this(policyId, mode, clientReference, transactionData, null);
         }
 
         public CreateRequest {
@@ -108,7 +117,13 @@ public class VerificationEngine {
     static final int MAX_TRANSACTION_DATA = 8;
     static final int MAX_TRANSACTION_DATA_BYTES = 4096;
 
-    public record Created(SessionRow session, String requestUri, String launchUri) {}
+    /**
+     * @param requestUri the request URI, for redirect modes; {@code null} for {@code dc_api}
+     * @param launchUri the wallet invocation URI, for redirect modes; {@code null} for {@code dc_api}
+     * @param dcApiRequest for {@code dc_api}, the argument for {@code navigator.credentials.get()}
+     */
+    public record Created(
+            SessionRow session, String requestUri, String launchUri, Optional<Map<String, Object>> dcApiRequest) {}
 
     public Created create(ClientBinding caller, CreateRequest request, String idempotencyKey) {
         if (idempotencyKey == null || !IDEMPOTENCY_KEY.matcher(idempotencyKey).matches()) {
@@ -125,8 +140,22 @@ public class VerificationEngine {
         enforceRateLimit(caller);
         Policy policy = tenant.policies().get(request.policyId());
         String mode = request.mode() == null ? "cross_device" : request.mode();
-        if (!mode.equals("cross_device") && !mode.equals("same_device")) {
-            throw new ApiException(400, "invalid_request", "mode must be same_device or cross_device");
+        if (!mode.equals("cross_device") && !mode.equals("same_device") && !mode.equals("dc_api")) {
+            throw new ApiException(400, "invalid_request", "mode must be same_device, cross_device or dc_api");
+        }
+        String origin = null;
+        if (mode.equals("dc_api")) {
+            if (caller.client().dcApiOrigins().isEmpty()) {
+                throw new ApiException(400, "dc_api_not_configured", "the client has no registered dc_api_origins");
+            }
+            // Compared exactly: the browser reports the Origin in this form, and the presentation is bound to it.
+            if (request.origin() == null || !caller.client().dcApiOrigins().contains(request.origin())) {
+                throw new ApiException(
+                        400, "origin_not_allowed", "origin must be one of the client's registered dc_api_origins");
+            }
+            origin = request.origin();
+        } else if (request.origin() != null) {
+            throw new ApiException(400, "invalid_request", "origin is only used with mode dc_api");
         }
         if (mode.equals("same_device") && caller.client().completionUri().isEmpty()) {
             throw new ApiException(400, "same_device_not_configured", "the client has no registered completion_uri");
@@ -141,7 +170,8 @@ public class VerificationEngine {
         Instant now = runtime.clock().instant();
         // Without transaction data the fingerprint is what it always was, so idempotent retries span upgrades.
         String fingerprint = DataProtection.hash(request.policyId() + "\n" + mode + "\n" + request.clientReference()
-                + (transactionData.isEmpty() ? "" : "\n" + String.join(",", transactionData)));
+                + (transactionData.isEmpty() ? "" : "\n" + String.join(",", transactionData))
+                + (origin == null ? "" : "\norigin:" + origin));
         SessionRow candidate = new SessionRow(
                 "vrs_" + AuthorizationRequests.randomValue(),
                 tenant.id(),
@@ -166,8 +196,8 @@ public class VerificationEngine {
                                 "transaction-data:" + candidate.id(),
                                 Json.toJson(Map.of("transaction_data", transactionData))
                                         .getBytes(StandardCharsets.UTF_8));
-        SessionRow stored =
-                store.insertOrGetIdempotent(candidate, DataProtection.hash(idempotencyKey), transactionDataCiphertext);
+        SessionRow stored = store.insertOrGetIdempotent(
+                candidate, DataProtection.hash(idempotencyKey), transactionDataCiphertext, origin);
         if (!stored.requestFingerprint().equals(fingerprint)) {
             throw new ApiException(
                     422, "idempotency_key_reused", "the Idempotency-Key was used for a different request");
@@ -184,10 +214,48 @@ public class VerificationEngine {
                     stored.configRevision(),
                     now);
         }
+        if (mode.equals("dc_api")) {
+            // A retry with the same Idempotency-Key gets a fresh request for the same session, within the fetch cap.
+            return new Created(stored, null, null, Optional.of(dcApiRequest(tenant, policy, stored, origin, now)));
+        }
         String requestUri = requestUri(stored.requestHandle());
         String launch = AuthorizationRequests.walletInvocationUri(
                 tenant.walletInvocation(), tenant.verifier().clientId(), URI.create(requestUri));
-        return new Created(stored, requestUri, launch);
+        return new Created(stored, requestUri, launch, Optional.empty());
+    }
+
+    /** A signed request for the Digital Credentials API, on a new request instance of the session. */
+    private Map<String, Object> dcApiRequest(
+            Tenant tenant, Policy policy, SessionRow session, String origin, Instant now) {
+        Optional<Minted> minted = mintInstance(session, now);
+        if (minted.isEmpty()) {
+            throw new ApiException(409, "request_limit_reached", "this session has had the most requests it may have");
+        }
+        try {
+            String signed = AuthorizationRequests.signDcApiRequest(
+                    tenant.verifier(),
+                    new AuthorizationRequests.Parameters(
+                            responseUri(),
+                            minted.get().nonce(),
+                            minted.get().state(),
+                            policy.query(),
+                            minted.get().key(),
+                            null,
+                            java.time.Duration.between(now, session.expiresAt()),
+                            policy.registration().map(r -> r.verifierInfo(now)).orElse(List.of()),
+                            store.transactionData(session.id())
+                                    .map(c -> transactionDataEntries(session, c))
+                                    .orElse(List.of())),
+                    List.of(origin),
+                    now);
+            return AuthorizationRequests.dcApiCredentialRequest(signed);
+        } catch (IllegalStateException e) {
+            if (!(e.getCause() instanceof com.nimbusds.jose.JOSEException cause)) {
+                throw e;
+            }
+            LOG.errorf("tenant %s: the request object cannot be signed: %s", session.tenantId(), cause.getMessage());
+            throw new ApiException(503, "signing_unavailable", "the request object cannot be signed now", 5);
+        }
     }
 
     /**
@@ -455,6 +523,38 @@ public class VerificationEngine {
         }
         Tenant tenant = sessionTenant.get();
         Policy policy = tenant.policies().get(session.policyId());
+        if ("dc_api".equals(session.mode())) {
+            // Digital Credentials API sessions get their signed request in the creation response, not by reference.
+            return Optional.empty();
+        }
+        Optional<Minted> minted = mintInstance(session, now);
+        if (minted.isEmpty()) {
+            return Optional.empty();
+        }
+        ECKey key = minted.get().key();
+        String state = minted.get().state();
+        String nonce = minted.get().nonce();
+        String walletNonceValue = walletNonce != null && walletNonce.length() <= 256 ? walletNonce : null;
+        try {
+            return Optional.of(signRequestObject(tenant, policy, session, nonce, state, key, walletNonceValue, now));
+        } catch (IllegalStateException e) {
+            if (!(e.getCause() instanceof com.nimbusds.jose.JOSEException cause)) {
+                throw e;
+            }
+            // A key service that is down or refuses: the wallet may retry. The message names the cause, never a secret.
+            LOG.errorf("tenant %s: the request object cannot be signed: %s", session.tenantId(), cause.getMessage());
+            throw new ApiException(503, "signing_unavailable", "the request object cannot be signed now", 5);
+        }
+    }
+
+    /** A request instance: its own response encryption key, state and nonce. */
+    private record Minted(ECKey key, String state, String nonce) {}
+
+    /**
+     * Stores a new request instance for the session, unless the session already has {@code MAX_REQUEST_FETCHES};
+     * the refusal is audited.
+     */
+    private Optional<Minted> mintInstance(SessionRow session, Instant now) {
         ECKey key = AuthorizationRequests.newResponseEncryptionKey();
         String state = AuthorizationRequests.randomValue();
         String nonce = AuthorizationRequests.randomValue();
@@ -488,17 +588,7 @@ public class VerificationEngine {
                     now);
             return Optional.empty();
         }
-        String walletNonceValue = walletNonce != null && walletNonce.length() <= 256 ? walletNonce : null;
-        try {
-            return Optional.of(signRequestObject(tenant, policy, session, nonce, state, key, walletNonceValue, now));
-        } catch (IllegalStateException e) {
-            if (!(e.getCause() instanceof com.nimbusds.jose.JOSEException cause)) {
-                throw e;
-            }
-            // A key service that is down or refuses: the wallet may retry. The message names the cause, never a secret.
-            LOG.errorf("tenant %s: the request object cannot be signed: %s", session.tenantId(), cause.getMessage());
-            throw new ApiException(503, "signing_unavailable", "the request object cannot be signed now", 5);
-        }
+        return Optional.of(new Minted(key, state, nonce));
     }
 
     private String signRequestObject(
@@ -544,6 +634,79 @@ public class VerificationEngine {
         return new WalletReply(400, Map.of("error", "invalid_request"));
     }
 
+    /**
+     * A response from the W3C Digital Credentials API, relayed by the client that created the {@code dc_api} session
+     * (OpenID4VP 1.0 appendix A.4): {@code data.response} is the encrypted response ({@code dc_api.jwt}), or {@code
+     * data.error} the wallet's error. An unencrypted {@code vp_token} is refused, as HAIP 1.0 requires encryption.
+     *
+     * @return the session after the response, as the status call returns it
+     */
+    public SessionRow handleDcApiResponse(ClientBinding caller, String id, Map<String, Object> data) {
+        SessionRow session = status(caller, id);
+        if (!"dc_api".equals(session.mode())) {
+            throw new ApiException(400, "not_dc_api_session", "the session was not created with mode dc_api");
+        }
+        Instant now = runtime.clock().instant();
+        if (!session.status().equals("pending") || !now.isBefore(session.expiresAt())) {
+            throw new ApiException(409, "session_not_pending", "the session is no longer pending");
+        }
+        if (data == null) {
+            throw new ApiException(400, "invalid_request", "data is required");
+        }
+        Optional<Tenant> sessionTenant = sessionTenant(session);
+        if (sessionTenant.isEmpty()) {
+            store.complete(
+                    session.id(),
+                    "rejected",
+                    "configuration_changed",
+                    null,
+                    null,
+                    null,
+                    now,
+                    runtime.notifies(session.tenantId(), session.clientId()));
+            return status(caller, id);
+        }
+        Tenant tenant = sessionTenant.get();
+        Policy policy = tenant.policies().get(session.policyId());
+        String origin = store.dcApiOrigin(session.id()).orElseThrow();
+        if (data.get("error") instanceof String walletError) {
+            finish(
+                    session,
+                    tenant,
+                    policy,
+                    walletError.equals("access_denied") ? "denied" : "rejected",
+                    walletError.equals("access_denied") ? "wallet_denied" : "wallet_error",
+                    null,
+                    now);
+            return status(caller, id);
+        }
+        if (!(data.get("response") instanceof String response)) {
+            // dc_api (unencrypted) is not offered: the request asks for dc_api.jwt, as HAIP 1.0 section 5.2 requires.
+            finish(session, tenant, policy, "rejected", "response_not_encrypted", null, now);
+            return status(caller, id);
+        }
+        String kid;
+        try {
+            kid = AuthorizationResponses.keyId(response);
+        } catch (VerificationFailure f) {
+            throw new ApiException(400, "invalid_request", "data.response is not an encrypted response");
+        }
+        Optional<InstanceRow> instance = store.findInstanceByKid(kid);
+        if (instance.isEmpty() || !instance.get().sessionId().equals(session.id())) {
+            throw new ApiException(400, "invalid_request", "data.response was not made for this session");
+        }
+        if (instance.get().consumedAt() != null) {
+            throw new ApiException(409, "response_already_received", "a response to this request was already received");
+        }
+        decryptAndVerify(session, tenant, policy, instance.get(), kid, response, now, Optional.of(origin));
+        SessionRow after = status(caller, id);
+        if (after.status().equals("pending")) {
+            // Nothing was verified: the response could not be decrypted or read. The session stays open.
+            throw new ApiException(400, "invalid_request", "data.response cannot be read");
+        }
+        return after;
+    }
+
     private WalletReply handleEncrypted(String response, Instant now) {
         String kid;
         try {
@@ -557,6 +720,10 @@ public class VerificationEngine {
         }
         InstanceRow row = instance.get();
         SessionRow session = store.findById(row.sessionId()).orElseThrow();
+        if ("dc_api".equals(session.mode())) {
+            // A Digital Credentials API response comes back through the client's backend, never to this endpoint.
+            return new WalletReply(400, Map.of("error", "invalid_request"));
+        }
         // Cheap checks first: a used request instance, or a session that is finished or past its expiry, never
         // reaches decryption or credential verification. Expiry is enforced again when the session completes.
         // Anyone who holds the response can repeat it without authentication, so only the first refusal per request
@@ -602,6 +769,22 @@ public class VerificationEngine {
         Tenant tenant = sessionTenant.get();
         Policy policy = tenant.policies().get(session.policyId());
 
+        return decryptAndVerify(session, tenant, policy, row, kid, response, now, Optional.empty());
+    }
+
+    /**
+     * Decrypts a response with the request instance's key and verifies it under the session's rules: bound to the
+     * Client Identifier and response URI, or, over the Digital Credentials API, to the Origin ({@code dcApiOrigin}).
+     */
+    private WalletReply decryptAndVerify(
+            SessionRow session,
+            Tenant tenant,
+            Policy policy,
+            InstanceRow row,
+            String kid,
+            String response,
+            Instant now,
+            Optional<String> dcApiOrigin) {
         Map<String, Object> payload;
         byte[] keyThumbprint;
         try {
@@ -619,7 +802,8 @@ public class VerificationEngine {
             // it was removed. The wallet gets the same answer as for any response that cannot be read.
             return new WalletReply(400, Map.of("error", "invalid_request"));
         }
-        if (!row.state().equals(payload.get("state"))) {
+        // Over the Digital Credentials API there is no state (OpenID4VP 1.0 appendix A.2); the session is known.
+        if (dcApiOrigin.isEmpty() && !row.state().equals(payload.get("state"))) {
             return new WalletReply(400, Map.of("error", "invalid_request"));
         }
         // One response per request instance, whatever its outcome.
@@ -652,7 +836,8 @@ public class VerificationEngine {
                                     session.tenantId() + "/" + session.policyId() + "/" + session.configRevision(),
                                     responseUri().toString(),
                                     java.util.Optional.of(keyThumbprint),
-                                    transactionData));
+                                    transactionData,
+                                    dcApiOrigin));
             // A credential the transaction data binds to must be among those presented, for example when it is
             // optional in a credential set; otherwise the transaction would pass unauthorized.
             for (String credentialId : transactionData.keySet()) {

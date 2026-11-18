@@ -22,7 +22,7 @@ import java.util.HexFormat;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
-/** The non-normative examples of OpenID4VP 1.0 Appendix B.2.6.1. */
+/** The non-normative examples of OpenID4VP 1.0 Appendix B.2.6.1 (redirects) and B.2.6.2 (Digital Credentials API). */
 class SessionTranscriptsTest {
 
     private static final HexFormat HEX = HexFormat.of();
@@ -65,6 +65,23 @@ class SessionTranscriptsTest {
                 .encoded();
         // The third element is CBOR null (0xf6) right before the response URI's text header (0x78 0x1c).
         assertThat(HEX.formatHex(info)).contains("f6781c");
+    }
+
+    @Test
+    void dcApiHandoverInfoMatchesTheExample() {
+        assertThat(HEX.formatHex(SessionTranscripts.dcApiHandoverInfo("https://example.com", NONCE, thumbprint())
+                        .encoded()))
+                .isEqualTo("837368747470733a2f2f6578616d706c652e636f6d782b6578633767426b786a7831"
+                        + "726463397564527276654b7653734a4971383061766c58654c486847777174415820"
+                        + "4283ec927ae0f208daaa2d026a814f2b22dca52cf85ffa8f3f8626c6bd669047");
+    }
+
+    @Test
+    void dcApiSessionTranscriptMatchesTheExample() {
+        assertThat(HEX.formatHex(SessionTranscripts.openId4VpDcApi("https://example.com", NONCE, thumbprint())
+                        .encoded()))
+                .isEqualTo("83f6f682764f70656e4944345650444341504948616e646f7665725820fbece366f4"
+                        + "212f9762c74cfdbf83b8c69e371d5d68cea09cb4c48ca6daab761a");
     }
 
     private static Optional<byte[]> thumbprint() {

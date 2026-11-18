@@ -138,6 +138,36 @@ class ConfigValidationTest {
                 .hasMessageContaining("vault_transit.key_name");
     }
 
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "https://shop.example/",
+                "https://shop.example/path",
+                "https://Shop.example",
+                "https://shop.example:443",
+                "http://shop.example:80",
+                "shop.example",
+                "ftp://shop.example",
+                "https://shop.example?x=1"
+            })
+    void dcApiOriginsMustBeExactOrigins(String origin) {
+        assertThatThrownBy(() -> ConfigLoader.dcApiOrigin(origin, false, "client c"))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("dc_api_origins");
+    }
+
+    @Test
+    void dcApiOriginsAreHttpsInProduction() {
+        assertThat(ConfigLoader.dcApiOrigin("https://shop.example", true, "c")).isEqualTo("https://shop.example");
+        assertThat(ConfigLoader.dcApiOrigin("http://localhost:3000", false, "c"))
+                .isEqualTo("http://localhost:3000");
+        assertThat(ConfigLoader.dcApiOrigin("https://shop.example:8443", true, "c"))
+                .isEqualTo("https://shop.example:8443");
+        assertThatThrownBy(() -> ConfigLoader.dcApiOrigin("http://localhost:3000", true, "c"))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("https in production");
+    }
+
     @Test
     void enforceTrustedAuthoritiesDefaultsToTrueAndTakesBooleansOnly() throws Exception {
         assertThat(policy("").enforceTrustedAuthorities()).isTrue();

@@ -22,6 +22,7 @@ import io.github.suengineering.eudiw.core.oid4vp.VpTokenVerifier.StatusPolicy;
 import java.net.URI;
 import java.security.cert.TrustAnchor;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -86,7 +87,19 @@ public record AdapterConfig(String revision, Map<String, Tenant> tenants, Map<ja
             Set<String> policies,
             Optional<URI> completionUri,
             Optional<Webhook> webhook,
-            int sessionsPerMinute) {}
+            int sessionsPerMinute,
+            List<String> dcApiOrigins) {
+
+        /** Without Digital Credentials API origins. */
+        public ClientApplication(
+                String clientId,
+                Set<String> policies,
+                Optional<URI> completionUri,
+                Optional<Webhook> webhook,
+                int sessionsPerMinute) {
+            this(clientId, policies, completionUri, webhook, sessionsPerMinute, List.of());
+        }
+    }
 
     /** Session creations per client and minute when the client sets no {@code rate_limit}. */
     public static final int DEFAULT_SESSIONS_PER_MINUTE = 300;

@@ -83,9 +83,15 @@ public class SessionStore {
      */
     public SessionRow insertOrGetIdempotent(
             SessionRow row, String idempotencyKeyHash, byte[] transactionDataCiphertext) {
+        return insertOrGetIdempotent(row, idempotencyKeyHash, transactionDataCiphertext, null);
+    }
+
+    /** @param dcApiOrigin the Origin a {@code dc_api} session is bound to; {@code null} for other modes */
+    public SessionRow insertOrGetIdempotent(
+            SessionRow row, String idempotencyKeyHash, byte[] transactionDataCiphertext, String dcApiOrigin) {
         String sql = "INSERT INTO verification_session (id, tenant_id, client_id, policy_id, config_revision, mode,"
                 + " status, request_handle, idempotency_key_hash, request_fingerprint, client_reference, created_at,"
-                + " expires_at, transaction_data_ciphertext) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+                + " expires_at, transaction_data_ciphertext, dc_api_origin) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
                 + " ON CONFLICT (tenant_id, client_id, idempotency_key_hash) DO NOTHING";
         try (Connection c = dataSource.getConnection();
                 PreparedStatement ps = c.prepareStatement(sql)) {
@@ -103,6 +109,7 @@ public class SessionStore {
             ps.setTimestamp(12, ts(row.createdAt()));
             ps.setTimestamp(13, ts(row.expiresAt()));
             ps.setBytes(14, transactionDataCiphertext);
+            ps.setString(15, dcApiOrigin);
             ps.executeUpdate();
         } catch (SQLException e) {
             throw new StoreException(e);
@@ -114,6 +121,20 @@ public class SessionStore {
                         row.clientId(),
                         idempotencyKeyHash)
                 .orElseThrow(() -> new StoreException(new SQLException("session not stored")));
+    }
+
+    /** The Origin a {@code dc_api} session is bound to. */
+    public Optional<String> dcApiOrigin(String sessionId) {
+        try (Connection c = dataSource.getConnection();
+                PreparedStatement ps =
+                        c.prepareStatement("SELECT dc_api_origin FROM verification_session WHERE id = ?")) {
+            ps.setString(1, sessionId);
+            try (var rs = ps.executeQuery()) {
+                return rs.next() ? Optional.ofNullable(rs.getString(1)) : Optional.empty();
+            }
+        } catch (SQLException e) {
+            throw new StoreException(e);
+        }
     }
 
     /** The session's encrypted {@code transaction_data}, while it is pending; empty when it has none. */

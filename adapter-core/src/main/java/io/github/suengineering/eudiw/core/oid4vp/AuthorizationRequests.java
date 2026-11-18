@@ -176,6 +176,57 @@ public final class AuthorizationRequests {
         claims.put("iat", now.getEpochSecond());
         claims.put("exp", now.plus(parameters.lifetime()).getEpochSecond());
         claims.put("jti", randomValue());
+        return sign(identity, claims);
+    }
+
+    /** The protocol identifier of a signed request over the Digital Credentials API (OpenID4VP 1.0 appendix A.1). */
+    public static final String DC_API_SIGNED_PROTOCOL = "openid4vp-v1-signed";
+
+    /**
+     * Signs a request for the W3C Digital Credentials API (OpenID4VP 1.0 appendix A.3.2.1, HAIP 1.0 section 5.2):
+     * {@code client_id} with {@code x509_hash}, {@code expected_origins}, response mode {@code dc_api.jwt}, and only
+     * the parameters appendix A.2 lists. No {@code response_uri}, {@code state} or {@code request_uri}: the browser
+     * returns the response to the page that called the API.
+     *
+     * @param expectedOrigins the Origins of the pages that may call the API with this request
+     */
+    public static String signDcApiRequest(
+            VerifierIdentity identity, Parameters parameters, List<String> expectedOrigins, Instant now) {
+        if (expectedOrigins.isEmpty()) {
+            throw new IllegalArgumentException("a signed DC API request needs expected_origins");
+        }
+        Map<String, Object> claims = new LinkedHashMap<>();
+        claims.put("client_id", identity.clientId());
+        claims.put("response_type", "vp_token");
+        claims.put("response_mode", "dc_api.jwt");
+        claims.put("nonce", parameters.nonce());
+        claims.put("dcql_query", parameters.query().toJson());
+        claims.put("client_metadata", clientMetadata(parameters.responseEncryptionKey(), parameters.query()));
+        claims.put("expected_origins", List.copyOf(expectedOrigins));
+        if (!parameters.verifierInfo().isEmpty()) {
+            claims.put("verifier_info", parameters.verifierInfo());
+        }
+        if (!parameters.transactionData().isEmpty()) {
+            claims.put("transaction_data", parameters.transactionData());
+        }
+        claims.put("iat", now.getEpochSecond());
+        claims.put("exp", now.plus(parameters.lifetime()).getEpochSecond());
+        return sign(identity, claims);
+    }
+
+    /**
+     * The argument for {@code navigator.credentials.get()}: {@code {digital: {requests: [{protocol, data: {request}}]}}}
+     * (W3C Digital Credentials API; OpenID4VP 1.0 appendix A.3.2.1).
+     */
+    public static Map<String, Object> dcApiCredentialRequest(String signedRequest) {
+        return Map.of(
+                "digital",
+                Map.of(
+                        "requests",
+                        List.of(Map.of("protocol", DC_API_SIGNED_PROTOCOL, "data", Map.of("request", signedRequest)))));
+    }
+
+    private static String sign(VerifierIdentity identity, Map<String, Object> claims) {
 
         List<Base64> x5c = new ArrayList<>();
         try {

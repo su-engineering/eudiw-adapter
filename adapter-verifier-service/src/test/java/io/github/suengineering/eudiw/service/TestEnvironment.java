@@ -63,6 +63,7 @@ public class TestEnvironment implements QuarkusTestResourceLifecycleManager {
     public static final String MDL_DOCTYPE = "org.iso.18013.5.1.mDL";
 
     public static final String RP_A_ID = "VATBE-0999999999";
+    public static final String DC_API_ORIGIN = "https://shop.test.example";
     public static final String TRANSACTION_TYPE = "urn:test:payment";
     public static final String VCT = "https://credentials.test.example/age";
     public static final String PID_LIST_ID = "https://lists.test.example/pid-providers.jwt";
@@ -298,6 +299,7 @@ public class TestEnvironment implements QuarkusTestResourceLifecycleManager {
                    "verifier":{"private_key_file":"rp-a-key.pem","certificate_chain_file":"rp-a.pem"},
                    "clients":[
                      {"client_id":"portal-a","policies":["age-over-18","age-over-18-crl","mdl-age","mdl-age-signer-name"],"completion_uri":"%s",
+                      "dc_api_origins":["%s"],
                       "webhook":{"url":"http://127.0.0.1:%d/hook","secret_file":"portal-a.whsec"}},
                      {"client_id":"other-app-a","policies":[]},
                      {"client_id":"limited-a","policies":["age-over-18"],"rate_limit":{"sessions_per_minute":2}}],
@@ -344,6 +346,7 @@ public class TestEnvironment implements QuarkusTestResourceLifecycleManager {
                      "status_policy":"require_valid"}]}
                 ]}""".formatted(
                         COMPLETION_URI,
+                        DC_API_ORIGIN,
                         webhookPort,
                         dcql,
                         ISSUER_A,

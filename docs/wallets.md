@@ -17,7 +17,7 @@ Outside the wallets, the SD-JWT checks are also compared with a second implement
 | Wallet | Status |
 | --- | --- |
 | EU reference wallet (Android, iOS) | Planned: first on emulators and simulators, then on phones ([roadmap](../ROADMAP.md) item 3) |
-| Any wallet over the Digital Credentials API | The adapter does not support the browser API yet ([roadmap](../ROADMAP.md) item 2) |
+| Any wallet over the Digital Credentials API | The adapter supports the API since ADR-017, tested with its own test wallet only; a browser test against an independent wallet is next ([roadmap](../ROADMAP.md) item 2) |
 
 Not covered by any run: ISO mdoc in the same-device flow, mdoc with `deviceMac` (not supported), and real registrars or real trusted lists.
 

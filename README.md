@@ -314,7 +314,8 @@ Test evidence per feature: [standards and feature status](docs/standards-matrix.
 - [x] Web component and Node and Python examples
 - [x] OpenID Foundation HAIP verifier test plan in CI on every change (not certified)
 - [x] ISO mdoc (`mso_mdoc`): issuer and device authentication
-- [ ] Digital Credentials API
+- [x] Digital Credentials API, server side (`mode: dc_api`)
+- [ ] Digital Credentials API in `<eudiw-request>` and a browser test against an independent wallet
 - [x] A second independent wallet in CI (walt.id Wallet API 2, SD-JWT VC and mdoc)
 - [ ] The EU reference wallet on real devices, OCSP
 - [x] `transaction_data` for SD-JWT VC, tested with walt.id
