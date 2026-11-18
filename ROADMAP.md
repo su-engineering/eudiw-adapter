@@ -13,7 +13,7 @@ The first release covers SD-JWT VC over OpenID4VP 1.0 and HAIP 1.0, DCQL, ETSI t
 1. **ISO mdoc, second edition.** 0.2.0 verifies mdocs end to end, including revocation through a Token Status List reference. Once the second edition of ISO/IEC 18013-5 is published, check it against what was built and add any status mechanism it defines beyond that.
 2. **Digital Credentials API.** Same-device presentation through the browser API, for SD-JWT VC and mdoc.
 3. **The EU reference wallet on real devices.** Run the adapter against the EU reference wallet apps on Android and iOS, first on emulators and simulators, then on phones, and publish what was run.
-4. **A second independent wallet** in CI next to eudi-dev.
+4. **A second independent wallet** in CI next to eudi-dev. The [wallet table](docs/wallets.md) lists what has been tested so far.
 5. **OCSP**, alongside the existing CRL checks.
 
 ## Later

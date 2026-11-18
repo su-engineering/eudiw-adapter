@@ -284,7 +284,7 @@ flowchart LR
 | ETSI TS 119 472-2 / TS 119 475 relying-party registration | V1.3.1 / V1.2.1 |
 | EUDI Wallet Architecture and Reference Framework (ARF) | reference |
 
-Test evidence per feature: [standards and feature status](docs/standards-matrix.md).
+Test evidence per feature: [standards and feature status](docs/standards-matrix.md). Which wallets have been run against the adapter, and how often: [wallets](docs/wallets.md).
 
 ## Roadmap
 
@@ -313,6 +313,7 @@ The full, ordered list is in [ROADMAP.md](ROADMAP.md).
 | [Kubernetes and Helm](docs/kubernetes.md) | Deploying the chart |
 | [Threat model](docs/threat-model.md) | What it defends against, and what it doesn't |
 | [Standards and feature status](docs/standards-matrix.md) | Pinned versions and test evidence |
+| [Wallets](docs/wallets.md) | Wallets tested against the adapter, what each run covers, and how to add one |
 
 ## Build
 
