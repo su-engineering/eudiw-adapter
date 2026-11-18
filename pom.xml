@@ -37,7 +37,7 @@
     <assertj.version>3.27.7</assertj.version>
     <authlete-sd-jwt.version>1.11</authlete-sd-jwt.version>
     <authlete-cbor.version>1.21</authlete-cbor.version>
-    <bouncycastle.version>1.86</bouncycastle.version>
+    <bouncycastle.version>1.87</bouncycastle.version>
     <jdk.version>21</jdk.version>
     <junit.version>6.1.3</junit.version>
     <nimbus-jose-jwt.version>10.10</nimbus-jose-jwt.version>
