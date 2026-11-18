@@ -100,10 +100,14 @@ public class VerificationSessionResource {
     @GET
     @Path("{id}/events")
     @Produces(MediaType.SERVER_SENT_EVENTS)
-    public void events(@PathParam("id") String id, @Context SseEventSink sink, @Context Sse sse) {
+    public void events(
+            @PathParam("id") String id,
+            @Context SseEventSink sink,
+            @Context Sse sse,
+            @Context io.vertx.core.http.HttpServerResponse response) {
         var caller = callers.require("verification:read");
         SessionRow session = engine.status(caller, id);
-        streams.checkCapacity(caller);
+        response.putHeader("Cache-Control", "no-store");
         streams.watch(caller, session, sink, sse, callers.tokenExpiry());
     }
 

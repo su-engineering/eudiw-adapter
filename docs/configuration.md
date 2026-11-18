@@ -155,6 +155,7 @@ With the Helm chart, put the old keys under `previous-data-keys` in the data key
 | `eudiw_trusted_list_refreshes_total{outcome,code}`, `eudiw_trusted_lists_current{tenant,policy}` | Trusted list refreshes, and whether each policy that uses lists has a current one (0 means its verifications fail closed) |
 | `eudiw_registration_certificate_expiry_seconds{tenant,policy}` | Seconds until a registration certificate expires |
 | `eudiw_config_reloads_total{outcome}`, `eudiw_config_info{revision}` | Configuration reloads and the active revision |
+| `eudiw_session_event_streams` | Event streams open on this node |
 
 JVM, process and connection pool metrics are included. HTTP server metrics are not, because request paths carry request handles.
 

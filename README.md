@@ -126,7 +126,8 @@ curl -X POST https://adapter.example/v1/verification-sessions \
 ```
 
 ```bash
-# 2. Wait for the outcome: poll, take the webhook, or follow the event stream until it closes
+# 2. Wait for the outcome: poll, take the webhook, or follow the event stream. The last event counts: if the
+#    stream closes on "pending" (token expired, node restarted), reconnect with a fresh token or poll.
 curl -N https://adapter.example/v1/verification-sessions/$ID/events -H "Authorization: Bearer $TOKEN"
 #    event: status
 #    data: {"id":"vrs_...","status":"verified",...,"result_available":true}

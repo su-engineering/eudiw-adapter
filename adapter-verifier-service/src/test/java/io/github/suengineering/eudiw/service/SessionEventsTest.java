@@ -73,12 +73,20 @@ class SessionEventsTest {
                 (uri, accept, max) -> TestWallet.statusListToken(
                                 TestEnvironment.ISSUER_A, "issuer-a-key.pem", "issuer-a.pem")
                         .getBytes(StandardCharsets.US_ASCII));
-        streams.limitForTests(1000, 100);
+        streams.configureForTests(1000, 100, java.time.Duration.ofSeconds(15));
     }
 
     @AfterEach
-    void closeStreams() {
+    void awaitStreamsDropped() throws InterruptedException {
         opened.forEach(r -> r.body().close());
+        opened.clear();
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (streams.open() > 0 && System.nanoTime() < deadline) {
+            Thread.sleep(100);
+        }
+        assertThat(streams.open())
+                .as("every stream is dropped after the client closes it")
+                .isZero();
     }
 
     private JsonPath create(String policyId) {
@@ -94,7 +102,7 @@ class SessionEventsTest {
                 .jsonPath();
     }
 
-    /** Opens the stream and returns the data lines of its events, then {@link #END} when the server closes it. */
+    /** Opens the stream and returns its non-empty lines, then {@link #END} when the server closes it. */
     private BlockingQueue<String> open(String token, String id) throws Exception {
         HttpResponse<Stream<String>> response = HttpClient.newHttpClient()
                 .send(
@@ -108,28 +116,41 @@ class SessionEventsTest {
         assertThat(response.statusCode()).isEqualTo(200);
         assertThat(response.headers().firstValue("Content-Type"))
                 .hasValueSatisfying(v -> assertThat(v).startsWith("text/event-stream"));
-        BlockingQueue<String> events = new LinkedBlockingQueue<>();
+        assertThat(response.headers().firstValue("Cache-Control")).hasValue("no-store");
+        BlockingQueue<String> lines = new LinkedBlockingQueue<>();
         Thread.ofVirtual().start(() -> {
             try {
-                response.body()
-                        .filter(l -> l.startsWith("data:"))
-                        .forEach(l -> events.add(l.substring(5).strip()));
+                response.body().filter(l -> !l.isBlank()).forEach(lines::add);
             } catch (RuntimeException e) {
                 // closed by the test
             }
-            events.add(END);
+            lines.add(END);
         });
-        return events;
+        return lines;
     }
 
-    private static JsonPath next(BlockingQueue<String> events) throws InterruptedException {
-        String data = events.poll(10, TimeUnit.SECONDS);
-        assertThat(data).as("an event within 10 seconds").isNotNull().isNotEqualTo(END);
-        return new JsonPath(data);
+    /** The data of the next event, skipping comments and the event name and id lines. */
+    private static JsonPath next(BlockingQueue<String> lines) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (true) {
+            String line = lines.poll(deadline - System.nanoTime(), TimeUnit.NANOSECONDS);
+            assertThat(line).as("an event within 10 seconds").isNotNull().isNotEqualTo(END);
+            if (line.startsWith("data:")) {
+                return new JsonPath(line.substring(5).strip());
+            }
+        }
     }
 
-    private static void assertClosed(BlockingQueue<String> events) throws InterruptedException {
-        assertThat(events.poll(10, TimeUnit.SECONDS)).isEqualTo(END);
+    private static void assertClosed(BlockingQueue<String> lines) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (true) {
+            String line = lines.poll(deadline - System.nanoTime(), TimeUnit.NANOSECONDS);
+            assertThat(line).as("the stream closes within 10 seconds").isNotNull();
+            assertThat(line).as("no further event").doesNotStartWith("data:");
+            if (line.equals(END)) {
+                return;
+            }
+        }
     }
 
     private void sql(String statement, String id) throws Exception {
@@ -164,9 +185,8 @@ class SessionEventsTest {
                                 1))));
         assertThat(TestWallet.respond(request, response).statusCode()).isEqualTo(200);
 
-        String raw = events.poll(10, TimeUnit.SECONDS);
-        assertThat(raw).isNotNull().doesNotContain("Erika-Canary").doesNotContain("age_over_18");
-        JsonPath verified = new JsonPath(raw);
+        JsonPath verified = next(events);
+        assertThat(verified.prettify()).doesNotContain("Erika-Canary").doesNotContain("age_over_18");
         assertThat(verified.getString("status")).isEqualTo("verified");
         assertThat(verified.getBoolean("result_available")).isTrue();
         assertThat(verified.getMap("$"))
@@ -213,10 +233,46 @@ class SessionEventsTest {
     void theStreamEndsWhenTheAccessTokenExpires() throws Exception {
         String id = create("age-over-18").getString("id");
         String shortLived = TestWallet.token(
-                TestEnvironment.TOKEN_ISSUER, TestEnvironment.AUDIENCE, 3, "portal-a", "verification:read");
+                TestEnvironment.TOKEN_ISSUER, TestEnvironment.AUDIENCE, 5, "portal-a", "verification:read");
         BlockingQueue<String> events = open(shortLived, id);
         assertThat(next(events).getString("status")).isEqualTo("pending");
         assertClosed(events);
+    }
+
+    @Test
+    void aQuietStreamGetsHeartbeatCommentsAndStillDeliversTheChange() throws Exception {
+        streams.configureForTests(1000, 100, java.time.Duration.ofSeconds(1));
+        String id = create("age-over-18").getString("id");
+        BlockingQueue<String> lines = open(TestWallet.fullToken("portal-a"), id);
+        assertThat(next(lines).getString("status")).isEqualTo("pending");
+        List<String> between = new ArrayList<>();
+        String line;
+        do {
+            line = lines.poll(10, TimeUnit.SECONDS);
+            assertThat(line).as("a heartbeat within 10 seconds").isNotNull().isNotEqualTo(END);
+            between.add(line);
+        } while (!line.startsWith(":"));
+        assertThat(line).isEqualTo(":keep-alive");
+        assertThat(between).noneMatch(l -> l.startsWith("data:"));
+        sql("UPDATE verification_session SET status = 'denied', completed_at = now() WHERE id = ?", id);
+        assertThat(next(lines).getString("status")).isEqualTo("denied");
+        assertClosed(lines);
+    }
+
+    @Test
+    void aStreamTheClientClosesIsDropped() throws Exception {
+        String id = create("age-over-18").getString("id");
+        BlockingQueue<String> lines = open(TestWallet.fullToken("portal-a"), id);
+        assertThat(next(lines).getString("status")).isEqualTo("pending");
+        assertThat(streams.watching(id)).isTrue();
+        opened.remove(opened.size() - 1).body().close();
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (streams.watching(id) && System.nanoTime() < deadline) {
+            Thread.sleep(200);
+        }
+        assertThat(streams.watching(id))
+                .as("dropped without waiting for a heartbeat")
+                .isFalse();
     }
 
     @Test
@@ -258,7 +314,7 @@ class SessionEventsTest {
 
     @Test
     void streamsPerClientAreCapped() throws Exception {
-        streams.limitForTests(1000, 1);
+        streams.configureForTests(1000, 1, java.time.Duration.ofSeconds(15));
         String id = create("age-over-18").getString("id");
         BlockingQueue<String> events = open(TestWallet.fullToken("portal-a"), id);
         assertThat(next(events).getString("status")).isEqualTo("pending");

@@ -98,6 +98,9 @@ paths:
         change. The server closes the stream once the status is anything but `pending`, when the access token
         expires, or when the client is removed from the configuration. A comment line is sent every 15 seconds
         without a change. Events never carry claims; fetch the result once with the result call. See ADR-013.
+
+        The last event received is the outcome, not the close itself: a stream that ends while the status is still
+        `pending` (the access token expired, or the node stopped) means reconnect with a fresh token, or poll.
       parameters:
         - $ref: '#/components/parameters/SessionId'
       responses:

@@ -97,6 +97,12 @@ spec:
               value: {{ .Values.trustedLists.refreshInterval | quote }}
             - name: EUDIW_WEBHOOK_INTERVAL
               value: {{ .Values.webhooks.interval | quote }}
+            - name: EUDIW_EVENTS_INTERVAL
+              value: {{ .Values.events.interval | quote }}
+            - name: EUDIW_EVENT_STREAMS_MAX
+              value: {{ .Values.events.maxStreams | quote }}
+            - name: EUDIW_EVENT_STREAMS_PER_CLIENT
+              value: {{ .Values.events.maxStreamsPerClient | quote }}
             - name: EUDIW_CONFIG_RELOAD_INTERVAL
               value: {{ .Values.configReload.interval | quote }}
             {{- if .Values.tracing.enabled }}

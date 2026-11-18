@@ -37,8 +37,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
@@ -51,7 +49,6 @@ import org.jboss.logging.Logger;
 public class SessionEventStreams {
 
     private static final Logger LOG = Logger.getLogger(SessionEventStreams.class);
-    static final Duration HEARTBEAT = Duration.ofSeconds(15);
 
     @Inject
     SessionStore store;
@@ -71,7 +68,12 @@ public class SessionEventStreams {
     @ConfigProperty(name = "eudiw.events.max-streams-per-client", defaultValue = "100")
     int maxStreamsPerClient;
 
-    private final Map<String, List<Stream>> bySession = new ConcurrentHashMap<>();
+    private volatile Duration heartbeat = Duration.ofSeconds(15);
+
+    /** Guards {@link #bySession}: the cap check, registration and removal happen under it. */
+    private final Object lock = new Object();
+
+    private final Map<String, List<Stream>> bySession = new HashMap<>();
 
     private static final class Stream {
         final String tenantId;
@@ -99,64 +101,76 @@ public class SessionEventStreams {
         registry.gauge("eudiw.session.event.streams", this, SessionEventStreams::open);
     }
 
-    /** For tests: changes the caps. */
-    public void limitForTests(int perNode, int perClient) {
+    /** For tests: changes the caps and the heartbeat interval. */
+    public void configureForTests(int perNode, int perClient, Duration heartbeatInterval) {
         maxStreams = perNode;
         maxStreamsPerClient = perClient;
+        heartbeat = heartbeatInterval;
+    }
+
+    /** For tests: whether this node streams the session. */
+    public boolean watching(String sessionId) {
+        synchronized (lock) {
+            return bySession.containsKey(sessionId);
+        }
     }
 
     /** Streams open on this node. */
     public int open() {
-        return bySession.values().stream().mapToInt(List::size).sum();
-    }
-
-    private int openFor(ClientBinding caller) {
-        int n = 0;
-        for (List<Stream> streams : bySession.values()) {
-            for (Stream s : streams) {
-                if (s.tenantId.equals(caller.tenant().id())
-                        && s.clientId.equals(caller.client().clientId())) {
-                    n++;
-                }
-            }
-        }
-        return n;
-    }
-
-    /** Refuses with 429 before anything is written, when this node or this client has too many streams open. */
-    void checkCapacity(ClientBinding caller) {
-        if (open() >= maxStreams || openFor(caller) >= maxStreamsPerClient) {
-            throw new ApiException(429, "too_many_streams", "too many open event streams; poll instead", 5);
+        synchronized (lock) {
+            return bySession.values().stream().mapToInt(List::size).sum();
         }
     }
 
     /**
-     * Sends the current status, then keeps the stream until the session leaves {@code pending}, the access token it
-     * was opened with expires, or the client is removed from the configuration.
+     * Registers a stream, sends the current status, then keeps the stream until the session leaves {@code pending},
+     * the access token it was opened with expires, or the client is removed from the configuration. Refuses with
+     * 429 before anything is written when this node or this client has too many streams open.
      */
     void watch(ClientBinding caller, SessionRow session, SseEventSink sink, Sse sse, Instant tokenExpiry) {
         Stream stream =
                 new Stream(caller.tenant().id(), caller.client().clientId(), session.id(), sink, sse, tokenExpiry);
+        synchronized (lock) {
+            int total = 0;
+            int forClient = 0;
+            for (List<Stream> streams : bySession.values()) {
+                for (Stream s : streams) {
+                    total++;
+                    if (s.tenantId.equals(stream.tenantId) && s.clientId.equals(stream.clientId)) {
+                        forClient++;
+                    }
+                }
+            }
+            if (total >= maxStreams || forClient >= maxStreamsPerClient) {
+                throw new ApiException(429, "too_many_streams", "too many open event streams; poll instead", 5);
+            }
+            bySession.computeIfAbsent(session.id(), k -> new ArrayList<>()).add(stream);
+        }
         Map<String, Object> view = SessionView.of(session, runtime.clock().instant());
         if (!send(stream, view) || SessionView.isFinal(view)) {
-            close(stream);
-            return;
+            remove(stream);
         }
-        bySession
-                .computeIfAbsent(session.id(), k -> new CopyOnWriteArrayList<>())
-                .add(stream);
     }
 
     @Scheduled(every = "{eudiw.events.interval:1s}", concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
     void tick() {
-        bySession.forEach((id, streams) -> streams.removeIf(s -> s.sink.isClosed()));
-        bySession.entrySet().removeIf(e -> e.getValue().isEmpty());
-        if (bySession.isEmpty()) {
+        List<Stream> watched = new ArrayList<>();
+        synchronized (lock) {
+            bySession.values().forEach(watched::addAll);
+        }
+        for (Stream stream : watched) {
+            if (stream.sink.isClosed()) {
+                remove(stream);
+            }
+        }
+        watched.removeIf(s -> s.sink.isClosed());
+        if (watched.isEmpty()) {
             return;
         }
         Map<String, SessionRow> rows = new HashMap<>();
         try {
-            for (SessionRow row : store.findByIds(new ArrayList<>(bySession.keySet()))) {
+            for (SessionRow row : store.findByIds(
+                    watched.stream().map(s -> s.sessionId).distinct().toList())) {
                 rows.put(row.id(), row);
             }
         } catch (RuntimeException e) {
@@ -166,24 +180,21 @@ public class SessionEventStreams {
             return;
         }
         Instant now = runtime.clock().instant();
-        for (List<Stream> streams : bySession.values()) {
-            for (Stream stream : streams) {
-                SessionRow row = rows.get(stream.sessionId);
-                if (row == null
-                        || !row.tenantId().equals(stream.tenantId)
-                        || !row.clientId().equals(stream.clientId)
-                        || !now.isBefore(stream.notAfter)
-                        || !stillRegistered(stream)) {
-                    remove(stream);
-                    continue;
-                }
-                Map<String, Object> view = SessionView.of(row, now);
-                boolean sent = send(stream, view);
-                if (!sent || SessionView.isFinal(view)) {
-                    remove(stream);
-                } else if (Duration.between(stream.lastSent, now).compareTo(HEARTBEAT) >= 0) {
-                    heartbeat(stream, now);
-                }
+        for (Stream stream : watched) {
+            SessionRow row = rows.get(stream.sessionId);
+            if (row == null
+                    || !row.tenantId().equals(stream.tenantId)
+                    || !row.clientId().equals(stream.clientId)
+                    || !now.isBefore(stream.notAfter)
+                    || !stillRegistered(stream)) {
+                remove(stream);
+                continue;
+            }
+            Map<String, Object> view = SessionView.of(row, now);
+            if (!send(stream, view) || SessionView.isFinal(view)) {
+                remove(stream);
+            } else if (!heartbeatIfQuiet(stream, now)) {
+                remove(stream);
             }
         }
     }
@@ -197,47 +208,63 @@ public class SessionEventStreams {
 
     /** Sends the view if it differs from the last one sent. False when the stream is gone. */
     private boolean send(Stream stream, Map<String, Object> view) {
-        if (stream.sink.isClosed()) {
-            return false;
-        }
         String json;
         try {
             json = mapper.writeValueAsString(view);
         } catch (JsonProcessingException e) {
             throw new IllegalStateException(e);
         }
-        if (json.equals(stream.last)) {
+        synchronized (stream) {
+            if (stream.sink.isClosed()) {
+                return false;
+            }
+            if (json.equals(stream.last)) {
+                return true;
+            }
+            try {
+                stream.sink.send(stream.sse
+                        .newEventBuilder()
+                        .name("status")
+                        .id(Long.toString(++stream.nextId))
+                        .mediaType(MediaType.TEXT_PLAIN_TYPE)
+                        .data(String.class, json)
+                        .build());
+            } catch (RuntimeException e) {
+                return false;
+            }
+            stream.last = json;
+            stream.lastSent = runtime.clock().instant();
             return true;
         }
-        try {
-            stream.sink.send(stream.sse
-                    .newEventBuilder()
-                    .name("status")
-                    .id(Long.toString(++stream.nextId))
-                    .mediaType(MediaType.TEXT_PLAIN_TYPE)
-                    .data(String.class, json)
-                    .build());
-        } catch (RuntimeException e) {
-            return false;
-        }
-        stream.last = json;
-        stream.lastSent = runtime.clock().instant();
-        return true;
     }
 
-    private void heartbeat(Stream stream, Instant now) {
-        try {
-            stream.sink.send(stream.sse.newEventBuilder().comment("keep-alive").build());
+    /** A comment line when nothing was sent for a heartbeat interval, so proxies keep the connection. */
+    private boolean heartbeatIfQuiet(Stream stream, Instant now) {
+        synchronized (stream) {
+            if (stream.lastSent == null
+                    || Duration.between(stream.lastSent, now).compareTo(heartbeat) < 0) {
+                return true;
+            }
+            try {
+                stream.sink.send(
+                        stream.sse.newEventBuilder().comment("keep-alive").build());
+            } catch (RuntimeException e) {
+                return false;
+            }
             stream.lastSent = now;
-        } catch (RuntimeException e) {
-            remove(stream);
+            return true;
         }
     }
 
     private void remove(Stream stream) {
-        List<Stream> streams = bySession.get(stream.sessionId);
-        if (streams != null) {
-            streams.remove(stream);
+        synchronized (lock) {
+            List<Stream> streams = bySession.get(stream.sessionId);
+            if (streams != null) {
+                streams.remove(stream);
+                if (streams.isEmpty()) {
+                    bySession.remove(stream.sessionId);
+                }
+            }
         }
         close(stream);
     }
@@ -251,7 +278,11 @@ public class SessionEventStreams {
     }
 
     void closeAll(@Observes ShutdownEvent event) {
-        bySession.values().forEach(streams -> streams.forEach(SessionEventStreams::close));
-        bySession.clear();
+        List<Stream> all = new ArrayList<>();
+        synchronized (lock) {
+            bySession.values().forEach(all::addAll);
+            bySession.clear();
+        }
+        all.forEach(SessionEventStreams::close);
     }
 }
