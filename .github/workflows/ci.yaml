@@ -64,10 +64,25 @@ jobs:
             ~/.m2/wrapper
           key: maven-${{ github.job }}-${{ hashFiles('**/pom.xml', '.mvn/wrapper/maven-wrapper.properties') }}
           restore-keys: maven-${{ github.job }}-
+      # While Maven compiles: the images the tests start (PostgreSQL through Quarkus Dev Services, the eudi-dev
+      # wallet, Vault, local-kms). A failed pull here only means the tests pull it themselves.
+      - name: Pull test containers in the background
+        run: |
+          for image in postgres:18 testcontainers/ryuk:0.14.0 ghcr.io/eudi-dev/eudi-dev:v3.8.0 \
+            hashicorp/vault:1.21.1@sha256:f4e2687b72858a9e2160c344c9fa1ef74c07f21a89a8c00534ab64d3f187b927 \
+            nsmithuk/local-kms:latest@sha256:e070866476b20973a9e23a9b636204b7a222e4169a6e03198d27b80d47ed28e3; do
+            (docker pull -q "$image" > /dev/null 2>&1 &)
+          done
       - name: Install SoftHSM for the PKCS#11 signer tests
-        run: sudo apt-get update -q && sudo apt-get install -y -q softhsm2
+        # Try the runner's package lists first; refresh only the Ubuntu archive (not every vendor repo) if that fails.
+        run: |
+          install() { sudo apt-get install -y -q --no-install-recommends softhsm2; }
+          install || {
+            mkdir -p /tmp/apt-ubuntu && cp /etc/apt/sources.list.d/ubuntu.sources /tmp/apt-ubuntu/
+            sudo apt-get update -q -o Dir::Etc::sourcelist=/dev/null -o Dir::Etc::sourceparts=/tmp/apt-ubuntu && install
+          }
       - name: Check format, dependency rules and run tests
-        run: ./mvnw -B -ntp clean verify -Deudiw.require-pkcs11=true
+        run: ./mvnw -B -ntp verify -Deudiw.require-pkcs11=true
       - name: Retain test reports
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -77,7 +92,6 @@ jobs:
           retention-days: 7
 
   demo:
-    needs: verify
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -93,6 +107,18 @@ jobs:
             ~/.m2/wrapper
           key: maven-${{ github.job }}-${{ hashFiles('**/pom.xml', '.mvn/wrapper/maven-wrapper.properties') }}
           restore-keys: maven-${{ github.job }}-
+      - name: Pull the demo's images and install zbar (for the rendered QR code) in the background
+        run: |
+          (
+            install() { sudo apt-get install -y -q --no-install-recommends zbar-tools; }
+            install || {
+              mkdir -p /tmp/apt-ubuntu && cp /etc/apt/sources.list.d/ubuntu.sources /tmp/apt-ubuntu/
+              sudo apt-get update -q -o Dir::Etc::sourcelist=/dev/null -o Dir::Etc::sourceparts=/tmp/apt-ubuntu && install
+            }
+            touch /tmp/zbar-done
+          ) > /tmp/zbar.log 2>&1 &
+          (docker compose -f deploy/compose/docker-compose.yml --profile wallet --profile waltid --profile dc-api \
+            pull -q --ignore-buildable > /dev/null 2>&1 &)
       - name: Build the service
         run: ./mvnw -B -ntp -pl adapter-verifier-service -am package -DskipTests
       - name: Run the Compose demo end to end
@@ -104,19 +130,15 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
-      - name: Web component and example unit tests
-        env:
-          REQUIRE_ZBAR: '1'
-        run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq zbar-tools
-          node --test clients/web/test/*.test.mjs examples/node/test/*.test.mjs
-          (cd examples/python && python3 -m unittest -v test_webhook)
       - name: Node and Python examples against the demo
         run: ./examples/e2e.sh
       - name: Example page rendered in Chromium (QR decoded from the screen, font, verified state)
         env:
           OUT_DIR: ${{ runner.temp }}/render
-        run: ./examples/render/check.sh
+        run: |
+          for _ in $(seq 1 120); do test -f /tmp/zbar-done && break; sleep 1; done
+          cat /tmp/zbar.log
+          ./examples/render/check.sh
       - name: Rendered screenshots
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -130,6 +152,30 @@ jobs:
           docker compose -f deploy/compose/docker-compose.yml logs adapter | tail -200
           docker compose -f deploy/compose/docker-compose.yml --profile waltid logs waltid-wallet | tail -100
           docker compose -f deploy/compose/docker-compose.yml --profile dc-api logs dc-wallet | tail -100
+
+  # The web component and the examples' own tests: no Java, no Compose.
+  clients:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+      - name: Install zbar to decode the rendered QR codes
+        # Try the runner's package lists first; refresh only the Ubuntu archive (not every vendor repo) if that fails.
+        run: |
+          install() { sudo apt-get install -y -q --no-install-recommends zbar-tools; }
+          install || {
+            mkdir -p /tmp/apt-ubuntu && cp /etc/apt/sources.list.d/ubuntu.sources /tmp/apt-ubuntu/
+            sudo apt-get update -q -o Dir::Etc::sourcelist=/dev/null -o Dir::Etc::sourceparts=/tmp/apt-ubuntu && install
+          }
+      - name: Web component and example unit tests
+        env:
+          REQUIRE_ZBAR: '1'
+        run: |
+          node --test clients/web/test/*.test.mjs examples/node/test/*.test.mjs
+          (cd examples/python && python3 -m unittest -v test_webhook)
 
   # The one-command demo for people who do not clone: the released image and the files run.sh downloads, here
   # taken from this checkout through a file:// URL.
@@ -153,7 +199,6 @@ jobs:
         run: docker compose logs adapter | tail -200
 
   oidf:
-    needs: verify
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -169,6 +214,10 @@ jobs:
             ~/.m2/wrapper
           key: maven-${{ github.job }}-${{ hashFiles('**/pom.xml', '.mvn/wrapper/maven-wrapper.properties') }}
           restore-keys: maven-${{ github.job }}-
+      - name: Pull the suite's images in the background
+        run: |
+          (docker compose -f interop/oidf/suite-compose.yml pull -q > /dev/null 2>&1 &)
+          (docker pull -q postgres:16.10-alpine > /dev/null 2>&1 &)
       - name: Build the service
         run: ./mvnw -B -ntp -pl adapter-verifier-service -am package -DskipTests
       # The OpenID Foundation suite plays the wallet and the issuer. ci.sh fails when a module ends differently
@@ -188,7 +237,6 @@ jobs:
           if-no-files-found: ignore
 
   helm:
-    needs: verify
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
