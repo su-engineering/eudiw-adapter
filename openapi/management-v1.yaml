@@ -88,6 +88,45 @@ paths:
                 $ref: '#/components/schemas/Session'
         '404':
           $ref: '#/components/responses/Problem'
+  /v1/verification-sessions/{id}/events:
+    get:
+      operationId: streamVerificationSessionEvents
+      summary: Follow the session status as Server-Sent Events
+      description: |
+        Requires scope `verification:read`. Sessions of other clients or tenants return 404. Each event is named
+        `status` and its data is the same JSON as the status call: first the current status, then one event per
+        change. The server closes the stream once the status is anything but `pending`, when the access token
+        expires, or when the client is removed from the configuration. A comment line is sent every 15 seconds
+        without a change. Events never carry claims; fetch the result once with the result call. See ADR-013.
+
+        The last event received is the outcome, not the close itself: a stream that ends while the status is still
+        `pending` (the access token expired, or the node stopped) means reconnect with a fresh token, or poll.
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: |
+            An event stream. Each event's `data` is a `Session` object, for example:
+
+                event: status
+                id: 1
+                data: {"id":"vrs_...","status":"pending",...}
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '404':
+          $ref: '#/components/responses/Problem'
+        '429':
+          description: Too many open event streams on this node or for this client. Poll instead, or retry after `Retry-After`.
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /v1/verification-sessions/{id}/result:
     get:
       operationId: getVerificationResult
@@ -272,7 +311,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/Session'
         - type: object
-          required: [wallet_launch, poll_url]
+          required: [wallet_launch, poll_url, events_url]
           properties:
             wallet_launch:
               type: object
@@ -289,6 +328,9 @@ components:
                   description: The same value as `launch_uri`, for rendering as a QR code.
             poll_url:
               type: string
+            events_url:
+              type: string
+              description: Path of the Server-Sent Events stream of this session's status.
     Result:
       type: object
       required: [id, status, policy_id, verified_at, claims, credential_evidence]

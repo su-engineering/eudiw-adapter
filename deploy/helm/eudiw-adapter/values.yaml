@@ -57,6 +57,13 @@ trustedLists:
 webhooks:
   interval: 5s
 
+# Server-Sent Event streams of session status (ADR-013): how often each pod reads the watched sessions, and the
+# open streams allowed per pod and per client on a pod. The ingress must not buffer them (docs/kubernetes.md).
+events:
+  interval: 1s
+  maxStreams: 1000
+  maxStreamsPerClient: 100
+
 # The service rereads the config Secret when it changes (Kubernetes updates mounted Secrets in place) and keeps
 # the running configuration if the new one does not validate. "off" disables the check.
 configReload:

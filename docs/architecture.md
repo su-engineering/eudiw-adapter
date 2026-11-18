@@ -4,7 +4,7 @@ Status: in development. Nothing here describes released features unless the [fea
 
 ## Goal
 
-An application with no wallet protocol code of its own calls a tenant-scoped REST API to request a credential presentation, sends the user to a wallet, and receives a verified, minimized result by polling, optionally prompted by a signed webhook.
+An application with no wallet protocol code of its own calls a tenant-scoped REST API to request a credential presentation, sends the user to a wallet, and receives a verified, minimized result once it learns the outcome by polling, from a signed webhook, or from a Server-Sent Events stream of the session status.
 
 ```mermaid
 flowchart LR

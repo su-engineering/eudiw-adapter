@@ -7,6 +7,7 @@ All notable changes to eudiw-adapter. Versions follow [Semantic Versioning](http
 ### Added
 
 - CI runs the OpenID Foundation OID4VP 1.0 Final + HAIP verifier test plan on every change (`oidf` job). The job fails when any of the 14 modules ends differently from `interop/oidf/expected.json` or the suite logs a failure or warning, and keeps the suite logs for 90 days. `interop/oidf/ci.sh` runs the same thing on a laptop. Every module still ends in REVIEW; this is not certification.
+- Session status as Server-Sent Events: `GET /v1/verification-sessions/{id}/events` (scope `verification:read`) sends the status view the poll returns, first the current one and then each change, and closes when the session is no longer pending. Never claims. The creation response carries `events_url`. Works across replicas through PostgreSQL. New settings `EUDIW_EVENTS_INTERVAL`, `EUDIW_EVENT_STREAMS_MAX` and `EUDIW_EVENT_STREAMS_PER_CLIENT`, in the Helm chart as `events.interval`, `events.maxStreams` and `events.maxStreamsPerClient` ([ADR-013](docs/adr/0013-session-events.md)). Ingresses must not buffer the stream ([Kubernetes notes](docs/kubernetes.md)).
 
 ## [0.2.1] - 2026-11-17
 

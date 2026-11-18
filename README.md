@@ -100,7 +100,7 @@ sequenceDiagram
     W->>A: direct_post.jwt (encrypted SD-JWT VC or mdoc presentation)
     Note over A: decrypt · verify issuer chain and trusted list<br/>key binding or device signature · status list · CRL · DCQL<br/>keep only the policy's output claims
     A-->>W: redirect_uri with one-time response_code (same device)
-    A--)App: signed webhook (optional) or poll
+    A--)App: signed webhook, event stream or poll
     App->>A: GET /v1/verification-sessions/{id}/result
     A-->>App: {"age_over_18": true} (once, then deleted)
 ```
@@ -126,7 +126,13 @@ curl -X POST https://adapter.example/v1/verification-sessions \
 ```
 
 ```bash
-# 2. When the session is verified (poll, or wait for the webhook), fetch the result once
+# 2. Wait for the outcome: poll, take the webhook, or follow the event stream. The last event counts: if the
+#    stream closes on "pending" (token expired, node restarted), reconnect with a fresh token or poll.
+curl -N https://adapter.example/v1/verification-sessions/$ID/events -H "Authorization: Bearer $TOKEN"
+#    event: status
+#    data: {"id":"vrs_...","status":"verified",...,"result_available":true}
+
+# 3. Fetch the result once
 curl https://adapter.example/v1/verification-sessions/$ID/result -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -294,6 +300,7 @@ Test evidence per feature: [standards and feature status](docs/standards-matrix.
 - [x] Signed webhooks, HSM/KMS request signing, Helm chart
 - [x] Relying-party registration in `verifier_info` (ETSI TS 119 472-2)
 - [x] Metrics, audit log, tracing, rate limits, configuration reload
+- [x] Session status as Server-Sent Events, next to polling and webhooks
 - [x] Web component and Node and Python examples
 - [x] OpenID Foundation HAIP verifier test plan in CI on every change (not certified)
 - [x] ISO mdoc (`mso_mdoc`): issuer and device authentication
