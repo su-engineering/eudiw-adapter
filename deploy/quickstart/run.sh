@@ -8,6 +8,8 @@
 # the eudi-dev test wallet. Synthetic keys and credentials only. EUDIW_REF picks another branch or tag;
 # EUDIW_BASE_URL another source (CI uses a file:// URL of the checkout).
 set -eu
+# Everything runs inside main, so that when the script is piped into sh it is read in full before anything runs.
+main() {
 for tool in docker curl jq; do
   command -v "$tool" > /dev/null || { echo "$tool is required"; exit 1; }
 done
@@ -26,7 +28,7 @@ fetch deploy/compose/wallet.sh wallet.sh
 fetch deploy/compose/config/keycloak-realm.json keycloak-realm.json
 
 echo "Starting PostgreSQL, Keycloak and the adapter (the first start pulls the images)"
-docker compose up -d --quiet-pull keygen postgres keycloak adapter
+docker compose up -d --quiet-pull keygen postgres keycloak adapter < /dev/null
 ready=""
 for _ in $(seq 1 120); do
   kc=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8081/realms/demo/.well-known/openid-configuration || true)
@@ -51,7 +53,7 @@ echo "$SESSION" | jq '{id, status, launch_uri: .wallet_launch.launch_uri}'
 ID=$(echo "$SESSION" | jq -r .id)
 
 echo "2. The wallet (eudi-dev, HAIP mode) fetches the signed request and presents an SD-JWT VC"
-docker compose run --rm wallet "$(echo "$SESSION" | jq -r .wallet_launch.launch_uri)" > /dev/null 2>&1
+docker compose run --rm -T wallet "$(echo "$SESSION" | jq -r .wallet_launch.launch_uri)" < /dev/null > /dev/null 2>&1
 
 echo "3. The backend fetches the result once. The credential also holds a name; only the requested claim comes back:"
 RESULT=$(curl -sf -H "Authorization: Bearer $TOKEN" "http://localhost:8080/v1/verification-sessions/$ID/result")
@@ -61,7 +63,7 @@ echo "$RESULT" | jq -e '.claims == {"age_over_18": true}' > /dev/null || { echo 
 echo "4. A credential from an issuer the policy does not trust is rejected:"
 SESSION=$(session untrusted age-over-18)
 ID=$(echo "$SESSION" | jq -r .id)
-docker compose run --rm wallet "$(echo "$SESSION" | jq -r .wallet_launch.launch_uri)" untrusted > /dev/null 2>&1 || true
+docker compose run --rm -T wallet "$(echo "$SESSION" | jq -r .wallet_launch.launch_uri)" untrusted < /dev/null > /dev/null 2>&1 || true
 STATUS=$(curl -sf -H "Authorization: Bearer $TOKEN" "http://localhost:8080/v1/verification-sessions/$ID")
 echo "$STATUS" | jq '{status, reason}'
 echo "$STATUS" | jq -e '.status == "rejected"' > /dev/null || { echo "expected a rejection"; exit 1; }
@@ -69,7 +71,7 @@ echo "$STATUS" | jq -e '.status == "rejected"' > /dev/null || { echo "expected a
 echo "5. The same check with an ISO mdoc PID:"
 SESSION=$(session mdoc age-over-18-mdoc)
 ID=$(echo "$SESSION" | jq -r .id)
-docker compose run --rm wallet "$(echo "$SESSION" | jq -r .wallet_launch.launch_uri)" mdoc > /dev/null 2>&1
+docker compose run --rm -T wallet "$(echo "$SESSION" | jq -r .wallet_launch.launch_uri)" mdoc < /dev/null > /dev/null 2>&1
 RESULT=$(curl -sf -H "Authorization: Bearer $TOKEN" "http://localhost:8080/v1/verification-sessions/$ID/result")
 echo "$RESULT" | jq '{status, claims}'
 echo "$RESULT" | jq -e '.claims == {"age_over_18": true}' > /dev/null || { echo "unexpected mdoc result"; exit 1; }
@@ -77,3 +79,6 @@ echo "$RESULT" | jq -e '.claims == {"age_over_18": true}' > /dev/null || { echo 
 echo
 echo "Done. The adapter's management API is on http://localhost:8080, Keycloak on http://localhost:8081."
 echo "To stop it and delete its data: cd $DIR && docker compose down --volumes"
+}
+
+main "$@"

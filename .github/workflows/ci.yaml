@@ -114,11 +114,15 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Piped into sh, as the README shows: the script must not lose the rest of itself to a command reading stdin.
       - name: Run the quickstart against this checkout
         env:
           EUDIW_BASE_URL: file://${{ github.workspace }}
           EUDIW_QUICKSTART_DIR: ${{ runner.temp }}/quickstart
-        run: sh deploy/quickstart/run.sh
+        run: |
+          set -o pipefail
+          curl -fsSL "file://${{ github.workspace }}/deploy/quickstart/run.sh" | sh | tee "${{ runner.temp }}/quickstart.log"
+          grep -q '^Done\.' "${{ runner.temp }}/quickstart.log"
       - name: Service logs
         if: failure()
         working-directory: ${{ runner.temp }}/quickstart
