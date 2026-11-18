@@ -19,6 +19,7 @@ import io.github.suengineering.eudiw.core.dcql.ClaimsPath;
 import io.github.suengineering.eudiw.core.dcql.DcqlQuery;
 import io.github.suengineering.eudiw.core.json.Json;
 import io.github.suengineering.eudiw.core.keys.Pkcs11Keys;
+import io.github.suengineering.eudiw.core.keys.VaultTransitSigner;
 import io.github.suengineering.eudiw.core.oid4vp.RelyingPartyRegistration;
 import io.github.suengineering.eudiw.core.oid4vp.VerifierIdentity;
 import io.github.suengineering.eudiw.core.oid4vp.VpTokenVerifier.StatusPolicy;
@@ -167,13 +168,21 @@ public final class ConfigLoader {
         String id = id(json.get("id"), "tenant id");
         Map<String, Object> verifier = object(json.get("verifier"), "verifier");
         List<X509Certificate> chain = certificates(read(base, string(verifier, "certificate_chain_file")));
-        if (verifier.containsKey("private_key_file") == verifier.containsKey("pkcs11")) {
-            throw new ConfigException(
-                    "tenant " + id + ": set exactly one of verifier.private_key_file and verifier.pkcs11");
+        long keySources = java.util.stream.Stream.of("private_key_file", "pkcs11", "vault_transit")
+                .filter(verifier::containsKey)
+                .count();
+        if (keySources != 1) {
+            throw new ConfigException("tenant " + id
+                    + ": set exactly one of verifier.private_key_file, verifier.pkcs11 and verifier.vault_transit");
         }
         VerifierIdentity identity;
         try {
-            if (verifier.containsKey("pkcs11")) {
+            if (verifier.containsKey("vault_transit")) {
+                identity = new VerifierIdentity(
+                        new VaultTransitSigner(
+                                vaultTransit(object(verifier.get("vault_transit"), "vault_transit"), base, production)),
+                        chain);
+            } else if (verifier.containsKey("pkcs11")) {
                 Map<String, Object> hsm = object(verifier.get("pkcs11"), "pkcs11");
                 int slot = hsm.containsKey("slot_list_index") && hsm.get("slot_list_index") instanceof Number n
                         ? n.intValue()
@@ -617,6 +626,40 @@ public final class ConfigLoader {
         } catch (GeneralSecurityException e) {
             throw new ConfigException("certificates cannot be parsed", e);
         }
+    }
+
+    /**
+     * The token file is checked here but not tracked: Vault Agent rewrites it on every renewal, and each replica has
+     * its own token, so it must not change the configuration revision. The signer reads it on every signature.
+     */
+    private static VaultTransitSigner.Settings vaultTransit(Map<String, Object> json, Path base, boolean production) {
+        URI address;
+        try {
+            address = new URI(string(json, "address"));
+        } catch (java.net.URISyntaxException e) {
+            throw new ConfigException("vault_transit.address is not a URL");
+        }
+        if (production && !"https".equals(address.getScheme())) {
+            throw new ConfigException("vault_transit.address must use https in production");
+        }
+        java.util.OptionalInt version = java.util.OptionalInt.empty();
+        if (json.containsKey("key_version")) {
+            if (!(json.get("key_version") instanceof Number n) || n.doubleValue() != n.intValue()) {
+                throw new ConfigException("vault_transit.key_version must be an integer");
+            }
+            version = java.util.OptionalInt.of(n.intValue());
+        }
+        Path tokenFile = base.resolve(string(json, "token_file")).normalize();
+        if (!Files.isReadable(tokenFile)) {
+            throw new ConfigException("cannot read the Vault token file " + tokenFile);
+        }
+        return new VaultTransitSigner.Settings(
+                address,
+                json.containsKey("mount") ? string(json, "mount") : "transit",
+                string(json, "key_name"),
+                version,
+                json.containsKey("namespace") ? Optional.of(string(json, "namespace")) : Optional.empty(),
+                tokenFile);
     }
 
     private static String read(Path base, String relative) {

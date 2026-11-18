@@ -51,7 +51,7 @@ The core holds no global state, and network access goes only through the `HttpFe
 | `java.time.Clock` | Current time, injectable in tests |
 | `IssuerKeyResolver` | How the issuer key is found: `x5c` chain (HAIP) or a static key map |
 
-Request-signing keys are either in-process or held in an HSM or KMS and used through PKCS#11 ([ADR-009](adr/0009-hsm-request-signing.md)).
+Request-signing keys are either in-process, held in an HSM or KMS and used through PKCS#11 ([ADR-009](adr/0009-hsm-request-signing.md)), or held in HashiCorp Vault's Transit engine ([ADR-014](adr/0014-remote-request-signing.md)).
 
 ### Algorithms
 

@@ -354,7 +354,28 @@ public class VerificationEngine {
             return Optional.empty();
         }
         String walletNonceValue = walletNonce != null && walletNonce.length() <= 256 ? walletNonce : null;
-        return Optional.of(AuthorizationRequests.signRequestObject(
+        try {
+            return Optional.of(signRequestObject(tenant, policy, session, nonce, state, key, walletNonceValue, now));
+        } catch (IllegalStateException e) {
+            if (!(e.getCause() instanceof com.nimbusds.jose.JOSEException cause)) {
+                throw e;
+            }
+            // A key service that is down or refuses: the wallet may retry. The message names the cause, never a secret.
+            LOG.errorf("tenant %s: the request object cannot be signed: %s", session.tenantId(), cause.getMessage());
+            throw new ApiException(503, "signing_unavailable", "the request object cannot be signed now", 5);
+        }
+    }
+
+    private String signRequestObject(
+            Tenant tenant,
+            Policy policy,
+            SessionRow session,
+            String nonce,
+            String state,
+            ECKey key,
+            String walletNonceValue,
+            Instant now) {
+        return AuthorizationRequests.signRequestObject(
                 tenant.verifier(),
                 new AuthorizationRequests.Parameters(
                         responseUri(),
@@ -365,7 +386,7 @@ public class VerificationEngine {
                         walletNonceValue,
                         java.time.Duration.between(now, session.expiresAt()),
                         policy.registration().map(r -> r.verifierInfo(now)).orElse(List.of())),
-                now));
+                now);
     }
 
     /** The JSON body returned to the wallet after it posts to the Response URI. */

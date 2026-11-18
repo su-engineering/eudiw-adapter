@@ -190,7 +190,7 @@ Issuer trust from signed TS 119 602 lists (such as the EU PID providers list) an
 <td valign="top">
 
 **HSM and KMS keys**<br>
-Request-signing keys can stay in an HSM or KMS through PKCS#11. Tested with SoftHSM, which the demo signs with.
+Request-signing keys can stay in an HSM or KMS through PKCS#11, or in HashiCorp Vault's Transit engine. Tested with SoftHSM, which the demo signs with, and with a Vault server in CI.
 
 </td>
 <td valign="top">
@@ -270,7 +270,7 @@ flowchart LR
     SVC --> DB[("PostgreSQL")]
     SVC -. "signed webhooks" .-> APP
     CORE -. "egress-checked fetches" .-> NET["trusted lists · status lists · CRLs"]
-    SVC -. "PKCS#11" .-> HSM["HSM / KMS"]
+    SVC -. "PKCS#11 or Vault Transit" .-> HSM["HSM / KMS / Vault"]
 ```
 
 | Module | What it is |
