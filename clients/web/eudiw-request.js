@@ -27,7 +27,11 @@
  *   status-url     a URL on your backend answering {"status": "...", "expires_at"?: "..."} (same origin, cookies sent)
  *   request-label  what is asked, in the user's words, for example "over 18"
  *   expires-at     the session's expires_at (ISO 8601); shows a countdown and ends the request locally at zero
- *   mode           "cross_device" (default: QR code and link) or "same_device" (link only)
+ *   mode           "cross_device" (default: QR code and link), "same_device" (link only), or "dc_api" (a button that
+ *                  asks the browser for a wallet through the W3C Digital Credentials API)
+ *   dc-api-request for mode dc_api: JSON of dc_api.request from the session your backend created
+ *   dc-api-url     for mode dc_api: a URL on your backend that relays {"data": ...} to the session's
+ *                  dc_api.response_url (same origin, cookies sent)
  *   theme          "dark" (default), "light", or "auto" (follows prefers-color-scheme)
  *   credit         "off" hides the "eudiw-adapter · su.engineering" line
  *   poll-interval  milliseconds between status checks, default 2000
@@ -36,9 +40,10 @@
  *   eudiw-status   detail: {status, response}  when the status changes; response is the status URL's JSON body
  *   eudiw-done     detail: {status, response}  once, when the session ends
  *   eudiw-restart  when the user asks for a new request after it ended without a verification
+ *   eudiw-dc-api-error  detail: {name, message}  when the Digital Credentials API returned no credential
  *
  * The component never talks to the adapter. It loads JetBrains Mono from ./fonts next to this file (same origin)
- * and makes no other request than the status URL.
+ * and makes no other request than the status URL and, in mode dc_api, the dc-api-url.
  */
 import { qrcode } from './vendor/qrcode.mjs';
 
@@ -58,6 +63,10 @@ const COPY = {
   cancelled: 'this request was cancelled',
   retrying: 'Connection lost, retrying',
   invalid: 'This wallet request is not valid',
+  device: 'Use the EU Digital Identity Wallet on this device',
+  choosing: 'Choose your wallet in the browser',
+  noWallet: 'No wallet answered. You can try again.',
+  unsupported: 'This browser cannot ask a wallet on this device',
 };
 
 /** Registers the vendored JetBrains Mono once per document (@font-face does not work inside a shadow root). */
@@ -154,6 +163,9 @@ const STYLE = `
   background: var(--eudiw-fg); color: var(--eudiw-bg); text-decoration: none; font-weight: 500; font-size: 13px;
   letter-spacing: -.01em; border: 1px solid var(--eudiw-fg); transition: background-color 160ms, color 160ms; }
 .open:hover { background: transparent; color: var(--eudiw-fg); }
+button.open { width: 100%; font-family: inherit; cursor: pointer; }
+button.open:disabled { opacity: .45; cursor: default; }
+button.open:disabled:hover { background: var(--eudiw-fg); color: var(--eudiw-bg); }
 .open svg, .again svg { width: 12px; height: 12px; flex: none; color: var(--eudiw-signal); }
 a:focus-visible, button:focus-visible { outline: 2px solid var(--eudiw-signal-text); outline-offset: 6px; }
 .status { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 12px; color: var(--eudiw-muted); }
@@ -260,7 +272,9 @@ export function qrSvg(text, title) {
 }
 
 export class EudiwRequest extends HTMLElement {
-  static observedAttributes = ['launch-uri', 'status-url', 'mode', 'request-label', 'expires-at'];
+  static observedAttributes = [
+    'launch-uri', 'status-url', 'mode', 'request-label', 'expires-at', 'dc-api-request', 'dc-api-url',
+  ];
 
   #status = null;
   #response = null;
@@ -361,19 +375,91 @@ export class EudiwRequest extends HTMLElement {
     return ask;
   }
 
+  /** The argument for navigator.credentials.get() in mode dc_api, or null when it is missing or not valid. */
+  #dcApiRequest() {
+    if (this.getAttribute('mode') !== 'dc_api') {
+      return null;
+    }
+    try {
+      const request = JSON.parse(this.getAttribute('dc-api-request') ?? '');
+      return Array.isArray(request?.digital?.requests) && request.digital.requests.length > 0 ? request : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Whether the attributes describe a request this element can show. */
+  #valid() {
+    if (this.getAttribute('mode') === 'dc_api') {
+      return this.#dcApiRequest() !== null && Boolean(this.getAttribute('dc-api-url'));
+    }
+    return Boolean(safeLaunchUri(this.getAttribute('launch-uri')));
+  }
+
+  #renderDcApi(body) {
+    const supported = typeof window.DigitalCredential !== 'undefined' && typeof navigator.credentials?.get === 'function';
+    const open = el('button', 'open');
+    open.type = 'button';
+    open.setAttribute('part', 'open');
+    open.append(el('span', null, 'use a wallet on this device'), arrow());
+    open.disabled = !supported;
+    body.append(open);
+    this.statusLine = el('p', 'status');
+    this.statusLine.setAttribute('role', 'status');
+    this.statusLine.setAttribute('aria-live', 'polite');
+    this.statusLine.append(el('span', 'cursor'), el('span', null, supported ? COPY.device : COPY.unsupported));
+    body.append(this.statusLine);
+    open.addEventListener('click', () => this.#present(open));
+  }
+
+  /** Asks the browser for a credential, then hands what it returned to the backend; the status poll does the rest. */
+  async #present(button) {
+    button.disabled = true;
+    this.statusLine.lastChild.textContent = COPY.choosing;
+    try {
+      // The click is the user activation the API needs; nothing is awaited before this call.
+      const credential = await navigator.credentials.get(this.#dcApiRequest());
+      const response = await fetch(this.getAttribute('dc-api-url'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        credentials: 'same-origin',
+        cache: 'no-store',
+        body: JSON.stringify({ data: credential?.data ?? null }),
+      });
+      if (!response.ok) {
+        throw new Error(`status ${response.status}`);
+      }
+      this.statusLine.lastChild.textContent = COPY.waiting;
+      this.#schedule(0);
+    } catch (e) {
+      this.statusLine.lastChild.textContent = COPY.noWallet;
+      button.disabled = false;
+      this.dispatchEvent(new CustomEvent('eudiw-dc-api-error', {
+        detail: { name: e?.name ?? 'Error', message: e?.message ?? String(e) }, bubbles: true, composed: true,
+      }));
+    }
+  }
+
   #renderPending() {
+    const dcApi = this.getAttribute('mode') === 'dc_api';
     const launch = safeLaunchUri(this.getAttribute('launch-uri'));
     const sameDevice = this.getAttribute('mode') === 'same_device';
     this.panel.replaceChildren();
     this.panel.append(this.#bar('EU Digital Identity Wallet'));
     const body = el('div', 'body');
     this.panel.append(body);
-    if (!launch) {
+    if (!this.#valid()) {
       body.append(el('p', 'status', COPY.invalid));
       this.panel.append(this.#credit());
       return;
     }
     body.append(this.#ask());
+    if (dcApi) {
+      this.#renderDcApi(body);
+      this.#privacy(body);
+      this.panel.append(this.#credit());
+      return;
+    }
     if (!sameDevice) {
       const code = el('div', 'code');
       code.setAttribute('part', 'qr');
@@ -390,6 +476,11 @@ export class EudiwRequest extends HTMLElement {
     this.statusLine.setAttribute('aria-live', 'polite');
     this.statusLine.append(el('span', 'cursor'), el('span', null, sameDevice ? COPY.open : COPY.waiting));
     body.append(this.statusLine);
+    this.#privacy(body);
+    this.panel.append(this.#credit());
+  }
+
+  #privacy(body) {
     const privacy = el('p', 'privacy');
     privacy.setAttribute('part', 'privacy');
     privacy.append(
@@ -397,7 +488,6 @@ export class EudiwRequest extends HTMLElement {
       document.createTextNode('You see the request in your wallet and decide there.'),
     );
     body.append(privacy);
-    this.panel.append(this.#credit());
   }
 
   #renderDone(status) {
@@ -454,9 +544,7 @@ export class EudiwRequest extends HTMLElement {
 
   #schedule(delay) {
     this.#stop();
-    if (!this.getAttribute('status-url')
-        || !safeLaunchUri(this.getAttribute('launch-uri'))
-        || TERMINAL.has(this.#status)) {
+    if (!this.getAttribute('status-url') || !this.#valid() || TERMINAL.has(this.#status)) {
       return;
     }
     this.#timer = setTimeout(() => this.#poll(), delay);

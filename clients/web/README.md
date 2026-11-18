@@ -48,7 +48,9 @@ Give the browser a random id of your own rather than the adapter's session id. S
 | `status-url` | Your backend's status URL for this session. Fetched with same-origin credentials |
 | `request-label` | What is asked, in the user's words, for example `over 18`. Shown as "this service asks for over 18" and repeated in the confirmation |
 | `expires-at` | The session's `expires_at`. Shows a countdown and ends the request locally at zero. Also read from `expires_at` in the status response |
-| `mode` | `cross_device` (default): QR code and link. `same_device`: link only |
+| `mode` | `cross_device` (default): QR code and link. `same_device`: link only. `dc_api`: a "use a wallet on this device" button that asks the browser for a wallet through the W3C Digital Credentials API |
+| `dc-api-request` | For `mode="dc_api"`: the session's `dc_api.request`, as JSON. Passed unchanged to `navigator.credentials.get()` when the user clicks |
+| `dc-api-url` | For `mode="dc_api"`: a URL on your backend that takes `{"data": ...}`, what the browser returned, and relays it to the session's `dc_api.response_url`. Posted with same-origin credentials |
 | `theme` | `dark` (default), `light` (warm ivory), or `auto` (follows `prefers-color-scheme`) |
 | `credit` | `off` hides the "eudiw-adapter · su.engineering" line |
 | `poll-interval` | Milliseconds between status checks, default 2000, at least 500. Errors back off up to 30 seconds; polling pauses while the page is hidden |
@@ -60,6 +62,11 @@ Both bubble and cross shadow DOM boundaries.
 - `eudiw-status`: `detail.status` and `detail.response` (your status URL's JSON) whenever the status changes.
 - `eudiw-done`: once, when the session reaches `verified`, `rejected`, `denied`, `expired` or `cancelled`.
 - `eudiw-restart`: the user asked for a new request after one ended without a verification. Start a new session and replace the element.
+- `eudiw-dc-api-error`: in `mode="dc_api"`, the browser returned no credential (the user closed the wallet selector, or no wallet answered). `detail.name` and `detail.message` are the browser's error. The button stays, so the user can try again.
+
+## Digital Credentials API
+
+In browsers with the W3C Digital Credentials API (`window.DigitalCredential`), the wallet on the user's device can answer in place of a QR code. Your backend creates the session with `"mode": "dc_api"` and the page's `origin`, which must be one of your client's `dc_api_origins` at the adapter; the browser sends it as the `Origin` header of the page's own request. Give the element `mode="dc_api"`, `dc-api-request` and `dc-api-url`. The click on its button is the user activation the API needs; the element then posts the response to your `dc-api-url` and follows the status URL as usual. The presentation is bound to your origin, so a response obtained on another site does not verify. The examples in `examples/` show the backend side; CI runs them in Chromium against eudi-dev's DC API extension.
 
 ## Styling
 

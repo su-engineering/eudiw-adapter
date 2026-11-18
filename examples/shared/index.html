@@ -73,6 +73,8 @@
       font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; transition: background-color 160ms, color 160ms; }
     .go:hover { background: transparent; color: var(--ink); }
     .go[disabled] { cursor: progress; opacity: .6; }
+    .go[hidden] { display: none; }
+    .go + .go { margin-top: 10px; }
     .start .err { margin: 0 20px 18px; font-size: 12px; color: var(--fire); }
 
     .tracehead { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; margin-bottom: 30px; }
@@ -181,6 +183,7 @@
               <div><dt>returns</dt><dd>true or false, nothing else</dd></div>
             </dl>
             <button class="go" id="start" type="button"><span>start a check</span><svg class="ne" viewBox="0 0 12 12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 9 9 3M4.2 3H9v4.8"/></svg></button>
+            <button class="go" id="start-dc-api" type="button" hidden><span>use a wallet on this device</span><svg class="ne" viewBox="0 0 12 12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 9 9 3M4.2 3H9v4.8"/></svg></button>
             <p class="err" id="start-error" role="alert" hidden></p>
           </div>
         </div>
@@ -220,6 +223,9 @@
     const slot = document.getElementById('slot');
     const startPanel = document.getElementById('start-panel');
     const start = document.getElementById('start');
+    const startDcApi = document.getElementById('start-dc-api');
+    // The W3C Digital Credentials API: offered only where the browser has it.
+    startDcApi.hidden = typeof window.DigitalCredential === 'undefined';
     const startError = document.getElementById('start-error');
     const rows = document.getElementById('rows');
     const meta = document.getElementById('trace-meta');
@@ -323,21 +329,31 @@
       sub.hidden = false;
       slot.replaceChildren(startPanel);
       start.disabled = false;
+      startDcApi.disabled = false;
       plan();
     }
 
-    start.addEventListener('click', async () => {
+    start.addEventListener('click', () => begin('cross_device'));
+    startDcApi.addEventListener('click', () => begin('dc_api'));
+
+    async function begin(mode) {
       start.disabled = true;
+      startDcApi.disabled = true;
       startError.hidden = true;
       let session;
       try {
-        const response = await fetch('/verifications', { method: 'POST' });
+        const response = await fetch('/verifications', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode }),
+        });
         if (!response.ok) throw new Error();
         session = await response.json();
       } catch {
         startError.textContent = 'The backend could not start a session. Is ./deploy/compose/demo.sh running?';
         startError.hidden = false;
         start.disabled = false;
+        startDcApi.disabled = false;
         return;
       }
       startedAt = Date.now();
@@ -347,7 +363,13 @@
       status = 'pending';
       compose();
       const request = document.createElement('eudiw-request');
-      request.setAttribute('launch-uri', session.launch_uri);
+      if (session.mode === 'dc_api') {
+        request.setAttribute('mode', 'dc_api');
+        request.setAttribute('dc-api-request', JSON.stringify(session.dc_api_request));
+        request.setAttribute('dc-api-url', session.dc_api_url);
+      } else {
+        request.setAttribute('launch-uri', session.launch_uri);
+      }
       request.setAttribute('status-url', session.status_url);
       request.setAttribute('request-label', session.request_label);
       request.setAttribute('expires-at', session.expires_at);
@@ -378,7 +400,7 @@
       request.addEventListener('eudiw-restart', resetToStart);
       slot.replaceChildren(request);
       request.scrollIntoView({ block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
-    });
+    }
 
     plan();
   </script>

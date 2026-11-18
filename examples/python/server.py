@@ -1,7 +1,9 @@
 # Copyright 2026 su-engineering. Licensed under the Apache License, Version 2.0.
 """A minimal relying-party backend for eudiw-adapter, standard library only (Python 3.10 or later).
 
-    POST /verifications                 start a session; returns the launch URI and URLs for the browser
+    POST /verifications                 start a session; returns the launch URI and URLs for the browser. With
+                                        {"mode": "dc_api"}, a Digital Credentials API session for this page's Origin
+    POST /verifications/{id}/dc-api     relay the browser's Digital Credentials API response to the adapter
     GET  /verifications/{id}/status     {"status": ...} for the <eudiw-request> component
     POST /verifications/{id}/result     fetch the verified claims once (a real app acts on them server-side)
     POST /webhooks/eudiw                signed session notifications from the adapter
@@ -47,7 +49,7 @@ STATIC = {
 }
 for _font in ("jetbrains-mono-latin-wght-normal.woff2", "jetbrains-mono-latin-ext-wght-normal.woff2"):
     STATIC[f"/eudiw/fonts/{_font}"] = (HERE.parent.parent / "clients" / "web" / "fonts" / _font, "font/woff2")
-LOCAL_PATH = re.compile(r"^/verifications/([A-Za-z0-9_-]{43})/(status|result)$")
+LOCAL_PATH = re.compile(r"^/verifications/([A-Za-z0-9_-]{43})/(status|result|dc-api)$")
 
 
 class WebhookError(Exception):
@@ -196,18 +198,35 @@ class Handler(BaseHTTPRequestHandler):
             events: list = []
             trace = tracer(events)
             trace("browser", "POST /verifications")
-            status, body = adapter(
-                "POST",
-                "/v1/verification-sessions",
-                {"policy_id": CONFIG["policy_id"], "mode": "cross_device"},
-                str(uuid.uuid4()),
-                trace,
+            try:
+                requested = json.loads(raw or b"{}")
+            except json.JSONDecodeError:
+                return self.send(400, {"error": "invalid_request"})
+            dc_api = isinstance(requested, dict) and requested.get("mode") == "dc_api"
+            # The Digital Credentials API binds the presentation to the page's Origin, which the browser sends with
+            # this POST. The adapter accepts it only if it is one of this client's configured dc_api_origins.
+            create = (
+                {"policy_id": CONFIG["policy_id"], "mode": "dc_api", "origin": self.headers.get("Origin")}
+                if dc_api
+                else {"policy_id": CONFIG["policy_id"], "mode": "cross_device"}
             )
+            status, body = adapter("POST", "/v1/verification-sessions", create, str(uuid.uuid4()), trace)
             trace("backend", "POST /v1/verification-sessions", f"{status} {(body or {}).get('status', '')}".strip())
             if status != 201:
                 return self.send(502, {"error": "could_not_start"})
             local = secrets.token_urlsafe(32)
             sessions[local] = {"id": body["id"], "status": body["status"], "trace": events}
+            if dc_api:
+                return self.send(201, {
+                    "mode": "dc_api",
+                    "dc_api_request": body["dc_api"]["request"],
+                    "dc_api_url": f"/verifications/{local}/dc-api",
+                    "expires_at": body["expires_at"],
+                    "request_label": CONFIG["request_label"],
+                    "status_url": f"/verifications/{local}/status",
+                    "result_url": f"/verifications/{local}/result",
+                    "trace": events,
+                })
             return self.send(201, {
                 "launch_uri": body["wallet_launch"]["launch_uri"],
                 "expires_at": body["expires_at"],
@@ -217,6 +236,18 @@ class Handler(BaseHTTPRequestHandler):
                 "trace": events,
             })
         match = LOCAL_PATH.match(path)
+        if match and match.group(2) == "dc-api" and match.group(1) in sessions:
+            session = sessions[match.group(1)]
+            trace = tracer(session["trace"])
+            try:
+                data = json.loads(raw).get("data")
+            except (AttributeError, json.JSONDecodeError):
+                return self.send(400, {"error": "invalid_request"})
+            trace("browser", "POST /verifications/{id}/dc-api", "navigator.credentials.get() returned")
+            status, body = adapter("POST", f"/v1/verification-sessions/{session['id']}/dc-api-response", {"data": data})
+            detail = (body or {}).get("status") or (body or {}).get("code") or ""
+            trace("backend", "POST /v1/verification-sessions/{id}/dc-api-response", f"{status} {detail}".strip())
+            return self.send(200, {"status": body["status"]}) if status == 200 else self.send(502, {})
         if match and match.group(2) == "result" and match.group(1) in sessions:
             session = sessions.pop(match.group(1))
             status, body = adapter("GET", f"/v1/verification-sessions/{session['id']}/result")
