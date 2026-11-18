@@ -253,6 +253,47 @@ public final class SdJwtVerifier {
         if (!MessageDigest.isEqual(expected, actual)) {
             throw new VerificationFailure("sd_hash_mismatch", "sd_hash does not match the presented SD-JWT");
         }
+        verifyTransactionData(claims, options.transactionData());
+    }
+
+    /**
+     * OpenID4VP 1.0 appendix B.3.3.1: one hash per {@code transaction_data} string as sent (base64url, not decoded),
+     * with sha-256 since the request names no algorithm. The spec sets no order, so the hashes must equal the
+     * expected set: none missing, none extra, none repeated. Hashes are also refused when none were requested.
+     */
+    private static void verifyTransactionData(Map<String, Object> claims, List<String> transactionData) {
+        Object hashes = claims.get("transaction_data_hashes");
+        Object alg = claims.get("transaction_data_hashes_alg");
+        if (transactionData.isEmpty()) {
+            if (hashes != null || alg != null) {
+                throw new VerificationFailure(
+                        "transaction_data_mismatch", "Key Binding JWT carries transaction data hashes not requested");
+            }
+            return;
+        }
+        if (alg != null && !"sha-256".equals(alg)) {
+            throw new VerificationFailure(
+                    "transaction_data_mismatch", "transaction_data_hashes_alg must be sha-256, the default");
+        }
+        if (!(hashes instanceof List<?> list) || list.isEmpty()) {
+            throw new VerificationFailure(
+                    "transaction_data_mismatch", "Key Binding JWT has no transaction_data_hashes");
+        }
+        Set<String> actual = new HashSet<>();
+        for (Object item : list) {
+            if (!(item instanceof String hash) || !actual.add(hash)) {
+                throw new VerificationFailure(
+                        "transaction_data_mismatch", "transaction_data_hashes must be distinct strings");
+            }
+        }
+        Set<String> expected = new HashSet<>();
+        for (String entry : transactionData) {
+            expected.add(Base64.getUrlEncoder().withoutPadding().encodeToString(digestBytes("sha-256", entry)));
+        }
+        if (!actual.equals(expected)) {
+            throw new VerificationFailure(
+                    "transaction_data_mismatch", "transaction_data_hashes do not match the transaction data sent");
+        }
     }
 
     private static Instant numericDate(Map<String, Object> claims, String name, String failureCode) {

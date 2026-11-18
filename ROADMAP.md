@@ -19,7 +19,7 @@ The first release covers SD-JWT VC over OpenID4VP 1.0 and HAIP 1.0, DCQL, ETSI t
 ## Later
 
 6. **Wallet and key attestation.** Check the attestations a presentation carries where HAIP and the ARF let a verifier rely on them.
-7. **Transaction data (`transaction_data`, OpenID4VP 1.0).** Bind a presentation to a specific transaction, such as a payment or a signature.
+7. **Transaction data for ISO mdoc.** SD-JWT VC transaction data is done ([ADR-016](docs/adr/0016-transaction-data.md)). For mdoc, OpenID4VP binds it through data elements each transaction data type defines; implement the first type that wallets support.
 8. **OpenID Foundation certification.** The HAIP verifier test plan runs in CI on every change; certification needs the hosted suite.
 9. **External security review** of the verifier and the service.
 10. **Registration in the demo.** The registration certificate is tested against a strict wallet in CI; the Compose demo does not send one yet.

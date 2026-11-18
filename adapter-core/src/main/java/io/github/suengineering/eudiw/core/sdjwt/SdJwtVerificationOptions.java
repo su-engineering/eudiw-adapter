@@ -18,6 +18,7 @@ package io.github.suengineering.eudiw.core.sdjwt;
 import io.github.suengineering.eudiw.core.jose.AlgorithmPolicy;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
@@ -35,6 +36,8 @@ import java.util.Set;
  * @param clock time source
  * @param maxLength upper bound on the serialized presentation
  * @param maxDisclosures upper bound on the number of Disclosures
+ * @param transactionData the {@code transaction_data} strings, exactly as sent in the request, that the Key Binding
+ *     JWT must carry hashes of ({@code transaction_data_hashes}, OpenID4VP 1.0 appendix B.3.3.1); empty when none
  */
 public record SdJwtVerificationOptions(
         AlgorithmPolicy algorithms,
@@ -46,12 +49,42 @@ public record SdJwtVerificationOptions(
         Duration clockSkew,
         Clock clock,
         int maxLength,
-        int maxDisclosures) {
+        int maxDisclosures,
+        List<String> transactionData) {
 
     public static final Set<String> DEFAULT_HASH_ALGORITHMS = Set.of("sha-256", "sha-384", "sha-512");
 
+    public SdJwtVerificationOptions(
+            AlgorithmPolicy algorithms,
+            Set<String> hashAlgorithms,
+            boolean keyBindingRequired,
+            String expectedAudience,
+            String expectedNonce,
+            Duration keyBindingMaxAge,
+            Duration clockSkew,
+            Clock clock,
+            int maxLength,
+            int maxDisclosures) {
+        this(
+                algorithms,
+                hashAlgorithms,
+                keyBindingRequired,
+                expectedAudience,
+                expectedNonce,
+                keyBindingMaxAge,
+                clockSkew,
+                clock,
+                maxLength,
+                maxDisclosures,
+                List.of());
+    }
+
     public SdJwtVerificationOptions {
         Objects.requireNonNull(algorithms, "algorithms");
+        transactionData = List.copyOf(transactionData);
+        if (!transactionData.isEmpty() && !keyBindingRequired) {
+            throw new IllegalArgumentException("transaction data needs key binding");
+        }
         hashAlgorithms = Set.copyOf(hashAlgorithms);
         for (String name : hashAlgorithms) {
             if (!DEFAULT_HASH_ALGORITHMS.contains(name)) {
@@ -98,7 +131,24 @@ public record SdJwtVerificationOptions(
                 clockSkew,
                 newClock,
                 maxLength,
-                maxDisclosures);
+                maxDisclosures,
+                transactionData);
+    }
+
+    /** The same options, requiring hashes of these {@code transaction_data} strings in the Key Binding JWT. */
+    public SdJwtVerificationOptions withTransactionData(List<String> entries) {
+        return new SdJwtVerificationOptions(
+                algorithms,
+                hashAlgorithms,
+                keyBindingRequired,
+                expectedAudience,
+                expectedNonce,
+                keyBindingMaxAge,
+                clockSkew,
+                clock,
+                maxLength,
+                maxDisclosures,
+                entries);
     }
 
     private static boolean isBlank(String value) {

@@ -69,6 +69,7 @@ public final class ConfigLoader {
 
     private static final org.jboss.logging.Logger LOG = org.jboss.logging.Logger.getLogger(ConfigLoader.class);
 
+    private static final Pattern TRANSACTION_DATA_TYPE = Pattern.compile("[\\x21-\\x7e]{1,256}");
     private static final Pattern ID = Pattern.compile("[a-z0-9][a-z0-9._-]{0,63}");
     private static final Pattern OID = Pattern.compile("[0-2](\\.(0|[1-9][0-9]*))+");
     /** An OAuth client id (RFC 6749 VSCHAR) without space, quote or backslash, so it is compared verbatim. */
@@ -435,7 +436,38 @@ public final class ConfigLoader {
                 flag(json, "mdoc_strict_conformance", where),
                 requireStatus,
                 statusSigner,
-                Collections.unmodifiableSet(issuerUsages));
+                Collections.unmodifiableSet(issuerUsages),
+                transactionDataTypes(json, query, where));
+    }
+
+    /**
+     * Which {@code transaction_data} types clients may send with this policy (OpenID4VP 1.0 section 5.1). Absent means
+     * none. Transaction data is bound through the Key Binding JWT, so the policy needs an SD-JWT VC query that requires
+     * holder binding and returns one presentation.
+     */
+    private static Set<String> transactionDataTypes(Map<String, Object> json, DcqlQuery query, String where) {
+        if (!json.containsKey("transaction_data_types")) {
+            return Set.of();
+        }
+        Set<String> types = new LinkedHashSet<>();
+        for (Object type : list(json, "transaction_data_types")) {
+            if (!(type instanceof String s) || !TRANSACTION_DATA_TYPE.matcher(s).matches()) {
+                throw new ConfigException(
+                        where + ": transaction_data_types must be strings of 1 to 256 printable characters");
+            }
+            types.add(s);
+        }
+        if (types.isEmpty()) {
+            throw new ConfigException(where + ": transaction_data_types must not be empty");
+        }
+        boolean bindable = query.credentials().stream()
+                .anyMatch(c ->
+                        DcqlQuery.FORMAT_SD_JWT_VC.equals(c.format()) && c.requireHolderBinding() && !c.multiple());
+        if (!bindable) {
+            throw new ConfigException(where + ": transaction_data_types needs a dc+sd-jwt credential query with holder"
+                    + " binding and without multiple");
+        }
+        return Collections.unmodifiableSet(types);
     }
 
     private static boolean flag(Map<String, Object> json, String name, String where) {

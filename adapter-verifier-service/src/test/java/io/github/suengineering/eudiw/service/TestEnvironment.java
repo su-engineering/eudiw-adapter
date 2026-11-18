@@ -63,6 +63,7 @@ public class TestEnvironment implements QuarkusTestResourceLifecycleManager {
     public static final String MDL_DOCTYPE = "org.iso.18013.5.1.mDL";
 
     public static final String RP_A_ID = "VATBE-0999999999";
+    public static final String TRANSACTION_TYPE = "urn:test:payment";
     public static final String VCT = "https://credentials.test.example/age";
     public static final String PID_LIST_ID = "https://lists.test.example/pid-providers.jwt";
     public static final String PID_ISSUANCE = "http://uri.etsi.org/19602/SvcType/PID/Issuance";
@@ -353,6 +354,20 @@ public class TestEnvironment implements QuarkusTestResourceLifecycleManager {
                         listedDcql,
                         PID_LIST_ID,
                         PID_ISSUANCE);
+        // A policy that allows transaction data, for portal-a in tenant-a.
+        String transactionPolicy = """
+                {"id":"age-over-18-tx","dcql":%s,
+                 "output":{"age_over_18":{"credential":"age","path":["age_over_18"]}},
+                 "trust_anchors_file":"issuer-a-root.pem","allowed_issuers":["%s"],
+                 "status_policy":"reject_known_invalid","transaction_data_types":["%s"]},""".formatted(dcql, ISSUER_A, TRANSACTION_TYPE);
+        tenants = tenants.replaceFirst(
+                java.util.regex.Pattern.quote("\"policies\":[{\"id\":\"age-over-18\","),
+                java.util.regex.Matcher.quoteReplacement(
+                        "\"policies\":[" + transactionPolicy + "{\"id\":\"age-over-18\","));
+        tenants = tenants.replaceFirst(
+                java.util.regex.Pattern.quote("\"policies\":[\"age-over-18\",\"age-over-18-crl\","),
+                java.util.regex.Matcher.quoteReplacement(
+                        "\"policies\":[\"age-over-18\",\"age-over-18-tx\",\"age-over-18-crl\","));
         write("tenants.json", tenants);
     }
 

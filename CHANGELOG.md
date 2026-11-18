@@ -4,8 +4,13 @@ All notable changes to eudiw-adapter. Versions follow [Semantic Versioning](http
 
 ## [Unreleased]
 
+### Upgrading
+
+- **Transaction data needs every pod on this version.** A pod of an earlier version neither sends nor checks `transaction_data`, and its result has no `transaction_data`, which means no transaction was authorized. Replace all pods before clients send it. Migration `V6` adds a nullable column.
+
 ### Added
 
+- `transaction_data` (OpenID4VP 1.0): sessions can carry transactions, such as a payment, that the holder authorizes with the presentation. Policies allow types with `transaction_data_types`; each entry names one SD-JWT VC credential query; the Key Binding JWT must carry the SHA-256 hash of every entry (`transaction_data_mismatch` otherwise), and the result returns the entries it carried. Never in status, events, webhooks or logs. ISO mdoc is refused for now. Tested with walt.id Wallet API 2 in CI ([ADR-016](docs/adr/0016-transaction-data.md)).
 - Request-signing keys in AWS KMS: `verifier.aws_kms` with `key_id` and optional `region` and `endpoint`. Credentials come from the AWS SDK's default chain (including EKS web identity). The new `adapter-kms-aws` module brings the AWS SDK (KMS, STS and the JDK HTTP client only, about 6 MB) into the service image ([ADR-015](docs/adr/0015-aws-kms-request-signing.md)).
 - Request-signing keys in HashiCorp Vault's Transit engine: `verifier.vault_transit` with `address`, `key_name`, `token_file` and optional `mount`, `key_version` and `namespace`. The token file is read on every signature and is not part of the configuration revision. Every signature, with any key source, is now checked against the request-signing certificate, so a key rotated in a key service fails closed; a signing failure is a `503` with `Retry-After` to the wallet ([ADR-014](docs/adr/0014-remote-request-signing.md)).
 - walt.id Wallet API 2 also presents an ISO mdoc PID in the `demo` job, so a second wallet now signs the OpenID4VP session transcript for mdoc.

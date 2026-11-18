@@ -93,6 +93,8 @@ public final class AuthorizationRequests {
      * @param lifetime validity of the signed Request Object
      * @param verifierInfo the {@code verifier_info} elements (OpenID4VP 1.0 section 5.1); empty to omit the
      *     parameter
+     * @param transactionData the {@code transaction_data} strings (OpenID4VP 1.0 section 5.1), each a base64url-encoded
+     *     JSON object; empty to omit the parameter
      */
     public record Parameters(
             URI responseUri,
@@ -102,7 +104,29 @@ public final class AuthorizationRequests {
             ECKey responseEncryptionKey,
             String walletNonce,
             Duration lifetime,
-            List<Map<String, Object>> verifierInfo) {
+            List<Map<String, Object>> verifierInfo,
+            List<String> transactionData) {
+
+        public Parameters(
+                URI responseUri,
+                String nonce,
+                String state,
+                DcqlQuery query,
+                ECKey responseEncryptionKey,
+                String walletNonce,
+                Duration lifetime,
+                List<Map<String, Object>> verifierInfo) {
+            this(
+                    responseUri,
+                    nonce,
+                    state,
+                    query,
+                    responseEncryptionKey,
+                    walletNonce,
+                    lifetime,
+                    verifierInfo,
+                    List.of());
+        }
 
         public Parameters(
                 URI responseUri,
@@ -123,6 +147,7 @@ public final class AuthorizationRequests {
             Objects.requireNonNull(responseEncryptionKey, "responseEncryptionKey");
             Objects.requireNonNull(lifetime, "lifetime");
             verifierInfo = verifierInfo == null ? List.of() : List.copyOf(verifierInfo);
+            transactionData = transactionData == null ? List.of() : List.copyOf(transactionData);
         }
     }
 
@@ -141,6 +166,9 @@ public final class AuthorizationRequests {
         claims.put("client_metadata", clientMetadata(parameters.responseEncryptionKey(), parameters.query()));
         if (!parameters.verifierInfo().isEmpty()) {
             claims.put("verifier_info", parameters.verifierInfo());
+        }
+        if (!parameters.transactionData().isEmpty()) {
+            claims.put("transaction_data", parameters.transactionData());
         }
         if (parameters.walletNonce() != null) {
             claims.put("wallet_nonce", parameters.walletNonce());

@@ -7,7 +7,9 @@
 #   3. a credential signed under a certificate chain the trusted list does not name is rejected
 #      (certificate_untrusted);
 #   4. a walt.id wallet that does not trust the demo relying-party root refuses the request, so the session stays
-#      pending.
+#      pending;
+#   5. with transaction_data (a payment_card entry), walt.id hashes it into its Key Binding JWT and the result
+#      returns it; the eudi-dev wallet, which ignores transaction_data, is rejected (transaction_data_mismatch).
 set -eu
 cd "$(dirname "$0")/.."
 command -v jq >/dev/null || { echo "jq is required"; exit 1; }
@@ -19,7 +21,8 @@ TOKEN=$(curl -sf -d grant_type=client_credentials -d client_id=demo-portal -d cl
 
 session() {
   curl -sf -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: waltid-$1-$(date +%s)" \
-    -H 'Content-Type: application/json' -d "{\"policy_id\":\"${2:-age-over-18}\",\"mode\":\"cross_device\"}" \
+    -H 'Content-Type: application/json' \
+    -d "{\"policy_id\":\"${2:-age-over-18}\",\"mode\":\"cross_device\"${3:+,\"transaction_data\":$3}}" \
     http://localhost:8080/v1/verification-sessions
 }
 status() {
@@ -71,5 +74,19 @@ docker logs eudiw-waltid-other-root 2>&1 | grep -q X509TrustAnchorMismatch \
   || { echo "the wallet failed for another reason than the trust anchor"; docker logs eudiw-waltid-other-root | tail -20; exit 1; }
 status "$ID" | jq -e '.status == "pending"' > /dev/null || { echo "expected pending: $(status "$ID")"; exit 1; }
 
-echo "walt.id Wallet API 2: SD-JWT VC and mdoc verified, untrusted issuer rejected, unknown relying-party root refused by the wallet"
+echo "5. Transaction data: walt.id binds it, eudi-dev (which ignores it) is rejected"
+PAYMENT='[{"type":"payment_card","credential_ids":["age"],"merchant_name":"Demo Shop","amount":"42.00 EUR"}]'
+SESSION=$(session payment age-over-18-payment "$PAYMENT")
+ID=$(echo "$SESSION" | jq -r .id)
+docker compose run --rm waltid-holder "$(echo "$SESSION" | jq -r .wallet_launch.launch_uri)"
+RESULT=$(curl -sf -H "Authorization: Bearer $TOKEN" "http://localhost:8080/v1/verification-sessions/$ID/result")
+echo "$RESULT" | jq -e --argjson tx "$PAYMENT" '.status == "verified" and .transaction_data == $tx' > /dev/null \
+  || { echo "unexpected transaction data result: $RESULT"; exit 1; }
+SESSION=$(session payment-eudi-dev age-over-18-payment "$PAYMENT")
+ID=$(echo "$SESSION" | jq -r .id)
+docker compose --profile wallet run --rm wallet "$(echo "$SESSION" | jq -r .wallet_launch.launch_uri)" > /dev/null 2>&1 || true
+status "$ID" | jq -e '.status == "rejected" and .reason == "transaction_data_mismatch"' > /dev/null \
+  || { echo "expected transaction_data_mismatch: $(status "$ID")"; exit 1; }
+
+echo "walt.id Wallet API 2: SD-JWT VC and mdoc verified, untrusted issuer rejected, unknown relying-party root refused by the wallet, transaction data bound"
 echo "To stop everything, the walt.id wallet included: docker compose --profile waltid down --volumes"
