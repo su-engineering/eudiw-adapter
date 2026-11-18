@@ -151,7 +151,10 @@ public final class TestWallet {
         }
     }
 
-    /** An SD-JWT VC presentation for the request, disclosing the given claims. */
+    /**
+     * An SD-JWT VC presentation for the request, disclosing the given claims. Like a wallet that supports it, it
+     * binds any {@code transaction_data} in the request through {@code transaction_data_hashes}.
+     */
     public String presentation(
             Map<String, Object> request,
             String issuer,
@@ -159,6 +162,18 @@ public final class TestWallet {
             String issuerCertFile,
             Map<String, Object> disclosed,
             Integer statusIndex) {
+        return presentation(request, issuer, issuerKeyFile, issuerCertFile, disclosed, statusIndex, true);
+    }
+
+    /** As above; with {@code bindTransactionData} false, a wallet that ignores {@code transaction_data}. */
+    public String presentation(
+            Map<String, Object> request,
+            String issuer,
+            String issuerKeyFile,
+            String issuerCertFile,
+            Map<String, Object> disclosed,
+            Integer statusIndex,
+            boolean bindTransactionData) {
         try {
             List<String> disclosures = new ArrayList<>();
             List<String> digests = new ArrayList<>();
@@ -191,6 +206,13 @@ public final class TestWallet {
             kb.put("nonce", request.get("nonce"));
             kb.put("iat", Instant.now().getEpochSecond());
             kb.put("sd_hash", sha256(sdJwt));
+            if (bindTransactionData && request.get("transaction_data") instanceof List<?> transactionData) {
+                List<String> hashes = new ArrayList<>();
+                for (Object entry : transactionData) {
+                    hashes.add(sha256((String) entry));
+                }
+                kb.put("transaction_data_hashes", hashes);
+            }
             JWSObject kbJws = new JWSObject(
                     new JWSHeader.Builder(JWSAlgorithm.ES256)
                             .type(new JOSEObjectType("kb+jwt"))

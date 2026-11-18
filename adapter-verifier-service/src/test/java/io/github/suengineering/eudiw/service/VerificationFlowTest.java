@@ -220,6 +220,153 @@ class VerificationFlowTest {
         }
     }
 
+    private static Map<String, Object> payment(String payee) {
+        return Map.of(
+                "type",
+                TestEnvironment.TRANSACTION_TYPE,
+                "credential_ids",
+                List.of("age"),
+                "payee",
+                payee,
+                "amount",
+                "42.00",
+                "currency",
+                "EUR");
+    }
+
+    private io.restassured.response.ValidatableResponse createWithTransactionData(
+            String policyId, Object transactionData, String idempotencyKey) {
+        return given().auth()
+                .oauth2(TestWallet.fullToken("portal-a"))
+                .header("Idempotency-Key", idempotencyKey)
+                .contentType(ContentType.JSON)
+                .body(Map.of("policy_id", policyId, "transaction_data", transactionData))
+                .post("/v1/verification-sessions")
+                .then();
+    }
+
+    @Test
+    void transactionDataIsBoundThroughTheKeyBindingJwtAndReturnedOnlyInTheResult() throws Exception {
+        JsonPath session = createWithTransactionData(
+                        "age-over-18-tx",
+                        List.of(payment("Canary-Shop")),
+                        UUID.randomUUID().toString())
+                .statusCode(201)
+                .extract()
+                .jsonPath();
+        String id = session.getString("id");
+        assertThat(session.prettify()).doesNotContain("Canary-Shop");
+
+        Map<String, Object> request = TestWallet.fetchRequest(session.getString("wallet_launch.request_uri"));
+        @SuppressWarnings("unchecked")
+        List<String> sent = (List<String>) request.get("transaction_data");
+        assertThat(sent).hasSize(1);
+        assertThat(new String(java.util.Base64.getUrlDecoder().decode(sent.get(0)), StandardCharsets.UTF_8))
+                .contains("\"payee\":\"Canary-Shop\"")
+                .doesNotContain("transaction_data_hashes_alg");
+        assertThat(TestWallet.respond(request, presentAgeOver18(request, 1)).statusCode())
+                .isEqualTo(200);
+
+        String token = TestWallet.fullToken("portal-a");
+        String status = given().auth()
+                .oauth2(token)
+                .get("/v1/verification-sessions/" + id)
+                .then()
+                .statusCode(200)
+                .body("status", org.hamcrest.Matchers.equalTo("verified"))
+                .extract()
+                .asString();
+        assertThat(status).doesNotContain("Canary-Shop");
+        JsonPath result = given().auth()
+                .oauth2(token)
+                .get("/v1/verification-sessions/" + id + "/result")
+                .then()
+                .statusCode(200)
+                .extract()
+                .jsonPath();
+        assertThat(result.getList("transaction_data")).hasSize(1);
+        assertThat(result.getString("transaction_data[0].payee")).isEqualTo("Canary-Shop");
+        assertThat(result.getString("transaction_data[0].type")).isEqualTo(TestEnvironment.TRANSACTION_TYPE);
+        assertThat(databaseText()).doesNotContain("Canary-Shop");
+        assertThat(readLog()).doesNotContain("Canary-Shop");
+        try (var c = dataSource.getConnection();
+                var ps = c.prepareStatement(
+                        "SELECT transaction_data_ciphertext FROM verification_session WHERE id = ?")) {
+            ps.setString(1, id);
+            try (var rs = ps.executeQuery()) {
+                assertThat(rs.next()).isTrue();
+                assertThat(rs.getBytes(1)).as("cleared once the session ended").isNull();
+            }
+        }
+    }
+
+    @Test
+    void aWalletThatIgnoresTransactionDataIsRejected() {
+        JsonPath session = createWithTransactionData(
+                        "age-over-18-tx",
+                        List.of(payment("Shop")),
+                        UUID.randomUUID().toString())
+                .statusCode(201)
+                .extract()
+                .jsonPath();
+        Map<String, Object> request = TestWallet.fetchRequest(session.getString("wallet_launch.request_uri"));
+        Map<String, Object> response = Map.of(
+                "vp_token",
+                Map.of(
+                        "age",
+                        List.of(wallet.presentation(
+                                request,
+                                TestEnvironment.ISSUER_A,
+                                "issuer-a-key.pem",
+                                "issuer-a.pem",
+                                Map.of("age_over_18", true),
+                                1,
+                                false))));
+
+        assertThat(TestWallet.respond(request, response).statusCode()).isEqualTo(400);
+        given().auth()
+                .oauth2(TestWallet.fullToken("portal-a"))
+                .get("/v1/verification-sessions/" + session.getString("id"))
+                .then()
+                .body("status", org.hamcrest.Matchers.equalTo("rejected"))
+                .body("reason", org.hamcrest.Matchers.equalTo("transaction_data_mismatch"));
+    }
+
+    @Test
+    void transactionDataIsCheckedAgainstThePolicyWhenTheSessionIsCreated() {
+        String key = UUID.randomUUID().toString();
+        createWithTransactionData("age-over-18", List.of(payment("Shop")), key)
+                .statusCode(400)
+                .body("code", org.hamcrest.Matchers.equalTo("transaction_data_not_allowed"));
+        Map<String, Object> otherType = new java.util.HashMap<>(payment("Shop"));
+        otherType.put("type", "urn:test:not-allowed");
+        Map<String, Object> twoCredentials = new java.util.HashMap<>(payment("Shop"));
+        twoCredentials.put("credential_ids", List.of("age", "age"));
+        Map<String, Object> unknownCredential = new java.util.HashMap<>(payment("Shop"));
+        unknownCredential.put("credential_ids", List.of("pid"));
+        Map<String, Object> clientAlgorithm = new java.util.HashMap<>(payment("Shop"));
+        clientAlgorithm.put("transaction_data_hashes_alg", List.of("sha-256"));
+        for (Map<String, Object> invalid : List.of(otherType, twoCredentials, unknownCredential, clientAlgorithm)) {
+            createWithTransactionData(
+                            "age-over-18-tx",
+                            List.of(invalid),
+                            UUID.randomUUID().toString())
+                    .statusCode(400)
+                    .body("code", org.hamcrest.Matchers.equalTo("invalid_transaction_data"));
+        }
+        createWithTransactionData(
+                        "age-over-18-tx", "not-a-list", UUID.randomUUID().toString())
+                .statusCode(400);
+
+        // The same Idempotency-Key with other transaction data is another request.
+        String reused = UUID.randomUUID().toString();
+        createWithTransactionData("age-over-18-tx", List.of(payment("Shop")), reused)
+                .statusCode(201);
+        createWithTransactionData("age-over-18-tx", List.of(payment("Other shop")), reused)
+                .statusCode(422)
+                .body("code", org.hamcrest.Matchers.equalTo("idempotency_key_reused"));
+    }
+
     @Test
     void issuerTrustedOnlyThroughASignedTrustedListIsAccepted() {
         // Tenant B's listed policy has no configured anchors: issuer A is trusted only because the signed

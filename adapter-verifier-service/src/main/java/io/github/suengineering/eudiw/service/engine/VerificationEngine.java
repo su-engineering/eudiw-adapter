@@ -21,6 +21,7 @@ import io.github.suengineering.eudiw.core.ConformanceWarning;
 import io.github.suengineering.eudiw.core.VerificationFailure;
 import io.github.suengineering.eudiw.core.dcql.DcqlEvaluator.DisclosedClaim;
 import io.github.suengineering.eudiw.core.dcql.DcqlEvaluator.SelectedCredential;
+import io.github.suengineering.eudiw.core.dcql.DcqlQuery;
 import io.github.suengineering.eudiw.core.json.Json;
 import io.github.suengineering.eudiw.core.oid4vp.AuthorizationRequests;
 import io.github.suengineering.eudiw.core.oid4vp.AuthorizationResponses;
@@ -41,6 +42,7 @@ import java.nio.charset.StandardCharsets;
 import java.text.ParseException;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -87,7 +89,24 @@ public class VerificationEngine {
             defaultValue = "0")
     int walletRequestsPerMinute;
 
-    public record CreateRequest(String policyId, String mode, String clientReference) {}
+    /**
+     * @param transactionData {@code transaction_data} objects to bind to the presentation (OpenID4VP 1.0 section 5.1);
+     *     empty for none
+     */
+    public record CreateRequest(
+            String policyId, String mode, String clientReference, List<Map<String, Object>> transactionData) {
+
+        public CreateRequest(String policyId, String mode, String clientReference) {
+            this(policyId, mode, clientReference, List.of());
+        }
+
+        public CreateRequest {
+            transactionData = transactionData == null ? List.of() : transactionData;
+        }
+    }
+
+    static final int MAX_TRANSACTION_DATA = 8;
+    static final int MAX_TRANSACTION_DATA_BYTES = 4096;
 
     public record Created(SessionRow session, String requestUri, String launchUri) {}
 
@@ -117,8 +136,12 @@ public class VerificationEngine {
             throw new ApiException(400, "invalid_request", "client_reference must be 1 to 128 safe characters");
         }
 
+        List<String> transactionData = encodeTransactionData(request.transactionData(), policy);
+
         Instant now = runtime.clock().instant();
-        String fingerprint = DataProtection.hash(request.policyId() + "\n" + mode + "\n" + request.clientReference());
+        // Without transaction data the fingerprint is what it always was, so idempotent retries span upgrades.
+        String fingerprint = DataProtection.hash(request.policyId() + "\n" + mode + "\n" + request.clientReference()
+                + (transactionData.isEmpty() ? "" : "\n" + String.join(",", transactionData)));
         SessionRow candidate = new SessionRow(
                 "vrs_" + AuthorizationRequests.randomValue(),
                 tenant.id(),
@@ -135,7 +158,16 @@ public class VerificationEngine {
                 now,
                 now.plus(policy.sessionTtl()),
                 null);
-        SessionRow stored = store.insertOrGetIdempotent(candidate, DataProtection.hash(idempotencyKey));
+        byte[] transactionDataCiphertext = transactionData.isEmpty()
+                ? null
+                : runtime.dataProtection()
+                        .encrypt(
+                                tenant.id(),
+                                "transaction-data:" + candidate.id(),
+                                Json.toJson(Map.of("transaction_data", transactionData))
+                                        .getBytes(StandardCharsets.UTF_8));
+        SessionRow stored =
+                store.insertOrGetIdempotent(candidate, DataProtection.hash(idempotencyKey), transactionDataCiphertext);
         if (!stored.requestFingerprint().equals(fingerprint)) {
             throw new ApiException(
                     422, "idempotency_key_reused", "the Idempotency-Key was used for a different request");
@@ -156,6 +188,109 @@ public class VerificationEngine {
         String launch = AuthorizationRequests.walletInvocationUri(
                 tenant.walletInvocation(), tenant.verifier().clientId(), URI.create(requestUri));
         return new Created(stored, requestUri, launch);
+    }
+
+    /**
+     * Checks the client's {@code transaction_data} against the policy and encodes each object once, as the base64url
+     * string the wallet will hash. One credential per entry: OpenID4VP lets the wallet pick one of several, and a
+     * single referenced credential keeps the binding unambiguous.
+     */
+    private static List<String> encodeTransactionData(List<Map<String, Object>> entries, Policy policy) {
+        if (entries.isEmpty()) {
+            return List.of();
+        }
+        if (policy.transactionDataTypes().isEmpty()) {
+            throw new ApiException(400, "transaction_data_not_allowed", "the policy does not allow transaction_data");
+        }
+        if (entries.size() > MAX_TRANSACTION_DATA) {
+            throw new ApiException(
+                    400, "invalid_transaction_data", "at most " + MAX_TRANSACTION_DATA + " transaction_data entries");
+        }
+        List<String> encoded = new ArrayList<>();
+        for (Map<String, Object> entry : entries) {
+            if (entry == null) {
+                throw new ApiException(400, "invalid_transaction_data", "transaction_data entries must be objects");
+            }
+            if (!(entry.get("type") instanceof String type)
+                    || !policy.transactionDataTypes().contains(type)) {
+                throw new ApiException(
+                        400,
+                        "invalid_transaction_data",
+                        "transaction_data type is missing or not allowed by the policy");
+            }
+            if (entry.containsKey("transaction_data_hashes_alg")) {
+                throw new ApiException(
+                        400, "invalid_transaction_data", "transaction_data_hashes_alg is set by the adapter (sha-256)");
+            }
+            if (!(entry.get("credential_ids") instanceof List<?> ids)
+                    || ids.size() != 1
+                    || !(ids.get(0) instanceof String credentialId)) {
+                throw new ApiException(
+                        400, "invalid_transaction_data", "credential_ids must name exactly one credential query");
+            }
+            DcqlQuery.CredentialQuery query = policy.query().credentials().stream()
+                    .filter(c -> c.id().equals(credentialId))
+                    .findFirst()
+                    .orElseThrow(() -> new ApiException(
+                            400, "invalid_transaction_data", "credential_ids names no credential query of the policy"));
+            if (!DcqlQuery.FORMAT_SD_JWT_VC.equals(query.format())
+                    || !query.requireHolderBinding()
+                    || query.multiple()) {
+                throw new ApiException(
+                        400,
+                        "invalid_transaction_data",
+                        "transaction_data needs a dc+sd-jwt credential query with holder binding and without multiple");
+            }
+            String json;
+            try {
+                json = Json.toJson(entry);
+                Json.checkDepth(Json.parseObject(json, "invalid_transaction_data"), 1, "invalid_transaction_data");
+            } catch (RuntimeException e) {
+                throw new ApiException(400, "invalid_transaction_data", "transaction_data entry is not valid JSON");
+            }
+            String value =
+                    Base64.getUrlEncoder().withoutPadding().encodeToString(json.getBytes(StandardCharsets.UTF_8));
+            if (value.length() > MAX_TRANSACTION_DATA_BYTES) {
+                throw new ApiException(400, "invalid_transaction_data", "a transaction_data entry is too large");
+            }
+            encoded.add(value);
+        }
+        return List.copyOf(encoded);
+    }
+
+    /** The session's transaction data strings, keyed by the credential query each one binds to. */
+    private Map<String, List<String>> transactionData(SessionRow session) {
+        Optional<byte[]> ciphertext = store.transactionData(session.id());
+        if (ciphertext.isEmpty()) {
+            return Map.of();
+        }
+        List<String> entries = transactionDataEntries(session, ciphertext.get());
+        Map<String, List<String>> byCredential = new LinkedHashMap<>();
+        for (String entry : entries) {
+            Map<String, Object> decoded = decodeTransactionData(entry);
+            String credentialId = (String) ((List<?>) decoded.get("credential_ids")).get(0);
+            byCredential.computeIfAbsent(credentialId, k -> new ArrayList<>()).add(entry);
+        }
+        return byCredential;
+    }
+
+    private List<String> transactionDataEntries(SessionRow session, byte[] ciphertext) {
+        Map<String, Object> stored = Json.parseObject(
+                new String(
+                        runtime.dataProtection()
+                                .decrypt(session.tenantId(), "transaction-data:" + session.id(), ciphertext),
+                        StandardCharsets.UTF_8),
+                "internal_error");
+        List<String> entries = new ArrayList<>();
+        for (Object item : (List<?>) stored.get("transaction_data")) {
+            entries.add((String) item);
+        }
+        return entries;
+    }
+
+    private static Map<String, Object> decodeTransactionData(String entry) {
+        return Json.parseObject(
+                new String(Base64.getUrlDecoder().decode(entry), StandardCharsets.UTF_8), "internal_error");
     }
 
     /**
@@ -385,7 +520,10 @@ public class VerificationEngine {
                         key,
                         walletNonceValue,
                         java.time.Duration.between(now, session.expiresAt()),
-                        policy.registration().map(r -> r.verifierInfo(now)).orElse(List.of())),
+                        policy.registration().map(r -> r.verifierInfo(now)).orElse(List.of()),
+                        store.transactionData(session.id())
+                                .map(c -> transactionDataEntries(session, c))
+                                .orElse(List.of())),
                 now);
     }
 
@@ -502,6 +640,7 @@ public class VerificationEngine {
         io.micrometer.core.instrument.Timer.Sample timing = io.micrometer.core.instrument.Timer.start(registry);
         String outcome = "internal_error";
         try {
+            Map<String, List<String>> transactionData = transactionData(session);
             VpTokenVerifier.Result result = runtime.verifier(
                             session.configRevision(), session.tenantId(), session.policyId())
                     .verify(
@@ -512,7 +651,17 @@ public class VerificationEngine {
                                     row.nonce(),
                                     session.tenantId() + "/" + session.policyId() + "/" + session.configRevision(),
                                     responseUri().toString(),
-                                    java.util.Optional.of(keyThumbprint)));
+                                    java.util.Optional.of(keyThumbprint),
+                                    transactionData));
+            // A credential the transaction data binds to must be among those presented, for example when it is
+            // optional in a credential set; otherwise the transaction would pass unauthorized.
+            for (String credentialId : transactionData.keySet()) {
+                if (result.credentials().getOrDefault(credentialId, List.of()).isEmpty()) {
+                    throw new VerificationFailure(
+                            "transaction_data_not_presented",
+                            "the credential the transaction data binds to is missing");
+                }
+            }
             for (List<SelectedCredential> credentials : result.credentials().values()) {
                 for (SelectedCredential credential : credentials) {
                     if (!policy.allowedIssuers().isEmpty() && !credential.issuerIn(policy.allowedIssuers())) {
@@ -529,7 +678,7 @@ public class VerificationEngine {
                     policy,
                     "verified",
                     null,
-                    buildResult(session, policy, result, now),
+                    buildResult(session, policy, result, transactionData, now),
                     now,
                     warnings);
         } catch (VerificationFailure failure) {
@@ -693,8 +842,16 @@ public class VerificationEngine {
         return new WalletReply(200, body);
     }
 
+    /**
+     * The result is written once, here, when the presentation verifies. {@code transaction_data} lists the entries
+     * whose hashes the holder's Key Binding JWT carried; a result without it authorizes no transaction.
+     */
     private static Map<String, Object> buildResult(
-            SessionRow session, Policy policy, VpTokenVerifier.Result result, Instant now) {
+            SessionRow session,
+            Policy policy,
+            VpTokenVerifier.Result result,
+            Map<String, List<String>> transactionData,
+            Instant now) {
         Map<String, Object> claims = new LinkedHashMap<>();
         for (Map.Entry<String, OutputClaim> output : policy.output().entrySet()) {
             List<SelectedCredential> credentials =
@@ -729,6 +886,11 @@ public class VerificationEngine {
         out.put("verified_at", now.toString());
         out.put("claims", claims);
         out.put("credential_evidence", evidence);
+        if (!transactionData.isEmpty()) {
+            List<Map<String, Object>> confirmed = new ArrayList<>();
+            transactionData.values().forEach(list -> list.forEach(e -> confirmed.add(decodeTransactionData(e))));
+            out.put("transaction_data", confirmed);
+        }
         return out;
     }
 

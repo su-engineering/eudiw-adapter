@@ -74,9 +74,18 @@ public class SessionStore {
 
     /** Inserts a session unless the same client already used the idempotency key; returns the stored session. */
     public SessionRow insertOrGetIdempotent(SessionRow row, String idempotencyKeyHash) {
+        return insertOrGetIdempotent(row, idempotencyKeyHash, null);
+    }
+
+    /**
+     * @param transactionDataCiphertext the session's encrypted {@code transaction_data}, written in the same statement
+     *     so a session never exists without it; {@code null} when there is none
+     */
+    public SessionRow insertOrGetIdempotent(
+            SessionRow row, String idempotencyKeyHash, byte[] transactionDataCiphertext) {
         String sql = "INSERT INTO verification_session (id, tenant_id, client_id, policy_id, config_revision, mode,"
                 + " status, request_handle, idempotency_key_hash, request_fingerprint, client_reference, created_at,"
-                + " expires_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
+                + " expires_at, transaction_data_ciphertext) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
                 + " ON CONFLICT (tenant_id, client_id, idempotency_key_hash) DO NOTHING";
         try (Connection c = dataSource.getConnection();
                 PreparedStatement ps = c.prepareStatement(sql)) {
@@ -93,6 +102,7 @@ public class SessionStore {
             ps.setString(11, row.clientReference());
             ps.setTimestamp(12, ts(row.createdAt()));
             ps.setTimestamp(13, ts(row.expiresAt()));
+            ps.setBytes(14, transactionDataCiphertext);
             ps.executeUpdate();
         } catch (SQLException e) {
             throw new StoreException(e);
@@ -104,6 +114,20 @@ public class SessionStore {
                         row.clientId(),
                         idempotencyKeyHash)
                 .orElseThrow(() -> new StoreException(new SQLException("session not stored")));
+    }
+
+    /** The session's encrypted {@code transaction_data}, while it is pending; empty when it has none. */
+    public Optional<byte[]> transactionData(String sessionId) {
+        try (Connection c = dataSource.getConnection();
+                PreparedStatement ps = c.prepareStatement(
+                        "SELECT transaction_data_ciphertext FROM verification_session WHERE id = ?")) {
+            ps.setString(1, sessionId);
+            try (var rs = ps.executeQuery()) {
+                return rs.next() ? Optional.ofNullable(rs.getBytes(1)) : Optional.empty();
+            }
+        } catch (SQLException e) {
+            throw new StoreException(e);
+        }
     }
 
     public Optional<SessionRow> find(String tenantId, String clientId, String id) {
@@ -207,6 +231,7 @@ public class SessionStore {
         // One statement: the session ends and, for clients with a webhook, its notification is queued, or neither.
         String sql =
                 "WITH done AS (UPDATE verification_session SET status = ?, failure_code = ?, result_ciphertext = ?,"
+                        + " transaction_data_ciphertext = NULL,"
                         + " response_code_hash = ?, result_expires_at = ?, completed_at = ?"
                         + " WHERE id = ? AND status = 'pending' AND expires_at > ? RETURNING id, tenant_id, client_id, status),"
                         + " queued AS (INSERT INTO webhook_delivery (id, session_id, tenant_id, client_id, event_status,"
@@ -239,7 +264,7 @@ public class SessionStore {
 
     public boolean cancel(String tenantId, String clientId, String id, Instant now) {
         return update(
-                        "UPDATE verification_session SET status = 'cancelled', completed_at = ?"
+                        "UPDATE verification_session SET status = 'cancelled', transaction_data_ciphertext = NULL, completed_at = ?"
                                 + " WHERE id = ? AND tenant_id = ? AND client_id = ? AND status = 'pending'",
                         ts(now),
                         id,
@@ -323,13 +348,15 @@ public class SessionStore {
      */
     public int sweep(Instant now, java.util.Set<String> notifyClients) {
         int expired;
-        String sql = "WITH done AS (UPDATE verification_session SET status = 'expired', completed_at = ?"
-                + " WHERE status = 'pending' AND expires_at <= ? RETURNING id, tenant_id, client_id),"
-                + " queued AS (INSERT INTO webhook_delivery (id, session_id, tenant_id, client_id, event_status,"
-                + " occurred_at, next_attempt_at, created_at)"
-                + " SELECT 'msg_' || replace(gen_random_uuid()::text, '-', ''), id, tenant_id, client_id, 'expired', ?, ?, ?"
-                + " FROM done WHERE client_id = ANY(?) RETURNING 1)"
-                + " SELECT count(*) FROM done";
+        String sql =
+                "WITH done AS (UPDATE verification_session SET status = 'expired', transaction_data_ciphertext = NULL,"
+                        + " completed_at = ?"
+                        + " WHERE status = 'pending' AND expires_at <= ? RETURNING id, tenant_id, client_id),"
+                        + " queued AS (INSERT INTO webhook_delivery (id, session_id, tenant_id, client_id, event_status,"
+                        + " occurred_at, next_attempt_at, created_at)"
+                        + " SELECT 'msg_' || replace(gen_random_uuid()::text, '-', ''), id, tenant_id, client_id, 'expired', ?, ?, ?"
+                        + " FROM done WHERE client_id = ANY(?) RETURNING 1)"
+                        + " SELECT count(*) FROM done";
         try (Connection c = dataSource.getConnection();
                 PreparedStatement ps = c.prepareStatement(sql)) {
             ps.setTimestamp(1, ts(now));

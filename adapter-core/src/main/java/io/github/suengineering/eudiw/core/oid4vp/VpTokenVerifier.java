@@ -145,12 +145,24 @@ public final class VpTokenVerifier {
             String nonce,
             String statusCacheScope,
             String responseUri,
-            Optional<byte[]> encryptionKeyThumbprint) {
+            Optional<byte[]> encryptionKeyThumbprint,
+            Map<String, List<String>> transactionData) {
         public Context {
             Objects.requireNonNull(audience, "audience");
             Objects.requireNonNull(nonce, "nonce");
             Objects.requireNonNull(statusCacheScope, "statusCacheScope");
             Objects.requireNonNull(encryptionKeyThumbprint, "encryptionKeyThumbprint");
+            transactionData = Map.copyOf(transactionData);
+        }
+
+        /** Without transaction data. */
+        public Context(
+                String audience,
+                String nonce,
+                String statusCacheScope,
+                String responseUri,
+                Optional<byte[]> encryptionKeyThumbprint) {
+            this(audience, nonce, statusCacheScope, responseUri, encryptionKeyThumbprint, Map.of());
         }
 
         /** A context for SD-JWT VC only; mdoc presentations need the response URI and encryption key. */
@@ -260,6 +272,13 @@ public final class VpTokenVerifier {
     }
 
     private PresentedCredential verifyPresentation(String presentation, CredentialQuery query, Context context) {
+        List<String> transactionData = context.transactionData().getOrDefault(query.id(), List.of());
+        if (!transactionData.isEmpty() && !DcqlQuery.FORMAT_SD_JWT_VC.equals(query.format())) {
+            // OpenID4VP 1.0 binds transaction data to an mdoc through type-specific data elements (appendix B.2.1),
+            // which this verifier does not check; refuse rather than accept the presentation without the binding.
+            throw new VerificationFailure(
+                    "transaction_data_unsupported", "transaction data is supported for SD-JWT VC only");
+        }
         if (DcqlQuery.FORMAT_MDOC.equals(query.format()) && mdocVerifier.isPresent()) {
             return verifyMdoc(presentation, query, context);
         }
@@ -276,7 +295,8 @@ public final class VpTokenVerifier {
                 settings.clockSkew(),
                 settings.clock(),
                 512 * 1024,
-                256);
+                256,
+                transactionData);
         VerifiedSdJwtVc vc = sdJwtVcVerifier.verify(presentation, options, Set.copyOf(query.types()));
         checkStatus(vc, context);
         return new PresentedCredential(

@@ -18,6 +18,7 @@ ADR-009 keeps the request-signing key in an HSM or KMS through PKCS#11. Many ope
 ## Consequences
 
 - Tested against a real Vault server (`hashicorp/vault:1.21.1`, dev mode) in CI: signing, the startup probe with a mismatched certificate, a token replaced between signatures, rotation with and without a pinned version, a non-EC key, an unreachable server, and a token renewal that leaves the revision unchanged. Not run against Vault Enterprise namespaces or HCP Vault.
+- The 503 that a wallet gets when signing fails has no automated test yet; the signer's failures themselves are tested.
 - Every request object fetch is a network round trip to Vault. Its latency adds to the wallet's fetch.
 - Token authentication only. Kubernetes or AppRole login is left to Vault Agent, which writes the token file.
 - AWS KMS and other key services can implement the same interface; each needs its own decision on dependencies, since ADR-009 avoided vendor SDKs.

@@ -34,6 +34,7 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.sse.Sse;
 import jakarta.ws.rs.sse.SseEventSink;
+import java.util.List;
 import java.util.Map;
 
 /** The application-facing API. Every operation is authenticated, scoped and filtered by tenant and client. */
@@ -57,7 +58,8 @@ public class VerificationSessionResource {
     public record CreateBody(
             @JsonProperty("policy_id") String policyId,
             @JsonProperty("mode") String mode,
-            @JsonProperty("client_reference") String clientReference) {}
+            @JsonProperty("client_reference") String clientReference,
+            @JsonProperty("transaction_data") List<Map<String, Object>> transactionData) {}
 
     @POST
     @Consumes(MediaType.APPLICATION_JSON)
@@ -67,7 +69,8 @@ public class VerificationSessionResource {
                 caller,
                 body == null
                         ? null
-                        : new VerificationEngine.CreateRequest(body.policyId(), body.mode(), body.clientReference()),
+                        : new VerificationEngine.CreateRequest(
+                                body.policyId(), body.mode(), body.clientReference(), body.transactionData()),
                 idempotencyKey);
         Map<String, Object> out = view(created.session());
         out.put(

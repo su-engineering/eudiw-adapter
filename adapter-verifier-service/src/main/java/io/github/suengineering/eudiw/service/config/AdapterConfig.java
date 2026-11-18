@@ -140,7 +140,8 @@ public record AdapterConfig(String revision, Map<String, Tenant> tenants, Map<ja
             boolean mdocStrictConformance,
             boolean requireStatus,
             io.github.suengineering.eudiw.core.oid4vp.VpTokenVerifier.StatusSigner statusSigner,
-            Set<String> issuerExtendedKeyUsages) {}
+            Set<String> issuerExtendedKeyUsages,
+            Set<String> transactionDataTypes) {}
 
     public record OutputClaim(String credentialId, ClaimsPath path) {}
 
