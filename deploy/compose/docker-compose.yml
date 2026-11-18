@@ -133,6 +133,39 @@ services:
       - ./waltid:/waltid:ro
       - keys:/keys:ro
 
+  # The W3C Digital Credentials API in a real browser: eudi-dev's wallet server and its browser extension answer
+  # navigator.credentials.get() on a relying-party page that runs in Chromium (dc-api/).
+  dc-wallet:
+    image: ghcr.io/eudi-dev/eudi-dev:v3.8.0
+    profiles: ["dc-api"]
+    # root, to write the extension into the shared volume
+    user: "0"
+    entrypoint: ["/bin/sh", "/dc-api/wallet.sh"]
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /ext/ready || exit 1"]
+      interval: 2s
+      retries: 60
+    volumes:
+      - ./dc-api:/dc-api:ro
+      - keys:/keys:ro
+      - dc-extension:/ext
+
+  dc-browser:
+    image: mcr.microsoft.com/playwright:v1.56.1-noble
+    profiles: ["dc-api"]
+    working_dir: /work
+    entrypoint:
+      - /bin/sh
+      - -c
+      - npm init -y > /dev/null && npm i -s playwright@1.56.1 > /dev/null 2>&1 && cp /dc-api/check.mjs . && node check.mjs
+    depends_on:
+      dc-wallet:
+        condition: service_healthy
+    volumes:
+      - ./dc-api:/dc-api:ro
+      - dc-extension:/ext:ro
+
 volumes:
   keys:
   hsm:
+  dc-extension:

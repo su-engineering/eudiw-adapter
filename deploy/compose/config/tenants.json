@@ -16,6 +16,7 @@
           "client_id": "demo-portal",
           "policies": ["age-over-18", "age-over-18-mdoc", "age-over-18-payment"],
           "completion_uri": "http://localhost:8080/demo-complete",
+          "dc_api_origins": ["http://localhost:3005", "http://localhost:3006"],
           "webhook": {
             "url": "http://host.docker.internal:3000/webhooks/eudiw",
             "secret_file": "/keys/webhook-secret"
