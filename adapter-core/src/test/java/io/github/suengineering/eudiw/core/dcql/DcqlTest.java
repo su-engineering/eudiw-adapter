@@ -162,15 +162,17 @@ class DcqlTest {
                 .evaluate(query, Map.of("age", List.of(sdJwt(Map.of("age_over_18", true, "birthdate", "2000-01-01")))))
                 .get("age")
                 .get(0);
-        assertThat(over18.claims()).singleElement().satisfies(c -> assertThat(c.path())
-                .isEqualTo(ClaimsPath.of("age_over_18")));
+        assertThat(over18.claims())
+                .singleElement()
+                .satisfies(c -> assertThat(c.path()).isEqualTo(ClaimsPath.of("age_over_18")));
 
         SelectedCredential fallback = new DcqlEvaluator(true)
                 .evaluate(query, Map.of("age", List.of(sdJwt(Map.of("age_over_18", false, "birthdate", "2000-01-01")))))
                 .get("age")
                 .get(0);
-        assertThat(fallback.claims()).singleElement().satisfies(c -> assertThat(c.values())
-                .containsExactly("2000-01-01"));
+        assertThat(fallback.claims())
+                .singleElement()
+                .satisfies(c -> assertThat(c.values()).containsExactly("2000-01-01"));
 
         assertFailure(
                 () -> new DcqlEvaluator(true)
@@ -368,7 +370,8 @@ class DcqlTest {
     }
 
     private static void assertFailure(org.assertj.core.api.ThrowableAssert.ThrowingCallable call, String code) {
-        assertThatThrownBy(call).isInstanceOfSatisfying(VerificationFailure.class, f -> assertThat(f.code())
-                .isEqualTo(code));
+        assertThatThrownBy(call)
+                .isInstanceOfSatisfying(
+                        VerificationFailure.class, f -> assertThat(f.code()).isEqualTo(code));
     }
 }

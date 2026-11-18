@@ -38,13 +38,12 @@ public record StatusDecision(Result result, int value, String reason) {
     }
 
     static StatusDecision of(int value) {
-        Result result =
-                switch (value) {
-                    case 0 -> Result.VALID;
-                    case 1 -> Result.INVALID;
-                    case 2 -> Result.SUSPENDED;
-                    default -> Result.OTHER;
-                };
+        Result result = switch (value) {
+            case 0 -> Result.VALID;
+            case 1 -> Result.INVALID;
+            case 2 -> Result.SUSPENDED;
+            default -> Result.OTHER;
+        };
         return new StatusDecision(result, value, null);
     }
 

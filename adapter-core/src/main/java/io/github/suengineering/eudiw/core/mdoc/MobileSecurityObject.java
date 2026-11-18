@@ -101,18 +101,20 @@ public record MobileSecurityObject(
         Optional<CborItem> authorizations = keyInfo.get("keyAuthorizations");
         if (authorizations.isPresent()) {
             CborItem.MapItem auth = MdocCbor.map(authorizations.get(), "keyAuthorizations");
-            auth.get("nameSpaces").ifPresent(list -> MdocCbor.array(list, "AuthorizedNameSpaces")
-                    .items()
-                    .forEach(n -> namespaces.add(MdocCbor.text(n, "NameSpace"))));
-            auth.get("dataElements").ifPresent(map -> MdocCbor.map(map, "AuthorizedDataElements")
-                    .entries()
-                    .forEach((ns, ids) -> {
-                        Set<String> set = new LinkedHashSet<>();
-                        MdocCbor.array(ids, "DataElementsArray")
-                                .items()
-                                .forEach(i -> set.add(MdocCbor.text(i, "DataElementIdentifier")));
-                        elements.put(MdocCbor.text(ns, "NameSpace"), Set.copyOf(set));
-                    }));
+            auth.get("nameSpaces")
+                    .ifPresent(list -> MdocCbor.array(list, "AuthorizedNameSpaces")
+                            .items()
+                            .forEach(n -> namespaces.add(MdocCbor.text(n, "NameSpace"))));
+            auth.get("dataElements")
+                    .ifPresent(map -> MdocCbor.map(map, "AuthorizedDataElements")
+                            .entries()
+                            .forEach((ns, ids) -> {
+                                Set<String> set = new LinkedHashSet<>();
+                                MdocCbor.array(ids, "DataElementsArray")
+                                        .items()
+                                        .forEach(i -> set.add(MdocCbor.text(i, "DataElementIdentifier")));
+                                elements.put(MdocCbor.text(ns, "NameSpace"), Set.copyOf(set));
+                            }));
         }
 
         CborItem.MapItem validity = MdocCbor.map(MdocCbor.field(mso, "validityInfo"), "validityInfo");

@@ -197,8 +197,9 @@ class ConfigValidationTest {
                         dir.resolve("rp.pem").toAbsolutePath().normalize(),
                         dir.resolve("rp-key.pem").toAbsolutePath().normalize(),
                         dir.resolve("anchors.pem").toAbsolutePath().normalize());
-        config.sources().forEach((path, hash) -> assertThat(ConfigLoader.contentHash(path))
-                .isEqualTo(hash));
+        config.sources()
+                .forEach((path, hash) ->
+                        assertThat(ConfigLoader.contentHash(path)).isEqualTo(hash));
     }
 
     @Test

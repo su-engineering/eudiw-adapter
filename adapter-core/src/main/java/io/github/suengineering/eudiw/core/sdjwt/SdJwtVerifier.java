@@ -157,13 +157,12 @@ public final class SdJwtVerifier {
     }
 
     private static byte[] digestBytes(String hashAlgorithm, String asciiInput) {
-        String javaName =
-                switch (hashAlgorithm) {
-                    case "sha-256" -> "SHA-256";
-                    case "sha-384" -> "SHA-384";
-                    case "sha-512" -> "SHA-512";
-                    default -> throw new VerificationFailure("unsupported_hash_algorithm", hashAlgorithm);
-                };
+        String javaName = switch (hashAlgorithm) {
+            case "sha-256" -> "SHA-256";
+            case "sha-384" -> "SHA-384";
+            case "sha-512" -> "SHA-512";
+            default -> throw new VerificationFailure("unsupported_hash_algorithm", hashAlgorithm);
+        };
         try {
             return MessageDigest.getInstance(javaName).digest(asciiInput.getBytes(StandardCharsets.US_ASCII));
         } catch (NoSuchAlgorithmException e) {
