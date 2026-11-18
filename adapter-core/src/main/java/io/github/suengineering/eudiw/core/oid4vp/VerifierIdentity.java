@@ -70,6 +70,37 @@ public record VerifierIdentity(RequestSigner signer, List<X509Certificate> certi
             throw new IllegalArgumentException("the request-signing key must be EC P-256 (ES256, HAIP 1.0)");
         }
         proveKeyMatches(leaf, signer);
+        signer = checked(signer, leaf);
+    }
+
+    /**
+     * Verifies every signature with the certificate before it is used. A key in a key service can be rotated after
+     * startup; requests signed with the new version would then fail at every wallet, so signing fails here instead.
+     */
+    private static RequestSigner checked(RequestSigner signer, X509Certificate leaf) {
+        if (signer instanceof CheckedSigner) {
+            return signer;
+        }
+        return new CheckedSigner(signer, leaf);
+    }
+
+    private record CheckedSigner(RequestSigner delegate, X509Certificate leaf) implements RequestSigner {
+        @Override
+        public byte[] signEs256(byte[] data) throws JOSEException {
+            byte[] concat = delegate.signEs256(data);
+            try {
+                Signature verifier = Signature.getInstance("SHA256withECDSA");
+                verifier.initVerify(leaf.getPublicKey());
+                verifier.update(data);
+                if (concat.length == 64 && verifier.verify(ECDSA.transcodeSignatureToDER(concat))) {
+                    return concat;
+                }
+            } catch (GeneralSecurityException e) {
+                // reported below
+            }
+            throw new JOSEException("the signature does not verify with the request-signing certificate;"
+                    + " the key no longer matches it (rotated?)");
+        }
     }
 
     /** Signs a probe with the key and verifies it with the certificate, so a wrong HSM key fails at startup. */

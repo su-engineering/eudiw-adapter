@@ -91,6 +91,53 @@ class ConfigValidationTest {
         return load("c", policyExtra).tenant("t").orElseThrow().policies().get("p");
     }
 
+    /** One tenant whose {@code verifier} object is {@code verifier}; {@code production} as given. */
+    private AdapterConfig loadVerifier(String verifier, boolean production) throws Exception {
+        String tenants = """
+                {"tenants":[{"id":"t","verifier":%s,
+                  "clients":[{"client_id":"c","policies":["p"]}],
+                  "policies":[{"id":"p","dcql":%s,
+                    "output":{"age_over_18":{"credential":"age","path":["age_over_18"]}},
+                    "trust_anchors_file":"anchors.pem"}]}]}""".formatted(verifier, DCQL);
+        Path file = dir.resolve("tenants.json");
+        Files.writeString(file, tenants, StandardCharsets.UTF_8);
+        return ConfigLoader.load(file, production);
+    }
+
+    @Test
+    void theVerifierKeyHasExactlyOneSource() throws Exception {
+        Files.writeString(dir.resolve("vault-token"), "token\n");
+        assertThatThrownBy(() -> loadVerifier("""
+                        {"private_key_file":"rp-key.pem","certificate_chain_file":"rp.pem",
+                         "vault_transit":{"address":"https://vault.test","key_name":"rp","token_file":"vault-token"}}""", false))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining(
+                        "exactly one of verifier.private_key_file, verifier.pkcs11 and verifier.vault_transit");
+        assertThatThrownBy(() -> loadVerifier("{\"certificate_chain_file\":\"rp.pem\"}", false))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("exactly one of");
+    }
+
+    @Test
+    void vaultTransitNeedsHttpsInProductionAndAReadableTokenFile() throws Exception {
+        Files.writeString(dir.resolve("vault-token"), "token\n");
+        assertThatThrownBy(() -> loadVerifier("""
+                        {"certificate_chain_file":"rp.pem",
+                         "vault_transit":{"address":"http://vault.test:8200","key_name":"rp","token_file":"vault-token"}}""", true))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("vault_transit.address must use https in production");
+        assertThatThrownBy(() -> loadVerifier("""
+                        {"certificate_chain_file":"rp.pem",
+                         "vault_transit":{"address":"https://vault.test","key_name":"rp","token_file":"missing-token"}}""", false))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("cannot read the Vault token file");
+        assertThatThrownBy(() -> loadVerifier("""
+                        {"certificate_chain_file":"rp.pem",
+                         "vault_transit":{"address":"https://vault.test","key_name":"rp/../sys","token_file":"vault-token"}}""", false))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("vault_transit.key_name");
+    }
+
     @Test
     void enforceTrustedAuthoritiesDefaultsToTrueAndTakesBooleansOnly() throws Exception {
         assertThat(policy("").enforceTrustedAuthorities()).isTrue();
