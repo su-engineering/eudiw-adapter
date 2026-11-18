@@ -4,6 +4,10 @@ All notable changes to eudiw-adapter. Versions follow [Semantic Versioning](http
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-18
+
+Verification in the browser over the W3C Digital Credentials API, transaction data, request-signing keys in HashiCorp Vault and AWS KMS, session status as Server-Sent Events, and a demo that needs no clone. A second wallet (walt.id) and the OpenID Foundation verifier test plan now run in CI. Existing configurations keep working; see **Upgrading** before a rolling upgrade.
+
 ### Upgrading
 
 - **Digital Credentials API sessions need every pod on this version.** Pods of earlier versions do not know mode `dc_api`. Migration `V7` widens the session mode check and adds a nullable column.
@@ -21,6 +25,10 @@ All notable changes to eudiw-adapter. Versions follow [Semantic Versioning](http
 - CI runs the OpenID Foundation OID4VP 1.0 Final + HAIP verifier test plan on every change (`oidf` job). The job fails when any of the 14 modules ends differently from `interop/oidf/expected.json` or the suite logs a failure or warning, and keeps the suite logs for 90 days. `interop/oidf/ci.sh` runs the same thing on a laptop. Every module still ends in REVIEW; this is not certification.
 - A second independent wallet in CI: walt.id Wallet API 2 (1.2.1, pinned by digest) presents an SD-JWT VC to the Compose demo in the `demo` job, a credential under a certificate chain the trusted list does not name is rejected, and a walt.id wallet that does not trust the demo relying-party root refuses the request. `deploy/compose/waltid/run.sh` runs the same against a local demo. See the [wallet table](docs/wallets.md).
 - Session status as Server-Sent Events: `GET /v1/verification-sessions/{id}/events` (scope `verification:read`) sends the status view the poll returns, first the current one and then each change, and closes when the session is no longer pending. Never claims. The creation response carries `events_url`. Works across replicas through PostgreSQL. New settings `EUDIW_EVENTS_INTERVAL`, `EUDIW_EVENT_STREAMS_MAX` and `EUDIW_EVENT_STREAMS_PER_CLIENT`, in the Helm chart as `events.interval`, `events.maxStreams` and `events.maxStreamsPerClient` ([ADR-013](docs/adr/0013-session-events.md)). Ingresses must not buffer the stream ([Kubernetes notes](docs/kubernetes.md)).
+
+### Changed
+
+- Bouncy Castle 1.87.
 
 ## [0.2.1] - 2026-11-17
 
