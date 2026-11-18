@@ -24,6 +24,9 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -386,6 +389,27 @@ public class SessionStore {
         }
     }
 
+    /** Sessions with these ids, in any tenant; callers check tenant and client themselves. One query for all. */
+    public List<SessionRow> findByIds(Collection<String> ids) {
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        try (Connection c = dataSource.getConnection();
+                PreparedStatement ps = c.prepareStatement(
+                        "SELECT " + SESSION_COLUMNS + " FROM verification_session WHERE id = ANY(?)")) {
+            ps.setArray(1, c.createArrayOf("text", ids.toArray()));
+            try (ResultSet rs = ps.executeQuery()) {
+                List<SessionRow> rows = new ArrayList<>();
+                while (rs.next()) {
+                    rows.add(sessionRow(rs));
+                }
+                return rows;
+            }
+        } catch (SQLException e) {
+            throw new StoreException(e);
+        }
+    }
+
     private Optional<SessionRow> queryOne(String sql, String... params) {
         try (Connection c = dataSource.getConnection();
                 PreparedStatement ps = c.prepareStatement(sql)) {
@@ -396,26 +420,30 @@ public class SessionStore {
                 if (!rs.next()) {
                     return Optional.empty();
                 }
-                return Optional.of(new SessionRow(
-                        rs.getString("id"),
-                        rs.getString("tenant_id"),
-                        rs.getString("client_id"),
-                        rs.getString("policy_id"),
-                        rs.getString("config_revision"),
-                        rs.getString("mode"),
-                        rs.getString("status"),
-                        rs.getString("request_handle"),
-                        rs.getString("request_fingerprint"),
-                        rs.getString("client_reference"),
-                        rs.getString("failure_code"),
-                        rs.getBoolean("has_result"),
-                        instant(rs.getTimestamp("created_at")),
-                        instant(rs.getTimestamp("expires_at")),
-                        instant(rs.getTimestamp("completed_at"))));
+                return Optional.of(sessionRow(rs));
             }
         } catch (SQLException e) {
             throw new StoreException(e);
         }
+    }
+
+    private static SessionRow sessionRow(ResultSet rs) throws SQLException {
+        return new SessionRow(
+                rs.getString("id"),
+                rs.getString("tenant_id"),
+                rs.getString("client_id"),
+                rs.getString("policy_id"),
+                rs.getString("config_revision"),
+                rs.getString("mode"),
+                rs.getString("status"),
+                rs.getString("request_handle"),
+                rs.getString("request_fingerprint"),
+                rs.getString("client_reference"),
+                rs.getString("failure_code"),
+                rs.getBoolean("has_result"),
+                instant(rs.getTimestamp("created_at")),
+                instant(rs.getTimestamp("expires_at")),
+                instant(rs.getTimestamp("completed_at")));
     }
 
     private Optional<InstanceRow> queryInstance(String sql, String param) {

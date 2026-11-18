@@ -29,10 +29,11 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import java.time.Instant;
-import java.util.LinkedHashMap;
+import jakarta.ws.rs.sse.Sse;
+import jakarta.ws.rs.sse.SseEventSink;
 import java.util.Map;
 
 /** The application-facing API. Every operation is authenticated, scoped and filtered by tenant and client. */
@@ -49,6 +50,9 @@ public class VerificationSessionResource {
 
     @Inject
     AdapterRuntime runtime;
+
+    @Inject
+    SessionEventStreams streams;
 
     public record CreateBody(
             @JsonProperty("policy_id") String policyId,
@@ -73,6 +77,7 @@ public class VerificationSessionResource {
                         "launch_uri", created.launchUri(),
                         "qr_payload", created.launchUri()));
         out.put("poll_url", "/v1/verification-sessions/" + created.session().id());
+        out.put("events_url", "/v1/verification-sessions/" + created.session().id() + "/events");
         return Response.status(201)
                 .header("Cache-Control", "no-store")
                 .entity(out)
@@ -86,6 +91,20 @@ public class VerificationSessionResource {
         return Response.ok(view(engine.status(caller, id)))
                 .header("Cache-Control", "no-store")
                 .build();
+    }
+
+    /**
+     * Server-Sent Events: the same view as {@link #get}, first the current one, then each change, until the session
+     * leaves {@code pending}. Never claims (ADR-013).
+     */
+    @GET
+    @Path("{id}/events")
+    @Produces(MediaType.SERVER_SENT_EVENTS)
+    public void events(@PathParam("id") String id, @Context SseEventSink sink, @Context Sse sse) {
+        var caller = callers.require("verification:read");
+        SessionRow session = engine.status(caller, id);
+        streams.checkCapacity(caller);
+        streams.watch(caller, session, sink, sse, callers.tokenExpiry());
     }
 
     @GET
@@ -108,28 +127,6 @@ public class VerificationSessionResource {
     }
 
     private Map<String, Object> view(SessionRow session) {
-        Instant now = runtime.clock().instant();
-        String status = session.status();
-        if (status.equals("pending") && !now.isBefore(session.expiresAt())) {
-            status = "expired";
-        }
-        Map<String, Object> out = new LinkedHashMap<>();
-        out.put("id", session.id());
-        out.put("status", status);
-        out.put("policy_id", session.policyId());
-        out.put("mode", session.mode());
-        if (session.clientReference() != null) {
-            out.put("client_reference", session.clientReference());
-        }
-        out.put("created_at", session.createdAt().toString());
-        out.put("expires_at", session.expiresAt().toString());
-        if (session.completedAt() != null) {
-            out.put("completed_at", session.completedAt().toString());
-        }
-        if (status.equals("rejected") && session.failureCode() != null) {
-            out.put("reason", session.failureCode());
-        }
-        out.put("result_available", status.equals("verified") && session.hasResult());
-        return out;
+        return SessionView.of(session, runtime.clock().instant());
     }
 }

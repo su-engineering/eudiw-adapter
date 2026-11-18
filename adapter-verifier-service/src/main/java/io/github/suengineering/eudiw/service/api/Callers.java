@@ -66,6 +66,11 @@ public class Callers {
         return binding;
     }
 
+    /** When the caller's access token expires; streams opened with it end then. */
+    public java.time.Instant tokenExpiry() {
+        return java.time.Instant.ofEpochSecond(token.getExpirationTime());
+    }
+
     /**
      * A string claim exactly as issued. Claims outside the MicroProfile JWT set arrive as JSON values; anything
      * other than a string counts as absent.
