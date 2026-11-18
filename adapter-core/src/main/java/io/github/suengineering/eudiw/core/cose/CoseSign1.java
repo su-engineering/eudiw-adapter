@@ -70,12 +70,11 @@ public record CoseSign1(
                 || !(parts.get(3) instanceof CborItem.Bytes signature)) {
             throw malformed("COSE_Sign1 has the wrong element types");
         }
-        Optional<byte[]> payload =
-                switch (parts.get(2)) {
-                    case CborItem.Bytes b -> Optional.of(b.value());
-                    case CborItem.Simple s when s.isNull() -> Optional.empty();
-                    default -> throw malformed("COSE_Sign1 payload is neither bytes nor null");
-                };
+        Optional<byte[]> payload = switch (parts.get(2)) {
+            case CborItem.Bytes b -> Optional.of(b.value());
+            case CborItem.Simple s when s.isNull() -> Optional.empty();
+            default -> throw malformed("COSE_Sign1 payload is neither bytes nor null");
+        };
         byte[] protectedBytes = protectedBstr.value();
         if (protectedBytes.length == 0) {
             throw malformed("COSE_Sign1 protected header is empty");

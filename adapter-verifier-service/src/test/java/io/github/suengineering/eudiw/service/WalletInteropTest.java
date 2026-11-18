@@ -103,9 +103,11 @@ class WalletInteropTest {
     private record Started(String id, String launch, String token) {}
 
     private Started startSession() {
-        runtime.reconfigureForTests(java.time.Clock.systemUTC(), (uri, accept, max) -> TestWallet.statusListToken(
-                        TestEnvironment.ISSUER_A, "issuer-a-key.pem", "issuer-a.pem")
-                .getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+        runtime.reconfigureForTests(
+                java.time.Clock.systemUTC(),
+                (uri, accept, max) -> TestWallet.statusListToken(
+                                TestEnvironment.ISSUER_A, "issuer-a-key.pem", "issuer-a.pem")
+                        .getBytes(java.nio.charset.StandardCharsets.US_ASCII));
         Testcontainers.exposeHostPorts(PORT, TestEnvironment.receiverPort);
         String token = TestWallet.fullToken("portal-a");
         JsonPath session = given().auth()

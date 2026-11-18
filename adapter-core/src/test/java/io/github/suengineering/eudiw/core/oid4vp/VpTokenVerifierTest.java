@@ -409,7 +409,8 @@ class VpTokenVerifierTest {
     }
 
     private static void assertFailure(org.assertj.core.api.ThrowableAssert.ThrowingCallable call, String code) {
-        assertThatThrownBy(call).isInstanceOfSatisfying(VerificationFailure.class, f -> assertThat(f.code())
-                .isEqualTo(code));
+        assertThatThrownBy(call)
+                .isInstanceOfSatisfying(
+                        VerificationFailure.class, f -> assertThat(f.code()).isEqualTo(code));
     }
 }

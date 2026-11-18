@@ -172,8 +172,9 @@ class RegistrationConfigTest {
                 .get("p")
                 .registration()
                 .orElseThrow();
-        assertThat(registration.verifierInfo(Instant.now())).singleElement().satisfies(e -> assertThat(e)
-                .containsEntry("format", "registrar_dataset"));
+        assertThat(registration.verifierInfo(Instant.now()))
+                .singleElement()
+                .satisfies(e -> assertThat(e).containsEntry("format", "registrar_dataset"));
     }
 
     @Test

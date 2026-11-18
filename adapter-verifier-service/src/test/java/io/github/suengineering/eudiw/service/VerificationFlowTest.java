@@ -521,8 +521,8 @@ class VerificationFlowTest {
         assertThat(formats).containsKeys("dc+sd-jwt", "mso_mdoc");
         assertThat(request.get("dcql_query").toString()).contains("intent_to_retain");
 
-        TestWallet.respond(
-                request, Map.of("vp_token", Map.of("mdl", List.of(mdl(request, (String) request.get("nonce"))))));
+        TestWallet.respond(request, Map.of("vp_token", Map.of("mdl", List.of(mdl(request, (String)
+                request.get("nonce"))))));
         given().auth()
                 .oauth2(TestWallet.fullToken("portal-a"))
                 .get("/v1/verification-sessions/" + session.getString("id"))
@@ -564,8 +564,8 @@ class VerificationFlowTest {
         // The policy lists the document signer's name, which any anchor could put in a certificate it issues.
         JsonPath session = create("portal-a", "cross_device", "mdl-age-signer-name");
         Map<String, Object> request = TestWallet.fetchRequest(session.getString("wallet_launch.request_uri"));
-        TestWallet.respond(
-                request, Map.of("vp_token", Map.of("mdl", List.of(mdl(request, (String) request.get("nonce"))))));
+        TestWallet.respond(request, Map.of("vp_token", Map.of("mdl", List.of(mdl(request, (String)
+                request.get("nonce"))))));
         given().auth()
                 .oauth2(TestWallet.fullToken("portal-a"))
                 .get("/v1/verification-sessions/" + session.getString("id"))

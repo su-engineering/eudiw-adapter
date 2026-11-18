@@ -124,8 +124,9 @@ class TrustedListTest {
                 })) {
             byte[] signed = TrustedListFixtures.signXml(nationalXml(3), TL_SIGNER, "", algorithms[0], algorithms[1]);
             assertThatThrownBy(() -> TslXmlParser.verify(signed, TL_AA, List.of(TL_SIGNER.certificate())))
-                    .isInstanceOfSatisfying(VerificationFailure.class, f -> assertThat(f.code())
-                            .isEqualTo("trusted_list_signature_invalid"))
+                    .isInstanceOfSatisfying(
+                            VerificationFailure.class,
+                            f -> assertThat(f.code()).isEqualTo("trusted_list_signature_invalid"))
                     .hasMessageContaining(algorithms[2]);
         }
         byte[] sha512 = TrustedListFixtures.signXml(
@@ -1037,7 +1038,8 @@ class TrustedListTest {
     }
 
     private static void assertFailure(org.assertj.core.api.ThrowableAssert.ThrowingCallable call, String code) {
-        assertThatThrownBy(call).isInstanceOfSatisfying(VerificationFailure.class, f -> assertThat(f.code())
-                .isEqualTo(code));
+        assertThatThrownBy(call)
+                .isInstanceOfSatisfying(
+                        VerificationFailure.class, f -> assertThat(f.code()).isEqualTo(code));
     }
 }

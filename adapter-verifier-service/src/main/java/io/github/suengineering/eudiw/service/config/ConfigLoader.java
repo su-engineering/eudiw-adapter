@@ -539,12 +539,11 @@ public final class ConfigLoader {
         if (production && "http".equalsIgnoreCase(uri.getScheme())) {
             throw new ConfigException(where + ": trusted list locations must use HTTPS in production");
         }
-        TrustedList.Format format =
-                switch (string(json, "format")) {
-                    case "tsl_xml" -> TrustedList.Format.TSL_XML;
-                    case "lote_json" -> TrustedList.Format.LOTE_JSON;
-                    default -> throw new ConfigException(where + ": trusted list format must be tsl_xml or lote_json");
-                };
+        TrustedList.Format format = switch (string(json, "format")) {
+            case "tsl_xml" -> TrustedList.Format.TSL_XML;
+            case "lote_json" -> TrustedList.Format.LOTE_JSON;
+            default -> throw new ConfigException(where + ": trusted list format must be tsl_xml or lote_json");
+        };
         List<X509Certificate> signers = certificates(read(base, string(json, "signer_certificates_file")));
         Set<String> accepted = json.containsKey("accepted_statuses")
                 ? strings(json, "accepted_statuses", where)

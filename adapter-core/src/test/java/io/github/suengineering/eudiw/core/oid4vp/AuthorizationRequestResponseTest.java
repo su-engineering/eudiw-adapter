@@ -119,8 +119,9 @@ class AuthorizationRequestResponseTest {
         jwe.encrypt(new ECDHEncrypter(key.toPublicJWK()));
         String withCrit = jwe.serialize();
         assertThatThrownBy(() -> AuthorizationResponses.decrypt(withCrit, key))
-                .isInstanceOfSatisfying(VerificationFailure.class, f -> assertThat(f.getMessage())
-                        .contains("critical header"));
+                .isInstanceOfSatisfying(
+                        VerificationFailure.class,
+                        f -> assertThat(f.getMessage()).contains("critical header"));
     }
 
     @Test
@@ -235,7 +236,8 @@ class AuthorizationRequestResponseTest {
     }
 
     private static void assertFailure(org.assertj.core.api.ThrowableAssert.ThrowingCallable call) {
-        assertThatThrownBy(call).isInstanceOfSatisfying(VerificationFailure.class, f -> assertThat(f.code())
-                .isEqualTo("invalid_response"));
+        assertThatThrownBy(call)
+                .isInstanceOfSatisfying(
+                        VerificationFailure.class, f -> assertThat(f.code()).isEqualTo("invalid_response"));
     }
 }
