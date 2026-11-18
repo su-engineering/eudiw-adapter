@@ -42,4 +42,4 @@ States: `not implemented`, `implemented` (code exists), `tested` (automated test
 | did:web, did:webvh | not implemented |
 | OID4VCI issuance | not implemented |
 
-Update this table in the same PR that changes a status. Interop runs record the wallet, its version and the date.
+Update this table in the same PR that changes a status. Interop runs record the wallet, its version and the date. The same runs, by wallet, are in [wallets](wallets.md).
