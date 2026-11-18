@@ -316,7 +316,7 @@ Test evidence per feature: [standards and feature status](docs/standards-matrix.
 - [x] ISO mdoc (`mso_mdoc`): issuer and device authentication
 - [x] Digital Credentials API, server side (`mode: dc_api`)
 - [x] Digital Credentials API tested in Chromium against eudi-dev in CI
-- [ ] Digital Credentials API in `<eudiw-request>` and the examples
+- [x] Digital Credentials API in `<eudiw-request>` and the Node and Python examples
 - [x] A second independent wallet in CI (walt.id Wallet API 2, SD-JWT VC and mdoc)
 - [ ] The EU reference wallet on real devices, OCSP
 - [x] `transaction_data` for SD-JWT VC, tested with walt.id

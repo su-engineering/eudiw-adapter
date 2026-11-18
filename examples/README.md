@@ -38,6 +38,10 @@ The backend checks the signature and adds the notification to the session's trac
 
 `examples/render/check.sh` opens the page in Chromium (in the Playwright container), decodes the QR code as drawn on screen with `zbarimg`, checks the vendored font is in use, and answers with the test wallet until the page shows the verified state. CI runs it and keeps the screenshots.
 
+### The Digital Credentials API
+
+In a browser with the W3C Digital Credentials API, the page also offers "use a wallet on this device". The backend then creates a `dc_api` session for the page's origin (the `Origin` header of the page's request), the `<eudiw-request>` component calls `navigator.credentials.get()`, and the backend relays what the browser returned to the adapter (`POST /verifications/{id}/dc-api`). The demo client allows `http://localhost:3005` and `http://localhost:3006` in `dc_api_origins`; add your page's origin, such as `http://localhost:3000`, to `deploy/compose/config/tenants.json` to try it from the example's default port. Without a wallet on the device, eudi-dev's browser extension can answer (`eudi wallet browser`). `deploy/compose/dc-api/run.sh` runs this page that way in CI.
+
 ## Settings
 
 Environment variables, with the demo's values as defaults: `HOST` (default `127.0.0.1`), `ADAPTER_URL`, `TOKEN_URL`, `CLIENT_ID`, `CLIENT_SECRET`, `POLICY_ID`, `PORT`, and `WEBHOOK_SECRET` (plus `WEBHOOK_PREVIOUS_SECRET` during a rotation) in the `whsec_` form configured for the client in the adapter.

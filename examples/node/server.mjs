@@ -2,7 +2,9 @@
 //
 // A minimal relying-party backend for eudiw-adapter, with no dependencies (Node 22 or later).
 //
-//   POST /verifications                 start a session; returns the launch URI and URLs for the browser
+//   POST /verifications                 start a session; returns the launch URI and URLs for the browser. With
+//                                       {"mode": "dc_api"}, a Digital Credentials API session for this page's Origin
+//   POST /verifications/{id}/dc-api     relay the browser's Digital Credentials API response to the adapter
 //   GET  /verifications/{id}/status     {"status": ...} for the <eudiw-request> component
 //   POST /verifications/{id}/result     fetch the verified claims once (a real app acts on them server-side)
 //   POST /webhooks/eudiw                signed session notifications from the adapter
@@ -162,7 +164,7 @@ async function readBody(req, limit = 64 * 1024) {
 
 async function handle(req, res) {
   const url = new URL(req.url, 'http://localhost');
-  const match = url.pathname.match(/^\/verifications\/([A-Za-z0-9_-]{43})\/(status|result)$/);
+  const match = url.pathname.match(/^\/verifications\/([A-Za-z0-9_-]{43})\/(status|result|dc-api)$/);
 
   if (req.method === 'GET' && STATIC[url.pathname]) {
     const [file, type] = STATIC[url.pathname];
@@ -172,14 +174,37 @@ async function handle(req, res) {
     const events = [];
     const trace = tracer(events);
     trace('browser', 'POST /verifications');
-    const created = await adapter(
-      'POST', '/v1/verification-sessions', { policy_id: config.policyId, mode: 'cross_device' }, randomUUID(), trace);
+    let requested = {};
+    try {
+      requested = JSON.parse((await readBody(req)).toString('utf8') || '{}');
+    } catch {
+      return send(res, 400, { error: 'invalid_request' });
+    }
+    const dcApi = requested.mode === 'dc_api';
+    // The Digital Credentials API binds the presentation to the page's Origin, which the browser sends with this
+    // POST. The adapter accepts it only if it is one of this client's configured dc_api_origins.
+    const body = dcApi
+      ? { policy_id: config.policyId, mode: 'dc_api', origin: req.headers.origin }
+      : { policy_id: config.policyId, mode: 'cross_device' };
+    const created = await adapter('POST', '/v1/verification-sessions', body, randomUUID(), trace);
     trace('backend', 'POST /v1/verification-sessions', `${created.status} ${created.body?.status ?? ''}`.trim());
     if (created.status !== 201) {
       return send(res, 502, { error: 'could_not_start' });
     }
     const local = randomBytes(32).toString('base64url');
     sessions.set(local, { id: created.body.id, status: created.body.status, trace: events });
+    if (dcApi) {
+      return send(res, 201, {
+        mode: 'dc_api',
+        dc_api_request: created.body.dc_api.request,
+        dc_api_url: `/verifications/${local}/dc-api`,
+        expires_at: created.body.expires_at,
+        request_label: config.requestLabel,
+        status_url: `/verifications/${local}/status`,
+        result_url: `/verifications/${local}/result`,
+        trace: events,
+      });
+    }
     return send(res, 201, {
       launch_uri: created.body.wallet_launch.launch_uri,
       expires_at: created.body.expires_at,
@@ -203,6 +228,19 @@ async function handle(req, res) {
           + (current.body.reason ? ` (${current.body.reason})` : ''));
       }
       return send(res, 200, { status: session.status, expires_at: current.body.expires_at, trace: session.trace });
+    }
+    if (req.method === 'POST' && match[2] === 'dc-api') {
+      let data;
+      try {
+        data = JSON.parse((await readBody(req)).toString('utf8')).data;
+      } catch {
+        return send(res, 400, { error: 'invalid_request' });
+      }
+      trace('browser', 'POST /verifications/{id}/dc-api', 'navigator.credentials.get() returned');
+      const relayed = await adapter('POST', `/v1/verification-sessions/${session.id}/dc-api-response`, { data });
+      trace('backend', 'POST /v1/verification-sessions/{id}/dc-api-response',
+        `${relayed.status} ${relayed.body?.status ?? relayed.body?.code ?? ''}`.trim());
+      return relayed.status === 200 ? send(res, 200, { status: relayed.body.status }) : send(res, 502, {});
     }
     if (req.method === 'POST' && match[2] === 'result') {
       const result = await adapter('GET', `/v1/verification-sessions/${session.id}/result`);

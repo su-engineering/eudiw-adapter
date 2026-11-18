@@ -6,7 +6,9 @@
 #   2. an mdoc PID verifies, its device signature over the OpenID4VPDCAPIHandover session transcript;
 #   3. a session created for another registered origin (http://localhost:3006) rejects the presentation the page at
 #      :3005 gets (key_binding_audience_mismatch). eudi-dev in debug mode only warns that the page's origin is not
-#      in expected_origins, so this checks the adapter's own binding.
+#      in expected_origins, so this checks the adapter's own binding;
+#   4. the integration kit works over the API: the Node and Python example pages offer "use a wallet on this
+#      device", the <eudiw-request> component calls the API, and the backend relays the response (dc-api/kit.mjs).
 set -eu
 cd "$(dirname "$0")/.."
 
@@ -20,4 +22,9 @@ browser -e POLICY=age-over-18-mdoc
 echo "3. A session for another origin rejects what the page gets"
 browser -e ORIGIN=http://localhost:3006 -e EXPECT=rejected -e EXPECT_REASON=key_binding_audience_mismatch
 
-echo "Digital Credentials API: SD-JWT VC and mdoc verified in Chromium, a presentation for another origin rejected"
+echo "4. The example page and <eudiw-request> over the Digital Credentials API, Node and Python backends"
+browser -e SCRIPT=kit.mjs
+browser -e SCRIPT=kit.mjs -e BACKEND=python
+
+echo "Digital Credentials API: SD-JWT VC and mdoc verified in Chromium, a presentation for another origin rejected,"
+echo "and the example page with <eudiw-request> works over it"

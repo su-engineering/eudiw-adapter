@@ -157,13 +157,16 @@ services:
     entrypoint:
       - /bin/sh
       - -c
-      - npm init -y > /dev/null && npm i -s playwright@1.56.1 > /dev/null 2>&1 && cp /dc-api/check.mjs . && node check.mjs
+      - npm init -y > /dev/null && npm i -s playwright@1.56.1 > /dev/null 2>&1 && cp /dc-api/*.mjs . && node "$${SCRIPT:-check.mjs}"
     depends_on:
       dc-wallet:
         condition: service_healthy
     volumes:
       - ./dc-api:/dc-api:ro
       - dc-extension:/ext:ro
+      # kit.mjs serves the Node example and the <eudiw-request> component from here
+      - ../../examples:/repo/examples:ro
+      - ../../clients:/repo/clients:ro
 
 volumes:
   keys:
