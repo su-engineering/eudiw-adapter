@@ -145,6 +145,7 @@ The first release.
 
 ISO mdoc, the Digital Credentials API, OCSP, wallet attestation and `transaction_data`. Interoperability is tested against the eudi-dev wallet and the OpenID Foundation HAIP verifier test plan run locally; there is no certification and no external security review yet. See the [roadmap](ROADMAP.md).
 
+[Unreleased]: https://github.com/su-engineering/eudiw-adapter/compare/v0.2.1...HEAD
 [0.2.1]: https://github.com/su-engineering/eudiw-adapter/releases/tag/v0.2.1
 [0.2.0]: https://github.com/su-engineering/eudiw-adapter/releases/tag/v0.2.0
 [0.1.1]: https://github.com/su-engineering/eudiw-adapter/releases/tag/v0.1.1

@@ -64,11 +64,14 @@ for module in modules:
     test_id = json.loads(body)["id"]
     endpoint = None
     for _ in range(60):
-        info = json.loads(http("GET", f"{SUITE}/api/runner/{test_id}", ctx=CTX)[1])
-        endpoint = (info.get("exposed") or {}).get("authorization_endpoint")
-        if endpoint and info.get("status") in ("WAITING", "CONFIGURED"):
+        runner = json.loads(http("GET", f"{SUITE}/api/runner/{test_id}", ctx=CTX)[1])
+        endpoint = (runner.get("exposed") or {}).get("authorization_endpoint")
+        state = json.loads(http("GET", f"{SUITE}/api/info/{test_id}", ctx=CTX)[1]).get("status")
+        if endpoint and state in ("WAITING", "CONFIGURED"):
             break
         time.sleep(1)
+    else:
+        sys.exit(f"{module}: the suite did not expose its authorization endpoint")
     tok = token()
     st, sess = http("POST", f"{ADAPTER}/v1/verification-sessions",
                     {"policy_id": "pid", "mode": "same_device"},
@@ -129,7 +132,7 @@ if CHECK:
             errors.append(f"{module}: adapter {a_status} {a_reason}, expected {want_status} {want_reason}")
         if problems:
             errors.append(f"{module}: {problems} failures or warnings in the suite log")
-        if suite_result not in ("REVIEW", "PASSED"):
+        if suite_status not in ("WAITING", "FINISHED") or suite_result not in ("REVIEW", "PASSED"):
             errors.append(f"{module}: suite result {suite_status}/{suite_result}")
     if errors:
         print("\nFAILED")

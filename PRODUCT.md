@@ -17,7 +17,7 @@ eudiw-adapter is an open-source (Apache-2.0) EUDI Wallet verifier for relying pa
 
 ## Positioning
 
-Built by su.engineering from the specifications, with data minimization and fail-closed verification as defaults, tested against independent wallets and the OpenID Foundation HAIP test plan (run locally, not certified).
+Built by su.engineering from the specifications, with data minimization and fail-closed verification as defaults, tested against independent wallets and the OpenID Foundation HAIP test plan (run in CI on every change, not certified).
 
 ## Capabilities and Constraints
 

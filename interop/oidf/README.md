@@ -20,6 +20,8 @@ It needs Docker, Java 21, OpenSSL, Python 3 and curl. [ci.sh](ci.sh):
 
 Results, the suite log of each module and the adapter's log go to `interop/oidf/out`, or to `OUT_DIR` if set. `python3 run.py -v <module>` runs one module against a suite and adapter you started yourself.
 
+To move to a newer suite release, change both image tags and digests in [suite-compose.yml](suite-compose.yml) (the tags are listed in the suite's GitLab container registry), run `ci.sh`, and update [expected.json](expected.json) and the results below in the same change if the plan changed.
+
 ## Notes
 
 - **TLS hostname.** The suite's local TLS certificate is `CN=localhost` with no subject alternative name. The JDK refuses it for `localhost.emobix.co.uk`, so the adapter fetched the suite's status lists only with `-Djdk.internal.httpclient.disableHostnameVerification=true`. This applies to the local run only. Production keeps hostname verification.
