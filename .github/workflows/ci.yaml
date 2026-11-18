@@ -107,8 +107,16 @@ jobs:
             ~/.m2/wrapper
           key: maven-${{ github.job }}-${{ hashFiles('**/pom.xml', '.mvn/wrapper/maven-wrapper.properties') }}
           restore-keys: maven-${{ github.job }}-
-      - name: Pull the demo's images in the background
+      - name: Pull the demo's images and install zbar (for the rendered QR code) in the background
         run: |
+          (
+            install() { sudo apt-get install -y -q --no-install-recommends zbar-tools; }
+            install || {
+              mkdir -p /tmp/apt-ubuntu && cp /etc/apt/sources.list.d/ubuntu.sources /tmp/apt-ubuntu/
+              sudo apt-get update -q -o Dir::Etc::sourcelist=/dev/null -o Dir::Etc::sourceparts=/tmp/apt-ubuntu && install
+            }
+            touch /tmp/zbar-done
+          ) > /tmp/zbar.log 2>&1 &
           (docker compose -f deploy/compose/docker-compose.yml --profile wallet --profile waltid --profile dc-api \
             pull -q --ignore-buildable > /dev/null 2>&1 &)
       - name: Build the service
@@ -127,7 +135,10 @@ jobs:
       - name: Example page rendered in Chromium (QR decoded from the screen, font, verified state)
         env:
           OUT_DIR: ${{ runner.temp }}/render
-        run: ./examples/render/check.sh
+        run: |
+          for _ in $(seq 1 120); do test -f /tmp/zbar-done && break; sleep 1; done
+          cat /tmp/zbar.log
+          ./examples/render/check.sh
       - name: Rendered screenshots
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
