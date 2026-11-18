@@ -367,6 +367,284 @@ class VerificationFlowTest {
                 .body("code", org.hamcrest.Matchers.equalTo("idempotency_key_reused"));
     }
 
+    // --- OpenID4VP over the W3C Digital Credentials API (appendix A) ---
+
+    /** Creates a dc_api session and returns it with the decoded payload of its signed request. */
+    private Map.Entry<JsonPath, Map<String, Object>> dcApiSession(String policyId) throws Exception {
+        JsonPath session = given().auth()
+                .oauth2(TestWallet.fullToken("portal-a"))
+                .header("Idempotency-Key", UUID.randomUUID().toString())
+                .contentType(ContentType.JSON)
+                .body(Map.of("policy_id", policyId, "mode", "dc_api", "origin", TestEnvironment.DC_API_ORIGIN))
+                .post("/v1/verification-sessions")
+                .then()
+                .statusCode(201)
+                .extract()
+                .jsonPath();
+        String signed = session.getString("dc_api.request.digital.requests[0].data.request");
+        com.nimbusds.jose.JWSObject jws = com.nimbusds.jose.JWSObject.parse(signed);
+        assertThat(jws.verify(new com.nimbusds.jose.crypto.ECDSAVerifier((java.security.interfaces.ECPublicKey)
+                        TestEnvironment.certificate("rp-a.pem").getPublicKey())))
+                .isTrue();
+        return Map.entry(session, jws.getPayload().toJSONObject());
+    }
+
+    private io.restassured.response.ValidatableResponse relay(String id, Map<String, Object> data) {
+        return given().auth()
+                .oauth2(TestWallet.fullToken("portal-a"))
+                .contentType(ContentType.JSON)
+                .body(Map.of("data", data))
+                .post("/v1/verification-sessions/" + id + "/dc-api-response")
+                .then();
+    }
+
+    /** The request as the wallet sees it, with the audience a presentation over the DC API must name. */
+    private static Map<String, Object> boundToOrigin(Map<String, Object> request) {
+        Map<String, Object> copy = new java.util.HashMap<>(request);
+        copy.put("client_id", "origin:" + TestEnvironment.DC_API_ORIGIN);
+        return copy;
+    }
+
+    @Test
+    void dcApiSignedRequestCarriesOnlyTheAppendixAParameters() throws Exception {
+        var created = dcApiSession("age-over-18");
+        JsonPath session = created.getKey();
+        Map<String, Object> request = created.getValue();
+        assertThat(session.getString("dc_api.request.digital.requests[0].protocol"))
+                .isEqualTo("openid4vp-v1-signed");
+        assertThat(session.getString("dc_api.response_url"))
+                .isEqualTo("/v1/verification-sessions/" + session.getString("id") + "/dc-api-response");
+        assertThat(session.getMap("wallet_launch")).isNull();
+        assertThat(session.getString("mode")).isEqualTo("dc_api");
+        assertThat(request)
+                .containsEntry("response_mode", "dc_api.jwt")
+                .containsEntry("response_type", "vp_token")
+                .containsEntry("expected_origins", List.of(TestEnvironment.DC_API_ORIGIN))
+                .doesNotContainKeys("response_uri", "state", "redirect_uri", "request_uri", "aud", "wallet_nonce");
+        assertThat((String) request.get("client_id")).startsWith("x509_hash:");
+    }
+
+    @Test
+    void dcApiSdJwtPresentationBoundToTheOriginVerifies() throws Exception {
+        var created = dcApiSession("age-over-18");
+        String id = created.getKey().getString("id");
+        Map<String, Object> request = created.getValue();
+        String presentation = wallet.presentation(
+                boundToOrigin(request),
+                TestEnvironment.ISSUER_A,
+                "issuer-a-key.pem",
+                "issuer-a.pem",
+                Map.of("age_over_18", true),
+                1);
+        String response = TestWallet.encrypt(request, Map.of("vp_token", Map.of("age", List.of(presentation))));
+
+        relay(id, Map.of("response", response))
+                .statusCode(200)
+                .body("status", org.hamcrest.Matchers.equalTo("verified"));
+        given().auth()
+                .oauth2(TestWallet.fullToken("portal-a"))
+                .get("/v1/verification-sessions/" + id + "/result")
+                .then()
+                .statusCode(200)
+                .body("claims", org.hamcrest.Matchers.equalTo(Map.of("age_over_18", true)));
+        relay(id, Map.of("response", response)).statusCode(409);
+    }
+
+    @Test
+    void dcApiPresentationForTheClientIdInsteadOfTheOriginIsRejected() throws Exception {
+        var created = dcApiSession("age-over-18");
+        Map<String, Object> request = created.getValue();
+        String presentation = wallet.presentation(
+                request, TestEnvironment.ISSUER_A, "issuer-a-key.pem", "issuer-a.pem", Map.of("age_over_18", true), 1);
+
+        relay(
+                        created.getKey().getString("id"),
+                        Map.of(
+                                "response",
+                                TestWallet.encrypt(request, Map.of("vp_token", Map.of("age", List.of(presentation))))))
+                .statusCode(200)
+                .body("status", org.hamcrest.Matchers.equalTo("rejected"))
+                .body("reason", org.hamcrest.Matchers.equalTo("key_binding_audience_mismatch"));
+    }
+
+    @Test
+    void dcApiMdocSignedOverTheDcApiHandoverVerifiesAndTheRedirectOneDoesNot() throws Exception {
+        var created = dcApiSession("mdl-age");
+        Map<String, Object> request = created.getValue();
+        CborItem dcApi = SessionTranscripts.openId4VpDcApi(
+                TestEnvironment.DC_API_ORIGIN, (String) request.get("nonce"), Optional.of(thumbprint(request)));
+        String deviceResponse = mdl(dcApi, Map.of("age_over_18", CborEncoder.bool(true)));
+        relay(
+                        created.getKey().getString("id"),
+                        Map.of(
+                                "response",
+                                TestWallet.encrypt(
+                                        request, Map.of("vp_token", Map.of("mdl", List.of(deviceResponse))))))
+                .statusCode(200)
+                .body("status", org.hamcrest.Matchers.equalTo("verified"));
+
+        var other = dcApiSession("mdl-age");
+        Map<String, Object> otherRequest = other.getValue();
+        CborItem redirect = SessionTranscripts.openId4VpRedirect(
+                (String) otherRequest.get("client_id"),
+                (String) otherRequest.get("nonce"),
+                Optional.of(thumbprint(otherRequest)),
+                "https://adapter.test.example/oid4vp/responses");
+        relay(
+                        other.getKey().getString("id"),
+                        Map.of(
+                                "response",
+                                TestWallet.encrypt(
+                                        otherRequest,
+                                        Map.of(
+                                                "vp_token",
+                                                Map.of(
+                                                        "mdl",
+                                                        List.of(mdl(
+                                                                redirect,
+                                                                Map.of("age_over_18", CborEncoder.bool(true)))))))))
+                .statusCode(200)
+                .body("status", org.hamcrest.Matchers.equalTo("rejected"));
+    }
+
+    @Test
+    void dcApiResponsesAndRedirectResponsesDoNotCross() throws Exception {
+        // A dc_api response posted to the wallet response endpoint is refused and leaves the session open.
+        var created = dcApiSession("age-over-18");
+        Map<String, Object> request = created.getValue();
+        String presentation = wallet.presentation(
+                boundToOrigin(request),
+                TestEnvironment.ISSUER_A,
+                "issuer-a-key.pem",
+                "issuer-a.pem",
+                Map.of("age_over_18", true),
+                1);
+        String response = TestWallet.encrypt(request, Map.of("vp_token", Map.of("age", List.of(presentation))));
+        given().contentType("application/x-www-form-urlencoded")
+                .formParam("response", response)
+                .post("/oid4vp/responses")
+                .then()
+                .statusCode(400);
+        given().auth()
+                .oauth2(TestWallet.fullToken("portal-a"))
+                .get("/v1/verification-sessions/" + created.getKey().getString("id"))
+                .then()
+                .body("status", org.hamcrest.Matchers.equalTo("pending"));
+
+        // A cross-device session does not take a DC API response, and a response for another session is refused.
+        JsonPath crossDevice = create("portal-a", "cross_device");
+        relay(crossDevice.getString("id"), Map.of("response", response))
+                .statusCode(400)
+                .body("code", org.hamcrest.Matchers.equalTo("not_dc_api_session"));
+        var second = dcApiSession("age-over-18");
+        relay(second.getKey().getString("id"), Map.of("response", response))
+                .statusCode(400)
+                .body("code", org.hamcrest.Matchers.equalTo("invalid_request"));
+    }
+
+    @Test
+    void dcApiWalletErrorsAndUnencryptedResponsesEndTheSession() throws Exception {
+        String denied = dcApiSession("age-over-18").getKey().getString("id");
+        relay(denied, Map.of("error", "access_denied"))
+                .statusCode(200)
+                .body("status", org.hamcrest.Matchers.equalTo("denied"));
+
+        var plain = dcApiSession("age-over-18");
+        String presentation = wallet.presentation(
+                boundToOrigin(plain.getValue()),
+                TestEnvironment.ISSUER_A,
+                "issuer-a-key.pem",
+                "issuer-a.pem",
+                Map.of("age_over_18", true),
+                1);
+        relay(plain.getKey().getString("id"), Map.of("vp_token", Map.of("age", List.of(presentation))))
+                .statusCode(200)
+                .body("status", org.hamcrest.Matchers.equalTo("rejected"))
+                .body("reason", org.hamcrest.Matchers.equalTo("response_not_encrypted"));
+    }
+
+    @Test
+    void dcApiCarriesTransactionDataBoundThroughTheKeyBindingJwt() throws Exception {
+        JsonPath session = given().auth()
+                .oauth2(TestWallet.fullToken("portal-a"))
+                .header("Idempotency-Key", UUID.randomUUID().toString())
+                .contentType(ContentType.JSON)
+                .body(Map.of(
+                        "policy_id",
+                        "age-over-18-tx",
+                        "mode",
+                        "dc_api",
+                        "origin",
+                        TestEnvironment.DC_API_ORIGIN,
+                        "transaction_data",
+                        List.of(payment("DC-Shop"))))
+                .post("/v1/verification-sessions")
+                .then()
+                .statusCode(201)
+                .extract()
+                .jsonPath();
+        Map<String, Object> request = com.nimbusds.jose.JWSObject.parse(
+                        session.getString("dc_api.request.digital.requests[0].data.request"))
+                .getPayload()
+                .toJSONObject();
+        assertThat((List<?>) request.get("transaction_data")).hasSize(1);
+        String presentation = wallet.presentation(
+                boundToOrigin(request),
+                TestEnvironment.ISSUER_A,
+                "issuer-a-key.pem",
+                "issuer-a.pem",
+                Map.of("age_over_18", true),
+                1);
+        relay(
+                        session.getString("id"),
+                        Map.of(
+                                "response",
+                                TestWallet.encrypt(request, Map.of("vp_token", Map.of("age", List.of(presentation))))))
+                .statusCode(200)
+                .body("status", org.hamcrest.Matchers.equalTo("verified"));
+        given().auth()
+                .oauth2(TestWallet.fullToken("portal-a"))
+                .get("/v1/verification-sessions/" + session.getString("id") + "/result")
+                .then()
+                .body("transaction_data[0].payee", org.hamcrest.Matchers.equalTo("DC-Shop"));
+    }
+
+    @Test
+    void dcApiSessionsNeedARegisteredOrigin() {
+        for (Map<String, Object> body : List.<Map<String, Object>>of(
+                Map.of("policy_id", "age-over-18", "mode", "dc_api"),
+                Map.of("policy_id", "age-over-18", "mode", "dc_api", "origin", "https://other.test.example"),
+                Map.of("policy_id", "age-over-18", "mode", "dc_api", "origin", "https://SHOP.test.example"))) {
+            given().auth()
+                    .oauth2(TestWallet.fullToken("portal-a"))
+                    .header("Idempotency-Key", UUID.randomUUID().toString())
+                    .contentType(ContentType.JSON)
+                    .body(body)
+                    .post("/v1/verification-sessions")
+                    .then()
+                    .statusCode(400)
+                    .body("code", org.hamcrest.Matchers.equalTo("origin_not_allowed"));
+        }
+        given().auth()
+                .oauth2(TestWallet.fullToken("portal-a"))
+                .header("Idempotency-Key", UUID.randomUUID().toString())
+                .contentType(ContentType.JSON)
+                .body(Map.of(
+                        "policy_id", "age-over-18", "mode", "cross_device", "origin", TestEnvironment.DC_API_ORIGIN))
+                .post("/v1/verification-sessions")
+                .then()
+                .statusCode(400);
+        given().auth()
+                .oauth2(TestWallet.fullToken("portal-b"))
+                .header("Idempotency-Key", UUID.randomUUID().toString())
+                .contentType(ContentType.JSON)
+                .body(Map.of("policy_id", "age-over-18", "mode", "dc_api", "origin", TestEnvironment.DC_API_ORIGIN))
+                .post("/v1/verification-sessions")
+                .then()
+                .statusCode(400)
+                .body("code", org.hamcrest.Matchers.equalTo("dc_api_not_configured"));
+    }
+
     @Test
     void issuerTrustedOnlyThroughASignedTrustedListIsAccepted() {
         // Tenant B's listed policy has no configured anchors: issuer A is trusted only because the signed
@@ -765,21 +1043,23 @@ class VerificationFlowTest {
     @SuppressWarnings("unchecked")
     private static String mdl(Map<String, Object> request, String nonce, Map<String, CborItem> elements)
             throws Exception {
+        CborItem transcript = SessionTranscripts.openId4VpRedirect(
+                (String) request.get("client_id"), nonce, Optional.of(thumbprint(request)), (String)
+                        request.get("response_uri"));
+        return mdl(transcript, elements);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static byte[] thumbprint(Map<String, Object> request) throws Exception {
         Map<String, Object> jwk = ((List<Map<String, Object>>)
                         ((Map<String, Object>) ((Map<String, Object>) request.get("client_metadata")).get("jwks"))
                                 .get("keys"))
                 .get(0);
-        CborItem transcript = SessionTranscripts.openId4VpRedirect(
-                (String) request.get("client_id"),
-                nonce,
-                Optional.of(com.nimbusds
-                        .jose
-                        .jwk
-                        .JWK
-                        .parse(jwk)
-                        .computeThumbprint("SHA-256")
-                        .decode()),
-                (String) request.get("response_uri"));
+        return com.nimbusds.jose.jwk.JWK.parse(jwk).computeThumbprint("SHA-256").decode();
+    }
+
+    /** A device-signed DeviceResponse holding an mDL, signed over {@code transcript}. */
+    private static String mdl(CborItem transcript, Map<String, CborItem> elements) throws Exception {
         CborItem document = TestEnvironment.mdocIssuer.document(
                 TestEnvironment.MDL_DOCTYPE,
                 "org.iso.18013.5.1",

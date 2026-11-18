@@ -146,8 +146,10 @@ public final class VpTokenVerifier {
             String statusCacheScope,
             String responseUri,
             Optional<byte[]> encryptionKeyThumbprint,
-            Map<String, List<String>> transactionData) {
+            Map<String, List<String>> transactionData,
+            Optional<String> dcApiOrigin) {
         public Context {
+            Objects.requireNonNull(dcApiOrigin, "dcApiOrigin");
             Objects.requireNonNull(audience, "audience");
             Objects.requireNonNull(nonce, "nonce");
             Objects.requireNonNull(statusCacheScope, "statusCacheScope");
@@ -162,7 +164,33 @@ public final class VpTokenVerifier {
                 String statusCacheScope,
                 String responseUri,
                 Optional<byte[]> encryptionKeyThumbprint) {
-            this(audience, nonce, statusCacheScope, responseUri, encryptionKeyThumbprint, Map.of());
+            this(audience, nonce, statusCacheScope, responseUri, encryptionKeyThumbprint, Map.of(), Optional.empty());
+        }
+
+        /** With transaction data, over a redirect. */
+        public Context(
+                String audience,
+                String nonce,
+                String statusCacheScope,
+                String responseUri,
+                Optional<byte[]> encryptionKeyThumbprint,
+                Map<String, List<String>> transactionData) {
+            this(
+                    audience,
+                    nonce,
+                    statusCacheScope,
+                    responseUri,
+                    encryptionKeyThumbprint,
+                    transactionData,
+                    Optional.empty());
+        }
+
+        /**
+         * The audience a presentation must name: {@code origin:<origin>} over the Digital Credentials API, signed
+         * requests included (OpenID4VP 1.0 appendix A.4), otherwise the Client Identifier.
+         */
+        public String presentationAudience() {
+            return dcApiOrigin.map(origin -> "origin:" + origin).orElse(audience);
         }
 
         /** A context for SD-JWT VC only; mdoc presentations need the response URI and encryption key. */
@@ -289,7 +317,7 @@ public final class VpTokenVerifier {
                 settings.algorithms(),
                 SdJwtVerificationOptions.DEFAULT_HASH_ALGORITHMS,
                 query.requireHolderBinding(),
-                query.requireHolderBinding() ? context.audience() : null,
+                query.requireHolderBinding() ? context.presentationAudience() : null,
                 query.requireHolderBinding() ? context.nonce() : null,
                 settings.keyBindingMaxAge(),
                 settings.clockSkew(),
@@ -310,11 +338,17 @@ public final class VpTokenVerifier {
     }
 
     private PresentedCredential verifyMdoc(String presentation, CredentialQuery query, Context context) {
-        if (context.responseUri() == null) {
-            throw new IllegalStateException("an mso_mdoc query needs the response URI in the context");
+        CborItem transcript;
+        if (context.dcApiOrigin().isPresent()) {
+            transcript = SessionTranscripts.openId4VpDcApi(
+                    context.dcApiOrigin().get(), context.nonce(), context.encryptionKeyThumbprint());
+        } else {
+            if (context.responseUri() == null) {
+                throw new IllegalStateException("an mso_mdoc query needs the response URI in the context");
+            }
+            transcript = SessionTranscripts.openId4VpRedirect(
+                    context.audience(), context.nonce(), context.encryptionKeyThumbprint(), context.responseUri());
         }
-        CborItem transcript = SessionTranscripts.openId4VpRedirect(
-                context.audience(), context.nonce(), context.encryptionKeyThumbprint(), context.responseUri());
         VerifiedMdoc mdoc =
                 mdocVerifier.orElseThrow().verify(presentation, query.types().get(0), transcript);
         // An MSO status that is a Token Status List reference is checked like an SD-JWT VC's (ADR-012). Any other

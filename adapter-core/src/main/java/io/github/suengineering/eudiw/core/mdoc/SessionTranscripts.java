@@ -53,6 +53,33 @@ public final class SessionTranscripts {
         return CborEncoder.array(CborEncoder.nil(), CborEncoder.nil(), handover);
     }
 
+    /**
+     * The SessionTranscript for OpenID4VP over the Digital Credentials API (OpenID4VP 1.0 appendix B.2.6.2):
+     * {@code [null, null, ["OpenID4VPDCAPIHandover", sha256(cbor([origin, nonce, jwkThumbprint]))]]}.
+     *
+     * @param origin the Origin the request was made from, without the {@code origin:} prefix
+     * @param nonce the {@code nonce} of the request
+     * @param encryptionKeyThumbprint the SHA-256 JWK thumbprint of the response encryption key for {@code
+     *     dc_api.jwt}; empty for {@code dc_api}
+     */
+    public static CborItem openId4VpDcApi(String origin, String nonce, Optional<byte[]> encryptionKeyThumbprint) {
+        Objects.requireNonNull(origin, "origin");
+        Objects.requireNonNull(nonce, "nonce");
+        CborItem handover = CborEncoder.array(
+                CborEncoder.text("OpenID4VPDCAPIHandover"),
+                CborEncoder.bytes(sha256(dcApiHandoverInfo(origin, nonce, encryptionKeyThumbprint)
+                        .encoded())));
+        return CborEncoder.array(CborEncoder.nil(), CborEncoder.nil(), handover);
+    }
+
+    /** The {@code OpenID4VPDCAPIHandoverInfo} structure alone, exposed for tests against the specification. */
+    static CborItem dcApiHandoverInfo(String origin, String nonce, Optional<byte[]> encryptionKeyThumbprint) {
+        return CborEncoder.array(
+                CborEncoder.text(origin),
+                CborEncoder.text(nonce),
+                encryptionKeyThumbprint.<CborItem>map(CborEncoder::bytes).orElseGet(CborEncoder::nil));
+    }
+
     /** The {@code OpenID4VPHandoverInfo} structure alone, exposed for tests against the specification's examples. */
     static CborItem handoverInfo(
             String clientId, String nonce, Optional<byte[]> encryptionKeyThumbprint, String responseUri) {

@@ -6,10 +6,12 @@ All notable changes to eudiw-adapter. Versions follow [Semantic Versioning](http
 
 ### Upgrading
 
+- **Digital Credentials API sessions need every pod on this version.** Pods of earlier versions do not know mode `dc_api`. Migration `V7` widens the session mode check and adds a nullable column.
 - **Transaction data needs every pod on this version.** A pod of an earlier version neither sends nor checks `transaction_data`, and its result has no `transaction_data`, which means no transaction was authorized. Replace all pods before clients send it. Migration `V6` adds a nullable column.
 
 ### Added
 
+- OpenID4VP over the W3C Digital Credentials API: sessions with `mode: dc_api` and an `origin` from the client's new `dc_api_origins` return `dc_api.request` for `navigator.credentials.get()` (signed, `x509_hash`, `expected_origins`, `dc_api.jwt`); the client's backend relays the browser's `data` to `POST /v1/verification-sessions/{id}/dc-api-response`. SD-JWT VC is bound through the Key Binding JWT `aud` `origin:<origin>`, mdoc through the `OpenID4VPDCAPIHandover` transcript ([ADR-017](docs/adr/0017-digital-credentials-api.md)).
 - `transaction_data` (OpenID4VP 1.0): sessions can carry transactions, such as a payment, that the holder authorizes with the presentation. Policies allow types with `transaction_data_types`; each entry names one SD-JWT VC credential query; the Key Binding JWT must carry the SHA-256 hash of every entry (`transaction_data_mismatch` otherwise), and the result returns the entries it carried. Never in status, events, webhooks or logs. ISO mdoc is refused for now. Tested with walt.id Wallet API 2 in CI ([ADR-016](docs/adr/0016-transaction-data.md)).
 - A demo without cloning or building: `curl -fsSL https://raw.githubusercontent.com/su-engineering/eudiw-adapter/main/deploy/quickstart/run.sh | sh` runs the released image (pinned by digest, request-signing key in a file) with PostgreSQL, Keycloak and the eudi-dev wallet, and checks an SD-JWT VC, an untrusted issuer and an mdoc. CI's `quickstart` job runs it.
 - Request-signing keys in AWS KMS: `verifier.aws_kms` with `key_id` and optional `region` and `endpoint`. Credentials come from the AWS SDK's default chain (including EKS web identity). The new `adapter-kms-aws` module brings the AWS SDK (KMS, STS and the JDK HTTP client only, about 6 MB) into the service image ([ADR-015](docs/adr/0015-aws-kms-request-signing.md)).

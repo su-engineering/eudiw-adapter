@@ -232,6 +232,19 @@ public final class TestWallet {
     /** Posts an encrypted Authorization Response to the request's response_uri. */
     public static Response respond(Map<String, Object> request, Map<String, Object> responsePayload) {
         try {
+            Map<String, Object> payload = new LinkedHashMap<>(responsePayload);
+            payload.put("state", request.get("state"));
+            return given().contentType("application/x-www-form-urlencoded")
+                    .formParam("response", encrypt(request, payload))
+                    .post(URI.create((String) request.get("response_uri")).getPath());
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /** The response payload encrypted to the request's key, as {@code dc_api.jwt} and {@code direct_post.jwt} do. */
+    public static String encrypt(Map<String, Object> request, Map<String, Object> payload) {
+        try {
             @SuppressWarnings("unchecked")
             Map<String, Object> metadata = (Map<String, Object>) request.get("client_metadata");
             @SuppressWarnings("unchecked")
@@ -239,17 +252,13 @@ public final class TestWallet {
             @SuppressWarnings("unchecked")
             Map<String, Object> jwkJson = ((List<Map<String, Object>>) jwks.get("keys")).get(0);
             ECKey key = (ECKey) JWK.parse(jwkJson);
-            Map<String, Object> payload = new LinkedHashMap<>(responsePayload);
-            payload.put("state", request.get("state"));
             JWEObject jwe = new JWEObject(
                     new JWEHeader.Builder(JWEAlgorithm.ECDH_ES, EncryptionMethod.A256GCM)
                             .keyID(key.getKeyID())
                             .build(),
                     new Payload(JSONObjectUtils.toJSONString(payload)));
             jwe.encrypt(new ECDHEncrypter(key));
-            return given().contentType("application/x-www-form-urlencoded")
-                    .formParam("response", jwe.serialize())
-                    .post(URI.create((String) request.get("response_uri")).getPath());
+            return jwe.serialize();
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }

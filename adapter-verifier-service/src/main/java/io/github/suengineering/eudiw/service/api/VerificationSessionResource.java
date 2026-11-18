@@ -59,7 +59,11 @@ public class VerificationSessionResource {
             @JsonProperty("policy_id") String policyId,
             @JsonProperty("mode") String mode,
             @JsonProperty("client_reference") String clientReference,
-            @JsonProperty("transaction_data") List<Map<String, Object>> transactionData) {}
+            @JsonProperty("transaction_data") List<Map<String, Object>> transactionData,
+            @JsonProperty("origin") String origin) {}
+
+    /** What the page got from {@code navigator.credentials.get()}: the {@code data} of the DigitalCredential. */
+    public record DcApiResponseBody(@JsonProperty("data") Map<String, Object> data) {}
 
     @POST
     @Consumes(MediaType.APPLICATION_JSON)
@@ -70,15 +74,29 @@ public class VerificationSessionResource {
                 body == null
                         ? null
                         : new VerificationEngine.CreateRequest(
-                                body.policyId(), body.mode(), body.clientReference(), body.transactionData()),
+                                body.policyId(),
+                                body.mode(),
+                                body.clientReference(),
+                                body.transactionData(),
+                                body.origin()),
                 idempotencyKey);
         Map<String, Object> out = view(created.session());
-        out.put(
-                "wallet_launch",
-                Map.of(
-                        "request_uri", created.requestUri(),
-                        "launch_uri", created.launchUri(),
-                        "qr_payload", created.launchUri()));
+        if (created.dcApiRequest().isPresent()) {
+            out.put(
+                    "dc_api",
+                    Map.of(
+                            "request",
+                            created.dcApiRequest().get(),
+                            "response_url",
+                            "/v1/verification-sessions/" + created.session().id() + "/dc-api-response"));
+        } else {
+            out.put(
+                    "wallet_launch",
+                    Map.of(
+                            "request_uri", created.requestUri(),
+                            "launch_uri", created.launchUri(),
+                            "qr_payload", created.launchUri()));
+        }
         out.put("poll_url", "/v1/verification-sessions/" + created.session().id());
         out.put("events_url", "/v1/verification-sessions/" + created.session().id() + "/events");
         return Response.status(201)
@@ -112,6 +130,20 @@ public class VerificationSessionResource {
         SessionRow session = engine.status(caller, id);
         response.putHeader("Cache-Control", "no-store");
         streams.watch(caller, session, sink, sse, callers.tokenExpiry());
+    }
+
+    /**
+     * The client's backend relays what its page received from the Digital Credentials API. The response is bound to
+     * the Origin the session was created for; the answer is the session's status view.
+     */
+    @POST
+    @Path("{id}/dc-api-response")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public Response dcApiResponse(@PathParam("id") String id, DcApiResponseBody body) {
+        var caller = callers.require("verification:create");
+        return Response.ok(view(engine.handleDcApiResponse(caller, id, body == null ? null : body.data())))
+                .header("Cache-Control", "no-store")
+                .build();
     }
 
     @GET
