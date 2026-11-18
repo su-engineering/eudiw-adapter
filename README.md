@@ -216,7 +216,7 @@ Docker image, Compose demo, and a Helm chart that runs under the restricted Pod 
 <td valign="top">
 
 **Tested against others' work**<br>
-RFC 9901 and OpenID4VP worked examples, a differential test against a second SD-JWT implementation, 5,000 mutated inputs, the independent eudi-dev wallet in strict HAIP and ARF mode, and the OpenID Foundation HAIP verifier test plan run locally ([results](interop/oidf/README.md)).
+RFC 9901 and OpenID4VP worked examples, a differential test against a second SD-JWT implementation, 5,000 mutated inputs, the independent eudi-dev wallet in strict HAIP and ARF mode, and the OpenID Foundation HAIP verifier test plan, which CI runs on every change ([results](interop/oidf/README.md)).
 
 </td>
 </tr>
@@ -295,7 +295,7 @@ Test evidence per feature: [standards and feature status](docs/standards-matrix.
 - [x] Relying-party registration in `verifier_info` (ETSI TS 119 472-2)
 - [x] Metrics, audit log, tracing, rate limits, configuration reload
 - [x] Web component and Node and Python examples
-- [x] OpenID Foundation HAIP verifier test plan, run locally (not certified)
+- [x] OpenID Foundation HAIP verifier test plan in CI on every change (not certified)
 - [x] ISO mdoc (`mso_mdoc`): issuer and device authentication
 - [ ] Digital Credentials API
 - [ ] The EU reference wallet on real devices, a second independent wallet, OCSP

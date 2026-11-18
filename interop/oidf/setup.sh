@@ -21,7 +21,7 @@ openssl rand -base64 32 > data-key
 cat > tenants.json <<'JSON'
 {"tenants":[{"id":"oidf","verifier":{"private_key_file":"rp-key.pem","certificate_chain_file":"rp.pem"},
  "wallet_invocation":"openid4vp://",
- "clients":[{"client_id":"oidf-portal","policies":["pid"]}],
+ "clients":[{"client_id":"oidf-portal","policies":["pid"],"completion_uri":"https://portal.example/verification-complete"}],
  "policies":[{"id":"pid",
   "dcql":{"credentials":[{"id":"pid","format":"dc+sd-jwt","meta":{"vct_values":["urn:eudi:pid:1"]},
           "claims":[{"path":["given_name"]}]}]},
