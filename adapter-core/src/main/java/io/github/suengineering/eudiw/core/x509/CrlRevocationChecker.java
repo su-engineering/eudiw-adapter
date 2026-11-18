@@ -142,23 +142,22 @@ public final class CrlRevocationChecker {
                 continue;
             }
             try {
-                X509CRL crl = fetchShared(point);
-                if (!isCurrent(crl, now)) {
-                    throw new VerificationFailure("certificate_status_unknown", "CRL is not current");
-                }
-                cache.put(point, crl);
-                failedUntil.remove(point);
-                return crl;
+                return fetchShared(point, now);
             } catch (VerificationFailure e) {
-                failedUntil.put(point, now.plus(FAILURE_MEMORY));
                 last = e;
             }
         }
         throw last;
     }
 
-    /** Fetches a CRL, or waits for the fetch another check already started for the same distribution point. */
-    private X509CRL fetchShared(String point) {
+    /**
+     * Fetches a current CRL, or waits for the fetch another check already started for the same distribution point.
+     *
+     * <p>The fetching check records the outcome in the cache, or in the failure memory, before it leaves
+     * {@code inFlight}. A check that missed the cache just before that therefore either joins the running fetch or,
+     * having won {@code putIfAbsent} after it, finds the outcome on its second look and does not fetch again.
+     */
+    private X509CRL fetchShared(String point, Instant now) {
         java.util.concurrent.CompletableFuture<X509CRL> mine = new java.util.concurrent.CompletableFuture<>();
         java.util.concurrent.CompletableFuture<X509CRL> running = inFlight.putIfAbsent(point, mine);
         if (running != null) {
@@ -172,7 +171,24 @@ public final class CrlRevocationChecker {
             }
         }
         try {
-            X509CRL crl = fetch(point);
+            X509CRL crl = cache.get(point);
+            if (crl == null || !isCurrent(crl, now)) {
+                Instant retryAfter = failedUntil.get(point);
+                if (retryAfter != null && now.isBefore(retryAfter)) {
+                    throw new VerificationFailure("certificate_status_unknown", "CRL fetch failed recently");
+                }
+                try {
+                    crl = fetch(point);
+                    if (!isCurrent(crl, now)) {
+                        throw new VerificationFailure("certificate_status_unknown", "CRL is not current");
+                    }
+                } catch (VerificationFailure e) {
+                    failedUntil.put(point, now.plus(FAILURE_MEMORY));
+                    throw e;
+                }
+                cache.put(point, crl);
+                failedUntil.remove(point);
+            }
             mine.complete(crl);
             return crl;
         } catch (RuntimeException e) {
