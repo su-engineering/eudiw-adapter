@@ -23,7 +23,8 @@
     html { background: var(--paper); scrollbar-color: var(--line) var(--paper); }
     body {
       margin: 0; min-height: 100vh; color: var(--ink);
-      font: 400 15px/1.75 "JetBrains Mono", ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums;
+      font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 15px; font-weight: 400; line-height: 1.75; font-variant-numeric: tabular-nums;
       background-color: var(--paper);
       background-image: radial-gradient(#66634d38 .7px, transparent .7px); background-size: 28px 28px;
       -webkit-font-smoothing: antialiased;
@@ -164,7 +165,7 @@
 |___|___|_|___|_|_|_  |_|_|_|___|___|_| |_|_|_|_  |
                   |___|                       |___|</pre></a>
       <nav class="links" aria-label="Project">
-        <span class="here">eudiw-adapter / example</span>
+        <span class="here">eudiw-adapter / example / age check</span>
         <a href="https://github.com/su-engineering/eudiw-adapter">source <svg class="ne" viewBox="0 0 12 12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 9 9 3M4.2 3H9v4.8"/></svg></a>
         <a href="https://github.com/su-engineering/eudiw-adapter/tree/main/docs">docs <svg class="ne" viewBox="0 0 12 12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 9 9 3M4.2 3H9v4.8"/></svg></a>
       </nav>
@@ -172,7 +173,6 @@
 
     <main class="split">
       <section class="request" aria-labelledby="title">
-        <p class="label">age check <span class="sep">·</span> live example</p>
         <h1 id="title">prove you are over 18<i>.</i> share nothing else<i>.</i></h1>
         <p class="lead">This page runs a real presentation against your local <b>eudiw-adapter</b>. Your backend starts the session with its own credentials, your wallet answers the request, and only the claim the policy names comes back. The protocol trace shows each step as it happens.</p>
         <div id="slot">

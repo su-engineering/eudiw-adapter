@@ -25,7 +25,16 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-          cache: maven
+      # Each job keeps its own Maven cache: with setup-java's shared key, the first job to finish saved only
+      # what it needed and the others downloaded the rest from Maven Central, which answers bursts with 429.
+      # .mvn/maven.config makes Maven retry those.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.m2/wrapper
+          key: maven-${{ github.job }}-${{ hashFiles('**/pom.xml', '.mvn/wrapper/maven-wrapper.properties') }}
+          restore-keys: maven-${{ github.job }}-
       # osv-scanner cannot resolve this reactor's own snapshot modules from pom.xml, so it reads the resolved
       # runtime dependencies from a CycloneDX SBOM. Accepted advisories live in osv-scanner.toml, with an expiry.
       - name: Resolve runtime dependencies into an SBOM
@@ -48,7 +57,13 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-          cache: maven
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.m2/wrapper
+          key: maven-${{ github.job }}-${{ hashFiles('**/pom.xml', '.mvn/wrapper/maven-wrapper.properties') }}
+          restore-keys: maven-${{ github.job }}-
       - name: Install SoftHSM for the PKCS#11 signer tests
         run: sudo apt-get update -q && sudo apt-get install -y -q softhsm2
       - name: Check format, dependency rules and run tests
@@ -71,7 +86,13 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-          cache: maven
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.m2/wrapper
+          key: maven-${{ github.job }}-${{ hashFiles('**/pom.xml', '.mvn/wrapper/maven-wrapper.properties') }}
+          restore-keys: maven-${{ github.job }}-
       - name: Build the service
         run: ./mvnw -B -ntp -pl adapter-verifier-service -am package -DskipTests
       - name: Run the Compose demo end to end
@@ -141,7 +162,13 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-          cache: maven
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.m2/wrapper
+          key: maven-${{ github.job }}-${{ hashFiles('**/pom.xml', '.mvn/wrapper/maven-wrapper.properties') }}
+          restore-keys: maven-${{ github.job }}-
       - name: Build the service
         run: ./mvnw -B -ntp -pl adapter-verifier-service -am package -DskipTests
       # The OpenID Foundation suite plays the wallet and the issuer. ci.sh fails when a module ends differently
@@ -170,7 +197,13 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-          cache: maven
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.m2/wrapper
+          key: maven-${{ github.job }}-${{ hashFiles('**/pom.xml', '.mvn/wrapper/maven-wrapper.properties') }}
+          restore-keys: maven-${{ github.job }}-
       - name: Tools on the runner image
         run: kind version && helm version --short && kubectl version --client
       - name: Lint the chart
