@@ -106,6 +106,33 @@ services:
       - ./wallet.sh:/wallet.sh:ro
       - keys:/keys:ro
 
+  # A second, independent wallet: walt.id Wallet API 2, driven over its HTTP API by waltid-holder (waltid/).
+  waltid-wallet:
+    image: waltid/wallet-api2:1.2.1@sha256:7937cfe2450e5521e272615179baef66f805459df391f2321b2f20ad92468614
+    profiles: ["waltid"]
+    entrypoint: ["/bin/sh", "/waltid/start.sh"]
+    depends_on:
+      keygen:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "-o", "/dev/null", "http://localhost:7006/wallet"]
+      interval: 2s
+      retries: 60
+    volumes:
+      - ./waltid:/waltid:ro
+      - keys:/keys:ro
+
+  waltid-holder:
+    image: node:22.21.1-alpine@sha256:0340fa682d72068edf603c305bfbc10e23219fb0e40df58d9ea4d6f33a9798bf
+    profiles: ["waltid"]
+    entrypoint: ["node", "/waltid/holder.mjs"]
+    depends_on:
+      waltid-wallet:
+        condition: service_healthy
+    volumes:
+      - ./waltid:/waltid:ro
+      - keys:/keys:ro
+
 volumes:
   keys:
   hsm:
