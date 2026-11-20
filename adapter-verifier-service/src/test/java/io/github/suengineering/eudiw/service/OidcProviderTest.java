@@ -497,4 +497,120 @@ class OidcProviderTest {
                 .replace("&amp;", "&");
         assertThat(query(cancel)).containsEntry("error", "access_denied").containsEntry("state", "st-back");
     }
+
+    @jakarta.inject.Inject
+    io.agroal.api.AgroalDataSource dataSource;
+
+    @Test
+    void aWalletLoginClientCannotUseTheManagementApi() throws Exception {
+        String token = TestWallet.fullToken(TestEnvironment.OIDC_CLIENT);
+        given().auth()
+                .oauth2(token)
+                .contentType("application/json")
+                .header("Idempotency-Key", "oidc-mgmt-" + UUID.randomUUID())
+                .body(Map.of("policy_id", "pid-login"))
+                .post("/v1/verification-sessions")
+                .then()
+                .statusCode(403);
+    }
+
+    @Test
+    void aClientWithOptionalPkceStillRefusesAVerifierWithoutAChallenge() throws Exception {
+        Map<String, String> params = authorizeParams("v".repeat(43), "st-np", "n-np");
+        params.put("client_id", TestEnvironment.OIDC_CLIENT_NO_PKCE);
+        params.remove("code_challenge");
+        params.remove("code_challenge_method");
+        Response page = given().redirects().follow(false).queryParams(params).get(BASE + "/authorize");
+        assertThat(page.statusCode()).isEqualTo(200);
+        Map.Entry<String, String> cookie = page.cookies().entrySet().stream()
+                .filter(e -> e.getKey().startsWith("__Host-eudiw-login-"))
+                .findFirst()
+                .orElseThrow();
+        Login login = new Login(
+                cookie.getKey(),
+                cookie.getValue(),
+                attribute(page.asString(), "status-url"),
+                attribute(page.asString(), "launch-uri"),
+                null,
+                "st-np",
+                "n-np");
+        String code = loginWith(login, pid("BE-0010")).get("code");
+        Response downgrade = given().auth()
+                .preemptive()
+                .basic(TestEnvironment.OIDC_CLIENT_NO_PKCE, TestEnvironment.OIDC_CLIENT_SECRET)
+                .contentType("application/x-www-form-urlencoded")
+                .formParam("grant_type", "authorization_code")
+                .formParam("code", code)
+                .formParam("redirect_uri", TestEnvironment.OIDC_REDIRECT)
+                .formParam("code_verifier", "x".repeat(43))
+                .post(BASE + "/token");
+        assertThat(downgrade.jsonPath().getString("error")).isEqualTo("invalid_grant");
+        given().auth()
+                .preemptive()
+                .basic(TestEnvironment.OIDC_CLIENT_NO_PKCE, TestEnvironment.OIDC_CLIENT_SECRET)
+                .contentType("application/x-www-form-urlencoded")
+                .formParam("grant_type", "authorization_code")
+                .formParam("code", code)
+                .formParam("redirect_uri", TestEnvironment.OIDC_REDIRECT)
+                .post(BASE + "/token")
+                .then()
+                .statusCode(200);
+    }
+
+    @Test
+    void loginClaimsNeverReachTheLogOrTheDatabaseInPlaintext() throws Exception {
+        String canary = "Canary" + UUID.randomUUID().toString().replace("-", "");
+        Map<String, Object> claims = pid("PAN" + canary);
+        claims.put("given_name", "Given" + canary);
+        Login login = start();
+        String code = loginWith(login, claims).get("code");
+        Response tokens =
+                token(code, login.verifier(), TestEnvironment.OIDC_REDIRECT, TestEnvironment.OIDC_CLIENT_SECRET);
+        assertThat(tokens.statusCode()).isEqualTo(200);
+        assertThat(SignedJWT.parse(tokens.jsonPath().getString("id_token"))
+                        .getJWTClaimsSet()
+                        .getStringClaim("given_name"))
+                .isEqualTo("Given" + canary);
+
+        byte[] needle = canary.getBytes(StandardCharsets.UTF_8);
+        try (var c = dataSource.getConnection();
+                var rs = c.createStatement()
+                        .executeQuery(
+                                "SELECT claims_ciphertext, code_ciphertext, coalesce(state, '') || coalesce(nonce, '')"
+                                        + " FROM oidc_authorization")) {
+            while (rs.next()) {
+                for (int col = 1; col <= 2; col++) {
+                    byte[] value = rs.getBytes(col);
+                    assertThat(value == null ? -1 : indexOf(value, needle)).isEqualTo(-1);
+                }
+                assertThat(rs.getString(3)).doesNotContain(canary);
+            }
+        }
+        try (var c = dataSource.getConnection();
+                var rs = c.createStatement()
+                        .executeQuery("SELECT coalesce(string_agg(action || code, ','), '') FROM audit_event")) {
+            rs.next();
+            assertThat(rs.getString(1)).doesNotContain(canary);
+        }
+        String log = new String(
+                java.nio.file.Files.readAllBytes(java.nio.file.Path.of("target", "test-service.log")),
+                StandardCharsets.ISO_8859_1);
+        assertThat(log)
+                .doesNotContain(canary)
+                .doesNotContain(code)
+                .doesNotContain(tokens.jsonPath().getString("access_token"));
+    }
+
+    private static int indexOf(byte[] haystack, byte[] needle) {
+        outer:
+        for (int i = 0; i <= haystack.length - needle.length; i++) {
+            for (int j = 0; j < needle.length; j++) {
+                if (haystack[i + j] != needle[j]) {
+                    continue outer;
+                }
+            }
+            return i;
+        }
+        return -1;
+    }
 }

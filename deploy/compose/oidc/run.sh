@@ -18,13 +18,24 @@ rm -rf oidc/out && mkdir -p oidc/out
 echo "Nextcloud with the adapter as its OpenID Connect provider"
 docker compose --profile oidc up -d --wait nextcloud
 occ() { docker compose --profile oidc exec -T -u www-data nextcloud php occ "$@" < /dev/null; }
-occ app:install user_oidc > /dev/null 2>&1 || occ app:enable user_oidc > /dev/null
+# user_oidc pinned by version and checksum, from Nextcloud's release repository.
+USER_OIDC=8.13.0
+USER_OIDC_SHA256=6f13fa0477144a6812d8648626c64cee91807d1d0b60ca41424543086b9e2775
+docker compose --profile oidc exec -T nextcloud sh -ec "
+  [ -d /var/www/html/custom_apps/user_oidc ] && exit 0
+  curl -fsSL --retry 5 -o /tmp/user_oidc.tar.gz \
+    https://github.com/nextcloud-releases/user_oidc/releases/download/v$USER_OIDC/user_oidc-v$USER_OIDC.tar.gz
+  echo '$USER_OIDC_SHA256  /tmp/user_oidc.tar.gz' | sha256sum -c - > /dev/null
+  tar -xzf /tmp/user_oidc.tar.gz -C /var/www/html/custom_apps
+  chown -R www-data:www-data /var/www/html/custom_apps/user_oidc" < /dev/null
+occ app:enable user_oidc > /dev/null
+echo "user_oidc $(occ app:getpath user_oidc > /dev/null && occ config:app:get user_oidc installed_version)"
 # Nextcloud refuses to fetch from private addresses by default; the adapter is one in this demo.
 occ config:system:set allow_local_remote_servers --value true --type boolean > /dev/null
 # user_oidc refuses OpenID Connect over plain http unless told otherwise; this demo has no TLS. Never in production.
 occ config:app:set user_oidc allow_insecure_http --value=1 --type=boolean --lazy > /dev/null
 occ user_oidc:provider eudi-wallet --clientid=nextcloud \
-  --clientsecret=demo-only-nextcloud-secret-0123456789abcdef \
+  --clientsecret='demo-only+nextcloud/secret=0123456789abcdef' \
   --discoveryuri=http://adapter:8080/oidc/demo-city/.well-known/openid-configuration > /dev/null
 
 docker compose --profile oidc run --rm -T oidc-browser < /dev/null > oidc/out/result.json &

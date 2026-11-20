@@ -52,7 +52,7 @@ helm install eudiw oci://ghcr.io/su-engineering/charts/eudiw-adapter --version 0
   --set dataKey.existingSecret=eudiw-data-key --set config.existingSecret=eudiw-config
 ```
 
-Expose the Service's port 8080 over HTTPS at `publicBaseUrl`, for example with your ingress controller. Do not expose port 9000.
+Expose the Service's port 8080 over HTTPS at `publicBaseUrl`, for example with your ingress controller. Do not expose port 9000. If your ingress routes only some paths, wallet login ([ADR-018](adr/0018-oidc-provider.md)) also needs `/oidc/` and `/eudiw-assets/`; its key files go into the configuration secret like the others.
 
 ## Operation
 

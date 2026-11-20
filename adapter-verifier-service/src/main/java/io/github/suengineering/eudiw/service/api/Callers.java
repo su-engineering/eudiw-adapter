@@ -56,6 +56,11 @@ public class Callers {
         ClientBinding binding = runtime.config()
                 .client(clientId)
                 .orElseThrow(() -> new ApiException(403, "unknown_client", "the client is not registered"));
+        if (binding.client().oidc().isPresent()) {
+            // A wallet login client gets ID tokens with a pairwise subject; through the management API it could read
+            // the login policy's claims directly (ADR-018).
+            throw new ApiException(403, "unknown_client", "the client is a wallet login client, not an API client");
+        }
         String scopeClaim = claim("scope");
         Set<String> scopes = scopeClaim == null
                 ? Set.of()

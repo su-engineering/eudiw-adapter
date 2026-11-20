@@ -53,6 +53,8 @@ The adapter does not keep accounts. It gives the same `sub` to the same person o
 - **New users:** the identity provider creates an account on the first wallet login. It may ask the user for attributes the wallet does not provide, such as an email address.
 - **Existing users:** the identity provider's account-linking flow attaches the wallet to an account after the user signs in once the usual way. Do not let it link automatically on email or username: the adapter never sends them, and a provider that links on a claim the user controls hands over accounts.
 
+The subject is not tied to the credential's issuer: any issuer the login policy trusts can assert any country and number. Let a login policy trust only PID providers, for example through a trusted list limited to the PID issuance service type.
+
 Which claims make a good subject depends on the credential. `personal_administrative_number` is optional in the PID and each member state decides whether to include it. Without a persistent identifier you can set `subject_from_personal_attributes` and use, for example, issuing country, family name, given name and birth date, but then two people with the same values share one account and a name change creates a new one.
 
 ## Products
@@ -86,4 +88,6 @@ The run writes screenshots of the adapter's login page, Keycloak's first-login f
 - **QR relay.** Anyone who starts a login can show its QR code to another person; if that person presents, the login completes for whoever started it. The wallet shows the relying party's registered name, so register a name users recognize. The Digital Credentials API's cross-device flow checks that the phone is near the computer and will be offered on the login page once it is tested with a phone wallet.
 - The login page runs only the adapter's own scripts under a strict Content Security Policy and cannot be framed.
 - Codes are single use and short-lived; PKCE is required by default; redirect URIs are compared exactly.
+- An `oidc` client cannot call the management API, so it cannot read the login policy's claims around the pairwise subject.
+- A user who presents on the same phone and comes back to the tab late (up to 10 minutes after the request expired) is sent back to the application with an error rather than left on a dead page.
 - See the [threat model](threat-model.md) for the full list.

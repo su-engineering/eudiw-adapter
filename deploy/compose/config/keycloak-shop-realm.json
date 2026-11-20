@@ -20,7 +20,7 @@
         "useJwksUrl": "true",
         "validateSignature": "true",
         "clientId": "keycloak-broker",
-        "clientSecret": "demo-only-broker-secret-0123456789abcdef",
+        "clientSecret": "demo-only+broker/secret=0123456789abcdef",
         "clientAuthMethod": "client_secret_basic",
         "pkceEnabled": "true",
         "pkceMethod": "S256",

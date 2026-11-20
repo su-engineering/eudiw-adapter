@@ -25,6 +25,7 @@ We considered a Keycloak authenticator extension that calls the verification API
 - An application or identity provider adds wallet login by pasting three values. The [integration guide](../oidc-provider.md) lists, per product, what is tested.
 - The adapter now serves pages to browsers: the login page, with a strict Content Security Policy, `frame-ancestors 'none'` and only the adapter's own scripts. The [threat model](../threat-model.md) covers it.
 - Cross-device relay: someone who starts a login can show its QR code to another person and receive their identity if that person presents. The wallet shows the relying party's registered name; the Digital Credentials API's cross-device flow, which checks proximity, is the mitigation we will add to the login page once it is tested with a phone wallet.
+- **The subject is not tied to an issuer.** Any issuer the login policy trusts can assert any country and number, so a subject is only as trustworthy as the least trustworthy issuer the policy accepts. Give a login policy only PID providers as issuers (for example a trusted list with the PID issuance service type), never a broader set.
 - Nextcloud's `user_oidc` hashes provider and user id by default, so a wallet login cannot collide with an existing Nextcloud account; it creates a new one. Linking existing accounts needs an identity provider in front.
 - Tenants without `oidc_provider` are unchanged. Migration `V8` adds one table.
 

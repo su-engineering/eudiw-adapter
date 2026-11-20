@@ -108,7 +108,8 @@ public class OidcResource {
                     .build();
         }
         LoginPage login = outcome.page();
-        Duration life = Duration.between(runtime.clock().instant(), login.expiresAt());
+        Duration life =
+                Duration.between(runtime.clock().instant(), login.expiresAt().plus(OidcProvider.RETURN_GRACE));
         NewCookie cookie = new NewCookie.Builder(cookieName(login.attemptId()))
                 .value(login.binding())
                 .path("/")

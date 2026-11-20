@@ -402,7 +402,12 @@ public class TestEnvironment implements QuarkusTestResourceLifecycleManager {
                         + "\"oidc\":{\"client_secret_file\":\"oidc-client.secret\","
                         + "\"redirect_uris\":[\"" + OIDC_REDIRECT + "\"],\"policy_id\":\"pid-login\","
                         + "\"subject_claims\":[\"issuing_country\",\"pan\"],"
-                        + "\"id_token_claims\":{\"given_name\":\"given_name\",\"family_name\":\"family_name\"}}},"));
+                        + "\"id_token_claims\":{\"given_name\":\"given_name\",\"family_name\":\"family_name\"}}},"
+                        + "{\"client_id\":\"" + OIDC_CLIENT_NO_PKCE + "\",\"policies\":[\"pid-login\"],"
+                        + "\"oidc\":{\"client_secret_file\":\"oidc-client.secret\","
+                        + "\"redirect_uris\":[\"" + OIDC_REDIRECT
+                        + "\"],\"policy_id\":\"pid-login\",\"pkce\":\"optional\","
+                        + "\"subject_claims\":[\"issuing_country\",\"pan\"]}},"));
         tenants = tenants.replaceFirst(
                 java.util.regex.Pattern.quote(
                         "\"verifier\":{\"private_key_file\":\"rp-a-key.pem\",\"certificate_chain_file\":\"rp-a.pem\"},"),
@@ -419,6 +424,7 @@ public class TestEnvironment implements QuarkusTestResourceLifecycleManager {
     }
 
     public static final String OIDC_CLIENT = "wallet-login-a";
+    public static final String OIDC_CLIENT_NO_PKCE = "wallet-login-no-pkce-a";
     public static final String OIDC_CLIENT_SECRET = "oidc-test-client-secret-0123456789abcdef";
     public static final String OIDC_REDIRECT = "https://idp.test.example/broker/eudi/endpoint";
 

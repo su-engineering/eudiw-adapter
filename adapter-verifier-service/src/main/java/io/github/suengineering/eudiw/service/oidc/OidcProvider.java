@@ -71,6 +71,13 @@ public class OidcProvider {
 
     static final Duration CODE_TTL = Duration.ofSeconds(60);
     static final Duration TOKEN_TTL = Duration.ofMinutes(5);
+
+    /**
+     * How long after the wallet session ends a login is kept: a user who presented on the same phone may come back
+     * to the paused tab late, and then gets the redirect back to the client instead of an unknown login.
+     */
+    public static final Duration RETURN_GRACE = Duration.ofMinutes(10);
+
     private static final Pattern PKCE_VALUE = Pattern.compile("[A-Za-z0-9._~-]{43,128}");
     private static final int MAX_PARAMETER = 2048;
 
@@ -283,7 +290,7 @@ public class OidcProvider {
                             null,
                             null,
                             null,
-                            created.session().expiresAt()),
+                            created.session().expiresAt().plus(RETURN_GRACE)),
                     now);
             return new AuthorizeOutcome(
                     null,
