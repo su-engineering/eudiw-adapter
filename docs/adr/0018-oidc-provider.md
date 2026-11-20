@@ -1,6 +1,6 @@
 # ADR-018: The adapter as an OpenID Connect provider for wallet login
 
-Status: accepted. Provider implemented and tested inside the service; Keycloak brokering it end to end in CI. Other identity providers and applications are documented but not tested ([integration guide](../oidc-provider.md)).
+Status: accepted. Provider implemented and tested inside the service; Keycloak (as a broker) and Nextcloud (`user_oidc`) log in through it end to end in CI. Other identity providers and applications are documented but not tested ([integration guide](../oidc-provider.md)).
 
 ## Context
 

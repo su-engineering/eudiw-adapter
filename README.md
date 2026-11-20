@@ -325,7 +325,7 @@ Test evidence per feature: [standards and feature status](docs/standards-matrix.
 - [x] Digital Credentials API, server side (`mode: dc_api`)
 - [x] Digital Credentials API tested in Chromium against eudi-dev in CI
 - [x] Digital Credentials API in `<eudiw-request>` and the Node and Python examples
-- [x] Wallet login: the adapter as an OpenID Connect provider, tested with Keycloak as the broker
+- [x] Wallet login: the adapter as an OpenID Connect provider, tested with Keycloak and Nextcloud
 - [x] A second independent wallet in CI (walt.id Wallet API 2, SD-JWT VC and mdoc)
 - [ ] The EU reference wallet on real devices, OCSP
 - [x] `transaction_data` for SD-JWT VC, tested with walt.id

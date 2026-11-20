@@ -62,7 +62,7 @@ Which claims make a good subject depends on the credential. `personal_administra
 | Product | How to add the adapter | Status |
 | --- | --- | --- |
 | Keycloak 26.8 | Identity providers, OpenID Connect v1.0: discovery URL, client id and secret, PKCE `S256`, client authentication "Client secret sent as basic auth". The redirect URI is `https://{keycloak}/realms/{realm}/broker/{alias}/endpoint`. The default first-login flow asks for the email address. | Tested: [`deploy/compose/oidc/run.sh`](../deploy/compose/oidc/run.sh) in the `demo` job logs in twice through Keycloak's account console with the eudi-dev wallet and checks that both logins reach one account linked to the provider |
-| Nextcloud (`user_oidc` app) | Administration settings, OpenID Connect: identifier, client id and secret, discovery endpoint. Nextcloud shows the redirect URI to register. `user_oidc` hashes provider and user id into the Nextcloud user id by default, so a wallet login creates a new Nextcloud account on first use (with auto-provisioning on) and never collides with an existing one. To link existing Nextcloud users, put an identity provider such as Keycloak in front. | Not tested yet (next) |
+| Nextcloud 35 (`user_oidc` app) | Administration settings, OpenID Connect, or `occ user_oidc:provider <name> --clientid=... --clientsecret=... --discoveryuri=https://adapter.example/oidc/{tenant}/.well-known/openid-configuration`. Register `https://{nextcloud}/index.php/apps/user_oidc/code` (or without `index.php/` when Nextcloud uses pretty URLs). `user_oidc` hashes provider and user id into the Nextcloud user id by default, so a wallet login creates a new Nextcloud account on first use (with auto-provisioning on) and never collides with an existing one; to link existing Nextcloud users, put an identity provider such as Keycloak in front. The display name defaults to the user id; map it to `given_name` or `family_name` in the provider settings if you send them. If the adapter has a private address, Nextcloud needs `allow_local_remote_servers`. | Tested: the same run logs in to Nextcloud twice through `user_oidc` and checks that both logins reach one Nextcloud user. The demo has no TLS, so it sets `user_oidc`'s `allow_insecure_http`; never set that in production |
 | Ory (Kratos, Ory Network) | A `generic` OIDC provider with `issuer_url`, `client_id`, `client_secret` and `scope: [openid]`, and a Jsonnet mapper from the ID token claims to identity traits. Hydra on its own delegates login to an application you write, so it needs Kratos or your own login app for this. | Not tested |
 | Authentik | Federation and social login, OpenID OAuth source, with the discovery URL. | Not tested |
 | Zitadel | Identity providers, generic OIDC, with the issuer. | Not tested |
@@ -76,10 +76,10 @@ SaaS identity providers need the adapter reachable on the internet, and several 
 
 ```bash
 ./deploy/compose/demo.sh        # starts PostgreSQL, Keycloak and the adapter, and runs the verification demo
-./deploy/compose/oidc/run.sh    # wallet login through Keycloak's "shop" realm, twice
+./deploy/compose/oidc/run.sh    # wallet login through Keycloak's "shop" realm and through Nextcloud, twice each
 ```
 
-The run writes screenshots of the adapter's login page, Keycloak's first-login form and the account console to `deploy/compose/oidc/out/`. To click through it yourself, open `http://localhost:8081/realms/shop/account/` and choose "EU Digital Identity Wallet"; the login page shows a QR code for a wallet that trusts the demo relying-party certificate. The demo's keys, trust list and credentials are synthetic.
+The run writes screenshots of the adapter's login page, Keycloak's first-login form, the account console and the Nextcloud dashboard to `deploy/compose/oidc/out/`. To click through it yourself, open `http://localhost:8081/realms/shop/account/` and choose "EU Digital Identity Wallet"; the login page shows a QR code for a wallet that trusts the demo relying-party certificate. The demo's keys, trust list and credentials are synthetic.
 
 ## Security notes
 

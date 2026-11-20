@@ -127,7 +127,7 @@ jobs:
         run: ./deploy/compose/waltid/run.sh
       - name: Digital Credentials API in Chromium (eudi-dev extension and wallet server)
         run: ./deploy/compose/dc-api/run.sh
-      - name: Wallet login through Keycloak (the adapter as an OpenID Connect provider)
+      - name: Wallet login through Keycloak and Nextcloud (the adapter as an OpenID Connect provider)
         run: ./deploy/compose/oidc/run.sh
       - name: Wallet login screenshots
         if: always()
@@ -162,6 +162,7 @@ jobs:
           docker compose -f deploy/compose/docker-compose.yml --profile waltid logs waltid-wallet | tail -100
           docker compose -f deploy/compose/docker-compose.yml --profile dc-api logs dc-wallet | tail -100
           docker compose -f deploy/compose/docker-compose.yml logs keycloak | tail -100
+          docker compose -f deploy/compose/docker-compose.yml --profile oidc logs nextcloud | tail -100
 
   # The web component and the examples' own tests: no Java, no Compose.
   clients:

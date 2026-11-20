@@ -11,7 +11,7 @@ All notable changes to eudiw-adapter. Versions follow [Semantic Versioning](http
 
 ### Added
 
-- Wallet login: a tenant can be an OpenID Connect provider at `/oidc/{tenant}`, so an application or identity provider (Keycloak, Nextcloud, Ory, Authentik, Zitadel, Auth0, Okta, Entra ID) adds "EU Digital Identity Wallet" with an issuer URL, client id and secret. Authorization code flow with PKCE only, confidential clients, RS256 ID tokens with a dedicated key, a pairwise `sub` derived from configured claims, no `email` or `preferred_username` claims, no provider session. The login page uses `<eudiw-request>`, and only the browser that started a login receives its code. Tested end to end with Keycloak as the broker and the eudi-dev wallet in CI's `demo` job ([ADR-018](docs/adr/0018-oidc-provider.md), [guide](docs/oidc-provider.md)).
+- Wallet login: a tenant can be an OpenID Connect provider at `/oidc/{tenant}`, so an application or identity provider (Keycloak, Nextcloud, Ory, Authentik, Zitadel, Auth0, Okta, Entra ID) adds "EU Digital Identity Wallet" with an issuer URL, client id and secret. Authorization code flow with PKCE only, confidential clients, RS256 ID tokens with a dedicated key, a pairwise `sub` derived from configured claims, no `email` or `preferred_username` claims, no provider session. The login page uses `<eudiw-request>`, and only the browser that started a login receives its code. Tested end to end with the eudi-dev wallet in CI's `demo` job, through Keycloak as a broker and through Nextcloud's `user_oidc` app ([ADR-018](docs/adr/0018-oidc-provider.md), [guide](docs/oidc-provider.md)).
 
 ## [0.3.0] - 2026-11-18
 

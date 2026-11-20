@@ -15,7 +15,7 @@ The first release covers SD-JWT VC over OpenID4VP 1.0 and HAIP 1.0, DCQL, ETSI t
 3. **The EU reference wallet on real devices.** Run the adapter against the EU reference wallet apps on Android and iOS, first on emulators and simulators, then on phones, and publish what was run.
 4. **More independent wallets.** walt.id Wallet API 2 now runs next to eudi-dev in CI with SD-JWT VC and mdoc. Next: other wallets that can run without a person. The [wallet table](docs/wallets.md) lists what has been tested so far.
 5. **OCSP**, alongside the existing CRL checks.
-6. **Wallet login beyond Keycloak.** The adapter is an OpenID Connect provider, tested with Keycloak as the broker ([ADR-018](docs/adr/0018-oidc-provider.md)). Next: Nextcloud end to end in CI, the Digital Credentials API on the login page, and the OpenID Foundation OP conformance tests.
+6. **Wallet login beyond Keycloak.** The adapter is an OpenID Connect provider, tested with Keycloak and Nextcloud ([ADR-018](docs/adr/0018-oidc-provider.md)). Next: the Digital Credentials API on the login page, the OpenID Foundation OP conformance tests, and runs against Ory and a SaaS identity provider.
 
 ## Later
 

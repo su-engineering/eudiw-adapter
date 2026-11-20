@@ -36,6 +36,20 @@
             "subject_claims": ["issuing_country", "personal_administrative_number"],
             "id_token_claims": { "given_name": "given_name", "family_name": "family_name" }
           }
+        },
+        {
+          "client_id": "nextcloud",
+          "policies": ["pid-login"],
+          "oidc": {
+            "client_secret_file": "/keys/oidc-nextcloud-secret",
+            "redirect_uris": [
+              "http://nextcloud/index.php/apps/user_oidc/code",
+              "http://nextcloud/apps/user_oidc/code"
+            ],
+            "policy_id": "pid-login",
+            "subject_claims": ["issuing_country", "personal_administrative_number"],
+            "id_token_claims": { "given_name": "given_name", "family_name": "family_name" }
+          }
         }
       ],
       "policies": [
