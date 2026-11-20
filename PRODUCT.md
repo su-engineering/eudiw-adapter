@@ -23,7 +23,7 @@ Built by su.engineering from the specifications, with data minimization and fail
 
 - The web component never talks to the adapter; it renders a launch URI and polls a status URL on the integrator's backend.
 - The component is embedded on third-party sites: it must work under strict CSP, make no third-party requests, and be themeable.
-- v0.1.0 was the first release: image and chart on ghcr.io, the component on npm as `@su-engineering/eudiw-request`. v0.2.0 added ISO mdoc; v0.2.1 fixed the findings of a security assessment; v0.3.0 added the Digital Credentials API, transaction data and request-signing keys in Vault and AWS KMS.
+- v0.1.0 was the first release: image and chart on ghcr.io, the component on npm as `@su-engineering/eudiw-request`. v0.2.0 added ISO mdoc; v0.2.1 fixed the findings of a security assessment; v0.3.0 added the Digital Credentials API, transaction data and request-signing keys in Vault and AWS KMS; v0.4.0 added wallet login as an OpenID Connect provider.
 
 ## Brand Commitments
 
