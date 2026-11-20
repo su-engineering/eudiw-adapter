@@ -371,8 +371,56 @@ public class TestEnvironment implements QuarkusTestResourceLifecycleManager {
                 java.util.regex.Pattern.quote("\"policies\":[\"age-over-18\",\"age-over-18-crl\","),
                 java.util.regex.Matcher.quoteReplacement(
                         "\"policies\":[\"age-over-18\",\"age-over-18-tx\",\"age-over-18-crl\","));
+        // Wallet login (ADR-018): tenant-a is an OpenID Connect provider; wallet-login-a is its OIDC client.
+        KeyPair idTokenKeys = rsa.generateKeyPair();
+        write("oidc-key.pem", pem(idTokenKeys.getPrivate()));
+        write("oidc-subject.key", Base64.getEncoder().encodeToString(new byte[] {
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
+            30, 31, 32
+        }));
+        write("oidc-client.secret", OIDC_CLIENT_SECRET);
+        String pidDcql = """
+                {"credentials":[{"id":"pid","format":"dc+sd-jwt","meta":{"vct_values":["%s"]},
+                  "claims":[{"path":["issuing_country"]},{"path":["personal_administrative_number"]},
+                            {"path":["given_name"]},{"path":["family_name"]}]}]}""".formatted(VCT);
+        String loginPolicy = """
+                {"id":"pid-login","dcql":%s,
+                 "output":{"issuing_country":{"credential":"pid","path":["issuing_country"]},
+                           "pan":{"credential":"pid","path":["personal_administrative_number"]},
+                           "given_name":{"credential":"pid","path":["given_name"]},
+                           "family_name":{"credential":"pid","path":["family_name"]}},
+                 "trust_anchors_file":"issuer-a-root.pem","allowed_issuers":["%s"],
+                 "status_policy":"reject_known_invalid"},""".formatted(pidDcql, ISSUER_A);
+        tenants = tenants.replaceFirst(
+                java.util.regex.Pattern.quote("\"policies\":[{\"id\":\"age-over-18-tx\","),
+                java.util.regex.Matcher.quoteReplacement(
+                        "\"policies\":[" + loginPolicy + "{\"id\":\"age-over-18-tx\","));
+        tenants = tenants.replaceFirst(
+                java.util.regex.Pattern.quote("{\"client_id\":\"other-app-a\",\"policies\":[]},"),
+                java.util.regex.Matcher.quoteReplacement("{\"client_id\":\"other-app-a\",\"policies\":[]},"
+                        + "{\"client_id\":\"" + OIDC_CLIENT + "\",\"policies\":[\"pid-login\"],"
+                        + "\"oidc\":{\"client_secret_file\":\"oidc-client.secret\","
+                        + "\"redirect_uris\":[\"" + OIDC_REDIRECT + "\"],\"policy_id\":\"pid-login\","
+                        + "\"subject_claims\":[\"issuing_country\",\"pan\"],"
+                        + "\"id_token_claims\":{\"given_name\":\"given_name\",\"family_name\":\"family_name\"}}},"));
+        tenants = tenants.replaceFirst(
+                java.util.regex.Pattern.quote(
+                        "\"verifier\":{\"private_key_file\":\"rp-a-key.pem\",\"certificate_chain_file\":\"rp-a.pem\"},"),
+                java.util.regex.Matcher.quoteReplacement(
+                        "\"verifier\":{\"private_key_file\":\"rp-a-key.pem\",\"certificate_chain_file\":\"rp-a.pem\"},"
+                                + "\"oidc_provider\":{\"signing_key_file\":\"oidc-key.pem\","
+                                + "\"subject_key_file\":\"oidc-subject.key\"},"));
+        if (!tenants.contains(OIDC_CLIENT)
+                || !tenants.contains("oidc_provider")
+                || !tenants.contains("pid-login\",\"dcql")) {
+            throw new IllegalStateException("OIDC test configuration not inserted");
+        }
         write("tenants.json", tenants);
     }
+
+    public static final String OIDC_CLIENT = "wallet-login-a";
+    public static final String OIDC_CLIENT_SECRET = "oidc-test-client-secret-0123456789abcdef";
+    public static final String OIDC_REDIRECT = "https://idp.test.example/broker/eudi/endpoint";
 
     /** A TS 119 602 PID providers list (JSON, compact JAdES) that lists issuer root A. Synthetic. */
     private static String pidList(Issued signer, X509Certificate listed) throws Exception {

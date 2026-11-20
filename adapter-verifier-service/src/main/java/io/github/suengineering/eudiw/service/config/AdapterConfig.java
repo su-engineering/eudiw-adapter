@@ -74,7 +74,50 @@ public record AdapterConfig(String revision, Map<String, Tenant> tenants, Map<ja
             VerifierIdentity verifier,
             String walletInvocation,
             Map<String, ClientApplication> clients,
-            Map<String, Policy> policies) {}
+            Map<String, Policy> policies,
+            Optional<OidcProvider> oidcProvider) {
+
+        public Tenant(
+                String id,
+                VerifierIdentity verifier,
+                String walletInvocation,
+                Map<String, ClientApplication> clients,
+                Map<String, Policy> policies) {
+            this(id, verifier, walletInvocation, clients, policies, Optional.empty());
+        }
+    }
+
+    /**
+     * The tenant as an OpenID Connect provider for wallet login (ADR-018).
+     *
+     * @param signingKey RSA key that signs ID tokens (RS256); never the wallet request key
+     * @param publicKey its public half, published in the JWKS
+     * @param keyId the {@code kid} of the key: its JWK thumbprint
+     * @param subjectKey HMAC key from which subject identifiers are derived; must never rotate
+     */
+    public record OidcProvider(
+            java.security.interfaces.RSAPrivateKey signingKey,
+            java.security.interfaces.RSAPublicKey publicKey,
+            String keyId,
+            byte[] subjectKey) {}
+
+    /**
+     * A client application registered as an OpenID Connect client of the tenant's provider.
+     *
+     * @param secret the client secret
+     * @param redirectUris registered redirect URIs, compared exactly
+     * @param policyId the verification policy a login runs
+     * @param subjectClaims policy output claims from which {@code sub} is derived, in this order
+     * @param idTokenClaims OIDC claim names mapped to policy output claims
+     * @param pkceRequired whether authorization requests must carry an S256 code challenge
+     */
+    public record OidcClient(
+            byte[] secret,
+            List<String> redirectUris,
+            String policyId,
+            List<String> subjectClaims,
+            Map<String, String> idTokenClaims,
+            boolean pkceRequired) {}
 
     /**
      * @param clientId OAuth client id of the calling backend
@@ -88,7 +131,18 @@ public record AdapterConfig(String revision, Map<String, Tenant> tenants, Map<ja
             Optional<URI> completionUri,
             Optional<Webhook> webhook,
             int sessionsPerMinute,
-            List<String> dcApiOrigins) {
+            List<String> dcApiOrigins,
+            Optional<OidcClient> oidc) {
+
+        public ClientApplication(
+                String clientId,
+                Set<String> policies,
+                Optional<URI> completionUri,
+                Optional<Webhook> webhook,
+                int sessionsPerMinute,
+                List<String> dcApiOrigins) {
+            this(clientId, policies, completionUri, webhook, sessionsPerMinute, dcApiOrigins, Optional.empty());
+        }
 
         /** Without Digital Credentials API origins. */
         public ClientApplication(

@@ -2,7 +2,9 @@
 # Plays the holder with the eudi-dev test wallet: issue a synthetic credential, then answer the request.
 # With "untrusted" as the second argument, the credential is signed by a random key the adapter does not trust.
 # With "mdoc" it is an ISO mdoc PID (eu.europa.ec.eudi.pid.1) instead of an SD-JWT VC; with "mdoc-iso" the wallet
-# signs the ISO/IEC 18013-7 session transcript instead of the OpenID4VP one, which the adapter must reject.
+# signs the ISO/IEC 18013-7 session transcript instead of the OpenID4VP one, which the adapter must reject. With
+# "pid" it is an SD-JWT VC with the claims the wallet login policy (pid-login) asks for; a third argument sets the
+# personal administrative number.
 set -eu
 LAUNCH_URI=$1
 MODE=${2:-trusted}
@@ -19,6 +21,12 @@ if [ "$MODE" = "mdoc" ] || [ "$MODE" = "mdoc-iso" ]; then
     --claims '{"age_over_18": true, "given_name": "Erika", "family_name": "Mustermann"}' > /dev/null
   # shellcheck disable=SC2086
   exec eudi wallet accept --storage file --wallet-dir /tmp/w --haip --auto-accept --no-open ${TRANSCRIPT:-} "$LAUNCH_URI"
+fi
+if [ "$MODE" = "pid" ]; then
+  eudi issue sdjwt --wallet --storage file --wallet-dir /tmp/w $SIGNER \
+    --iss https://issuer.demo.example --vct https://credentials.demo.example/pid \
+    --claims "{\"issuing_country\": \"BE\", \"personal_administrative_number\": \"${3:-DEMO-0001}\", \"given_name\": \"Erika\", \"family_name\": \"Mustermann\"}" > /dev/null
+  exec eudi wallet accept --storage file --wallet-dir /tmp/w --haip --auto-accept --no-open "$LAUNCH_URI"
 fi
 # shellcheck disable=SC2086
 eudi issue sdjwt --wallet --storage file --wallet-dir /tmp/w $SIGNER \

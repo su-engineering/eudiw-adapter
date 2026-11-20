@@ -73,6 +73,8 @@ JWS and JWE algorithms are fixed by an allowlist per trust profile, and the veri
 
 **Audit.** Each decision records tenant, session, client, action, outcome, reason code and configuration revision. No claims, tokens or credentials.
 
+**Wallet login.** A tenant with `oidc_provider` is also an OpenID Connect provider at `/oidc/{tenant}` ([ADR-018](adr/0018-oidc-provider.md)). This is the only part of the service that browsers talk to: `/authorize` starts a cross-device session and answers with a login page (the `<eudiw-request>` component, served from the service under a strict Content Security Policy), the page polls a status endpoint bound to the browser by a cookie, and the first poll after verification consumes the result and issues an authorization code. Identity providers and applications then call the token, userinfo and JWKS endpoints server to server. Codes, access tokens and the encrypted login claims live in `oidc_authorization` until they expire.
+
 **Background sweep.** Every 30 seconds, overdue sessions expire, unretrieved results are deleted and per-request keys older than an hour are removed. Safe on every node.
 
 ## Repository layout

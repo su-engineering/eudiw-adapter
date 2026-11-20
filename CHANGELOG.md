@@ -4,6 +4,15 @@ All notable changes to eudiw-adapter. Versions follow [Semantic Versioning](http
 
 ## [Unreleased]
 
+### Upgrading
+
+- **Bearer tokens are checked when an endpoint needs the caller, not on every request** (`quarkus.http.auth.proactive=false`), so the wallet login provider's userinfo endpoint can receive its own access tokens. Management endpoints still reject a missing, expired or foreign token with `401`.
+- Migration `V8` adds the `oidc_authorization` table. Tenants without `oidc_provider` are unchanged.
+
+### Added
+
+- Wallet login: a tenant can be an OpenID Connect provider at `/oidc/{tenant}`, so an application or identity provider (Keycloak, Nextcloud, Ory, Authentik, Zitadel, Auth0, Okta, Entra ID) adds "EU Digital Identity Wallet" with an issuer URL, client id and secret. Authorization code flow with PKCE only, confidential clients, RS256 ID tokens with a dedicated key, a pairwise `sub` derived from configured claims, no `email` or `preferred_username` claims, no provider session. The login page uses `<eudiw-request>`, and only the browser that started a login receives its code. Tested end to end with Keycloak as the broker and the eudi-dev wallet in CI's `demo` job ([ADR-018](docs/adr/0018-oidc-provider.md), [guide](docs/oidc-provider.md)).
+
 ## [0.3.0] - 2026-11-18
 
 Verification in the browser over the W3C Digital Credentials API, transaction data, request-signing keys in HashiCorp Vault and AWS KMS, session status as Server-Sent Events, and a demo that needs no clone. A second wallet (walt.id) and the OpenID Foundation verifier test plan now run in CI. Existing configurations keep working; see **Upgrading** before a rolling upgrade.

@@ -264,6 +264,14 @@ Backends use client-credentials JWT access tokens from your own OAuth 2.0 server
 
 </td>
 </tr>
+<tr>
+<td colspan="2" valign="top">
+
+**Wallet login for any OIDC application**<br>
+The adapter can be an OpenID Connect provider: Keycloak, Nextcloud, Ory or a SaaS identity provider adds "EU Digital Identity Wallet" with an issuer URL, client id and secret. Pairwise subjects, no email claims, no provider session. [Guide](docs/oidc-provider.md).
+
+</td>
+</tr>
 </table>
 
 ## Architecture
@@ -317,6 +325,7 @@ Test evidence per feature: [standards and feature status](docs/standards-matrix.
 - [x] Digital Credentials API, server side (`mode: dc_api`)
 - [x] Digital Credentials API tested in Chromium against eudi-dev in CI
 - [x] Digital Credentials API in `<eudiw-request>` and the Node and Python examples
+- [x] Wallet login: the adapter as an OpenID Connect provider, tested with Keycloak as the broker
 - [x] A second independent wallet in CI (walt.id Wallet API 2, SD-JWT VC and mdoc)
 - [ ] The EU reference wallet on real devices, OCSP
 - [x] `transaction_data` for SD-JWT VC, tested with walt.id
@@ -335,6 +344,7 @@ The full, ordered list is in [ROADMAP.md](ROADMAP.md).
 | [Threat model](docs/threat-model.md) | What it defends against, and what it doesn't |
 | [Standards and feature status](docs/standards-matrix.md) | Pinned versions and test evidence |
 | [Wallets](docs/wallets.md) | Wallets tested against the adapter, what each run covers, and how to add one |
+| [Wallet login](docs/oidc-provider.md) | The adapter as an OpenID Connect provider for Keycloak, Nextcloud, Ory and other identity providers |
 
 ## Build
 
