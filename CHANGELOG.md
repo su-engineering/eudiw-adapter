@@ -4,10 +4,14 @@ All notable changes to eudiw-adapter. Versions follow [Semantic Versioning](http
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-20
+
+Wallet login: the adapter can act as an OpenID Connect provider, so an application or identity provider such as Nextcloud or Keycloak adds "EU Digital Identity Wallet" login with an issuer URL, a client id and a secret. Existing configurations keep working; read **Upgrading** for the change in how bearer tokens are checked.
+
 ### Upgrading
 
 - **Bearer tokens are checked when an endpoint needs the caller, not on every request** (`quarkus.http.auth.proactive=false`), so the wallet login provider's userinfo endpoint can receive its own access tokens. Management endpoints still reject a missing, expired or foreign token with `401`.
-- Migration `V8` adds the `oidc_authorization` table. Tenants without `oidc_provider` are unchanged.
+- **Wallet login needs every pod on this version** before an identity provider or application uses it: earlier pods do not serve `/oidc/`. Migration `V8` adds the `oidc_authorization` table. Tenants without `oidc_provider` are unchanged.
 
 ### Added
 
