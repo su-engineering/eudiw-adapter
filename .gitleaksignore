@@ -4,3 +4,8 @@ adapter-core/src/test/resources/rfc9901/section-5.2.txt:jwt:1
 adapter-core/src/test/resources/rfc9901/appendix-a.4.txt:jwt:1
 # Synthetic webhook test vector secret (bytes 1..32), not a credential
 examples/shared/webhook-vector.json:generic-api-key:3
+# Synthetic client secrets of the Compose wallet login demo (with +, / and = on purpose), not credentials
+deploy/compose/oidc/run.sh:generic-api-key:38
+deploy/compose/config/keycloak-shop-realm.json:generic-api-key:23
+deploy/compose/generate-keys.sh:generic-api-key:15
+deploy/compose/generate-keys.sh:generic-api-key:16

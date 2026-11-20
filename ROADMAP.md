@@ -15,16 +15,17 @@ The first release covers SD-JWT VC over OpenID4VP 1.0 and HAIP 1.0, DCQL, ETSI t
 3. **The EU reference wallet on real devices.** Run the adapter against the EU reference wallet apps on Android and iOS, first on emulators and simulators, then on phones, and publish what was run.
 4. **More independent wallets.** walt.id Wallet API 2 now runs next to eudi-dev in CI with SD-JWT VC and mdoc. Next: other wallets that can run without a person. The [wallet table](docs/wallets.md) lists what has been tested so far.
 5. **OCSP**, alongside the existing CRL checks.
+6. **Wallet login beyond Keycloak.** The adapter is an OpenID Connect provider, tested with Keycloak and Nextcloud ([ADR-018](docs/adr/0018-oidc-provider.md)). Next: the Digital Credentials API on the login page, the OpenID Foundation OP conformance tests, and runs against Ory and a SaaS identity provider.
 
 ## Later
 
-6. **Wallet and key attestation.** Check the attestations a presentation carries where HAIP and the ARF let a verifier rely on them.
-7. **Transaction data for ISO mdoc.** SD-JWT VC transaction data is done ([ADR-016](docs/adr/0016-transaction-data.md)). For mdoc, OpenID4VP binds it through data elements each transaction data type defines; implement the first type that wallets support.
-8. **OpenID Foundation certification.** The HAIP verifier test plan runs in CI on every change; certification needs the hosted suite.
-9. **External security review** of the verifier and the service.
-10. **Registration in the demo.** The registration certificate is tested against a strict wallet in CI; the Compose demo does not send one yet.
-11. **ETSI TS 119 472-2 RO-17** (the `etsi_tl` Authority Key Identifier), once its meaning in that clause is clear.
-12. **An admin API** for reading the active configuration and triggering a reload. Today configuration is reloaded from files.
+7. **Wallet and key attestation.** Check the attestations a presentation carries where HAIP and the ARF let a verifier rely on them.
+8. **Transaction data for ISO mdoc.** SD-JWT VC transaction data is done ([ADR-016](docs/adr/0016-transaction-data.md)). For mdoc, OpenID4VP binds it through data elements each transaction data type defines; implement the first type that wallets support.
+9. **OpenID Foundation certification.** The HAIP verifier test plan runs in CI on every change; certification needs the hosted suite.
+10. **External security review** of the verifier and the service.
+11. **Registration in the demo.** The registration certificate is tested against a strict wallet in CI; the Compose demo does not send one yet.
+12. **ETSI TS 119 472-2 RO-17** (the `etsi_tl` Authority Key Identifier), once its meaning in that clause is clear.
+13. **An admin API** for reading the active configuration and triggering a reload. Today configuration is reloaded from files.
 
 ## Exploring
 

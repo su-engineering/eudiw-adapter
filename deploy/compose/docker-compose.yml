@@ -31,6 +31,8 @@ services:
       KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
     volumes:
       - ./config/keycloak-realm.json:/opt/keycloak/data/import/demo-realm.json:ro
+      # A realm whose login offers the adapter as an OpenID Connect identity provider (oidc/, ADR-018)
+      - ./config/keycloak-shop-realm.json:/opt/keycloak/data/import/shop-realm.json:ro
     ports:
       - "127.0.0.1:8081:8080"
 
@@ -167,6 +169,34 @@ services:
       # kit.mjs serves the Node example and the <eudiw-request> component from here
       - ../../examples:/repo/examples:ro
       - ../../clients:/repo/clients:ro
+
+  # Wallet login through Keycloak (oidc/): Chromium logs in to the shop realm's account console with the adapter as
+  # its identity provider; run.sh hands the launch URI the login page shows to the wallet service.
+  # Nextcloud with its stock OpenID Connect app (user_oidc), the adapter as its provider (oidc/run.sh sets it up).
+  nextcloud:
+    image: nextcloud:35.0.1-apache@sha256:8f2f0e93aca5e9457019933936dea1f313052e72c696b4aecb31580a208b859f
+    profiles: ["oidc"]
+    environment:
+      SQLITE_DATABASE: nextcloud
+      NEXTCLOUD_ADMIN_USER: admin
+      NEXTCLOUD_ADMIN_PASSWORD: demo-only-admin
+      NEXTCLOUD_TRUSTED_DOMAINS: nextcloud localhost
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost/status.php | grep -q '\"installed\":true'"]
+      interval: 3s
+      retries: 100
+
+  oidc-browser:
+    image: mcr.microsoft.com/playwright:v1.56.1-noble
+    profiles: ["oidc"]
+    working_dir: /work
+    entrypoint:
+      - /bin/sh
+      - -c
+      - npm init -y > /dev/null && npm i -s playwright@1.56.1 > /dev/null 2>&1 && cp /oidc/*.mjs . && node check.mjs
+    volumes:
+      - ./oidc:/oidc:ro
+      - ./oidc/out:/out
 
 volumes:
   keys:

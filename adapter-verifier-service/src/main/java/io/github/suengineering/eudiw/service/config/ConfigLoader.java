@@ -268,6 +268,16 @@ public final class ConfigLoader {
                             "tenant " + id + ": client " + clientId + ": dc_api_origins must not be empty");
                 }
             }
+            Optional<AdapterConfig.OidcClient> oidc = Optional.empty();
+            if (c.containsKey("oidc")) {
+                oidc = Optional.of(oidcClient(
+                        object(c.get("oidc"), "oidc"),
+                        base,
+                        production,
+                        "tenant " + id + ": client " + clientId,
+                        granted,
+                        policies));
+            }
             if (clients.put(
                             clientId,
                             new ClientApplication(
@@ -276,12 +286,188 @@ public final class ConfigLoader {
                                     completion,
                                     webhook,
                                     perMinute,
-                                    List.copyOf(dcApiOrigins)))
+                                    List.copyOf(dcApiOrigins),
+                                    oidc))
                     != null) {
                 throw new ConfigException("tenant " + id + ": duplicate client " + clientId);
             }
         }
-        return new Tenant(id, identity, walletInvocation, Map.copyOf(clients), Map.copyOf(policies));
+        Optional<AdapterConfig.OidcProvider> oidcProvider = Optional.empty();
+        if (json.containsKey("oidc_provider")) {
+            oidcProvider =
+                    Optional.of(oidcProvider(object(json.get("oidc_provider"), "oidc_provider"), base, "tenant " + id));
+        }
+        if (oidcProvider.isEmpty()
+                && clients.values().stream().anyMatch(c -> c.oidc().isPresent())) {
+            throw new ConfigException("tenant " + id + ": clients with oidc need the tenant's oidc_provider");
+        }
+        return new Tenant(id, identity, walletInvocation, Map.copyOf(clients), Map.copyOf(policies), oidcProvider);
+    }
+
+    /** OIDC claim names that identity providers link or match accounts on; a wallet login never sends them. */
+    static final Set<String> OIDC_FORBIDDEN_CLAIMS =
+            Set.of("email", "email_verified", "preferred_username", "phone_number", "phone_number_verified");
+
+    /** Claims the provider sets itself. */
+    static final Set<String> OIDC_RESERVED_CLAIMS = Set.of(
+            "iss",
+            "sub",
+            "aud",
+            "exp",
+            "iat",
+            "nbf",
+            "auth_time",
+            "nonce",
+            "azp",
+            "at_hash",
+            "c_hash",
+            "acr",
+            "amr",
+            "sid",
+            "jti",
+            "cnf");
+
+    private static final Pattern OIDC_CLAIM_NAME = Pattern.compile("[a-z][a-z0-9_]{0,63}");
+
+    /** Policy claims that identify a person persistently; a subject from anything else can join two people. */
+    static final Set<String> PERSISTENT_IDENTIFIERS = Set.of("personal_administrative_number");
+
+    private static AdapterConfig.OidcProvider oidcProvider(Map<String, Object> json, Path base, String where) {
+        java.security.interfaces.RSAPrivateKey key = rsaPrivateKey(read(base, string(json, "signing_key_file")), where);
+        java.security.interfaces.RSAPublicKey publicKey;
+        String keyId;
+        try {
+            var crt = (java.security.interfaces.RSAPrivateCrtKey) key;
+            publicKey = (java.security.interfaces.RSAPublicKey) KeyFactory.getInstance("RSA")
+                    .generatePublic(new java.security.spec.RSAPublicKeySpec(crt.getModulus(), crt.getPublicExponent()));
+            keyId = new com.nimbusds.jose.jwk.RSAKey.Builder(publicKey)
+                    .build()
+                    .computeThumbprint()
+                    .toString();
+        } catch (ClassCastException | GeneralSecurityException | com.nimbusds.jose.JOSEException e) {
+            throw new ConfigException(where + ": oidc_provider.signing_key_file must hold an RSA PKCS#8 key", e);
+        }
+        if (publicKey.getModulus().bitLength() < 2048) {
+            throw new ConfigException(where + ": the ID token signing key must be RSA of at least 2048 bits");
+        }
+        byte[] subjectKey;
+        try {
+            subjectKey = Base64.getDecoder()
+                    .decode(read(base, string(json, "subject_key_file")).strip());
+        } catch (IllegalArgumentException e) {
+            throw new ConfigException(where + ": oidc_provider.subject_key_file must hold base64", e);
+        }
+        if (subjectKey.length < 32) {
+            throw new ConfigException(where + ": the subject key must be at least 32 random bytes, base64-encoded"
+                    + " (openssl rand -base64 32)");
+        }
+        return new AdapterConfig.OidcProvider(key, publicKey, keyId, subjectKey);
+    }
+
+    private static java.security.interfaces.RSAPrivateKey rsaPrivateKey(String pem, String where) {
+        Matcher m = PEM_KEY.matcher(pem);
+        if (!m.find()) {
+            throw new ConfigException(
+                    where + ": oidc_provider.signing_key_file must be a PKCS#8 PEM (BEGIN PRIVATE KEY)");
+        }
+        try {
+            return (java.security.interfaces.RSAPrivateKey) KeyFactory.getInstance("RSA")
+                    .generatePrivate(
+                            new PKCS8EncodedKeySpec(Base64.getMimeDecoder().decode(m.group(1))));
+        } catch (GeneralSecurityException e) {
+            throw new ConfigException(where + ": oidc_provider.signing_key_file is not an RSA PKCS#8 key", e);
+        }
+    }
+
+    private static AdapterConfig.OidcClient oidcClient(
+            Map<String, Object> json,
+            Path base,
+            boolean production,
+            String where,
+            Set<String> granted,
+            Map<String, Policy> policies) {
+        byte[] secret = read(base, string(json, "client_secret_file")).strip().getBytes(StandardCharsets.US_ASCII);
+        if (secret.length < 32) {
+            throw new ConfigException(
+                    where + ": the OIDC client secret must be at least 32 characters" + " (openssl rand -base64 32)");
+        }
+        List<String> redirectUris = new ArrayList<>();
+        for (Object item : list(json, "redirect_uris")) {
+            if (!(item instanceof String value)) {
+                throw new ConfigException(where + ": redirect_uris must be strings");
+            }
+            URI uri;
+            try {
+                uri = new URI(value);
+            } catch (java.net.URISyntaxException e) {
+                throw new ConfigException(where + ": redirect URI is not a URI: " + value);
+            }
+            if (!uri.isAbsolute() || uri.getFragment() != null || uri.getHost() == null) {
+                throw new ConfigException(where + ": redirect URIs must be absolute, without a fragment: " + value);
+            }
+            if (!"https".equals(uri.getScheme()) && !(!production && "http".equals(uri.getScheme()))) {
+                throw new ConfigException(where + ": redirect URIs must use https" + (production ? "" : " or http"));
+            }
+            redirectUris.add(value);
+        }
+        if (redirectUris.isEmpty()) {
+            throw new ConfigException(where + ": oidc.redirect_uris must not be empty");
+        }
+        String policyId = string(json, "policy_id");
+        if (!granted.contains(policyId)) {
+            throw new ConfigException(where + ": oidc.policy_id must be one of the client's policies");
+        }
+        Policy policy = policies.get(policyId);
+        List<String> subjectClaims = new ArrayList<>();
+        for (Object item : list(json, "subject_claims")) {
+            if (!(item instanceof String name) || !policy.output().containsKey(name)) {
+                throw new ConfigException(where + ": subject_claims must name output claims of policy " + policyId);
+            }
+            subjectClaims.add(name);
+        }
+        if (subjectClaims.isEmpty()) {
+            throw new ConfigException(where + ": oidc.subject_claims must not be empty");
+        }
+        boolean persistent = subjectClaims.stream().anyMatch(name -> {
+            List<Object> path = policy.output().get(name).path().components();
+            return !path.isEmpty() && PERSISTENT_IDENTIFIERS.contains(String.valueOf(path.get(path.size() - 1)));
+        });
+        if (!persistent && !flag(json, "subject_from_personal_attributes", where)) {
+            throw new ConfigException(where + ": subject_claims include no persistent identifier (such as"
+                    + " personal_administrative_number), so two people with the same values would share one account."
+                    + " Set subject_from_personal_attributes to true to accept that (see docs/oidc-provider.md)");
+        }
+        Map<String, String> idTokenClaims = new LinkedHashMap<>();
+        if (json.containsKey("id_token_claims")) {
+            for (Map.Entry<String, Object> e :
+                    object(json.get("id_token_claims"), "id_token_claims").entrySet()) {
+                String name = e.getKey();
+                if (OIDC_FORBIDDEN_CLAIMS.contains(name)) {
+                    throw new ConfigException(where + ": id_token_claims must not contain " + name
+                            + ": identity providers link accounts on it");
+                }
+                if (OIDC_RESERVED_CLAIMS.contains(name)
+                        || !OIDC_CLAIM_NAME.matcher(name).matches()) {
+                    throw new ConfigException(where + ": id_token_claims cannot set " + name);
+                }
+                if (!(e.getValue() instanceof String source) || !policy.output().containsKey(source)) {
+                    throw new ConfigException(
+                            where + ": id_token_claims." + name + " must name an output claim of policy " + policyId);
+                }
+                idTokenClaims.put(name, source);
+            }
+        }
+        String pkce = json.containsKey("pkce") ? string(json, "pkce") : "required";
+        if (!pkce.equals("required") && !pkce.equals("optional")) {
+            throw new ConfigException(where + ": oidc.pkce must be required or optional");
+        }
+        return new AdapterConfig.OidcClient(
+                secret,
+                List.copyOf(redirectUris),
+                policyId,
+                List.copyOf(subjectClaims),
+                java.util.Collections.unmodifiableMap(idTokenClaims),
+                pkce.equals("required"));
     }
 
     /**

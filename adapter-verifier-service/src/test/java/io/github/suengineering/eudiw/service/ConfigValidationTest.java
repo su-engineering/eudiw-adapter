@@ -324,4 +324,77 @@ class ConfigValidationTest {
         assertThat(sources)
                 .containsKey(dir.resolve("anchors.pem").toAbsolutePath().normalize());
     }
+
+    /** A wallet login client (ADR-018) with {@code oidc} as its oidc object; the policy outputs age_over_18 only. */
+    private AdapterConfig loadOidc(String provider, String oidc, boolean production) throws Exception {
+        java.security.KeyPairGenerator rsa = java.security.KeyPairGenerator.getInstance("RSA");
+        rsa.initialize(2048);
+        Files.writeString(
+                dir.resolve("id-token-key.pem"),
+                "-----BEGIN " + "PRIVATE KEY-----\n"
+                        + Base64.getMimeEncoder()
+                                .encodeToString(
+                                        rsa.generateKeyPair().getPrivate().getEncoded())
+                        + "\n-----END PRIVATE KEY-----\n");
+        Files.writeString(dir.resolve("subject.key"), Base64.getEncoder().encodeToString(new byte[32]));
+        Files.writeString(dir.resolve("short.key"), Base64.getEncoder().encodeToString(new byte[16]));
+        Files.writeString(dir.resolve("client.secret"), "a-client-secret-of-at-least-32-characters");
+        String tenants = """
+                {"tenants":[{"id":"t","verifier":{"private_key_file":"rp-key.pem","certificate_chain_file":"rp.pem"},
+                  %s
+                  "clients":[{"client_id":"login","policies":["p"],"oidc":%s}],
+                  "policies":[{"id":"p","dcql":%s,
+                    "output":{"age_over_18":{"credential":"age","path":["age_over_18"]}},
+                    "trust_anchors_file":"anchors.pem"}]}]}""".formatted(provider, oidc, DCQL);
+        Path file = dir.resolve("tenants.json");
+        Files.writeString(file, tenants, StandardCharsets.UTF_8);
+        return ConfigLoader.load(file, production);
+    }
+
+    private static final String PROVIDER =
+            "\"oidc_provider\":{\"signing_key_file\":\"id-token-key.pem\",\"subject_key_file\":\"subject.key\"},";
+
+    private static String oidc(String extra) {
+        return """
+                {"client_secret_file":"client.secret","redirect_uris":["https://idp.example/cb"],"policy_id":"p",
+                 "subject_claims":["age_over_18"]%s}""".formatted(extra);
+    }
+
+    @Test
+    void walletLoginClientsAreValidated() throws Exception {
+        assertThat(loadOidc(PROVIDER, oidc(",\"subject_from_personal_attributes\":true"), false)
+                        .tenant("t")
+                        .orElseThrow()
+                        .clients()
+                        .get("login")
+                        .oidc())
+                .isPresent();
+        assertThatThrownBy(() -> loadOidc("", oidc(",\"subject_from_personal_attributes\":true"), false))
+                .hasMessageContaining("need the tenant's oidc_provider");
+        assertThatThrownBy(() -> loadOidc(PROVIDER, oidc(""), false))
+                .hasMessageContaining("include no persistent identifier");
+        assertThatThrownBy(() -> loadOidc(
+                        PROVIDER,
+                        oidc(
+                                ",\"subject_from_personal_attributes\":true,\"id_token_claims\":{\"email\":\"age_over_18\"}"),
+                        false))
+                .hasMessageContaining("must not contain email");
+        assertThatThrownBy(() -> loadOidc(
+                        PROVIDER,
+                        oidc(
+                                ",\"subject_from_personal_attributes\":true,\"id_token_claims\":{\"sub\":\"age_over_18\"}"),
+                        false))
+                .hasMessageContaining("cannot set sub");
+        assertThatThrownBy(() -> loadOidc(
+                        PROVIDER,
+                        oidc(",\"subject_from_personal_attributes\":true,\"redirect_uris\":[\"http://idp.example/cb\"]")
+                                .replace("\"redirect_uris\":[\"https://idp.example/cb\"],", ""),
+                        true))
+                .hasMessageContaining("redirect URIs must use https");
+        assertThatThrownBy(() -> loadOidc(
+                        PROVIDER.replace("subject.key", "short.key"),
+                        oidc(",\"subject_from_personal_attributes\":true"),
+                        false))
+                .hasMessageContaining("at least 32 random bytes");
+    }
 }

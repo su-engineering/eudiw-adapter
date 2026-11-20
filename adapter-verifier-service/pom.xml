@@ -157,6 +157,35 @@
           </execution>
         </executions>
       </plugin>
+      <!-- The wallet login page (ADR-018) uses the same <eudiw-request> component as integrators do: copied from
+           clients/web, never forked. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-resources-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>login-page-component</id>
+            <goals>
+              <goal>copy-resources</goal>
+            </goals>
+            <phase>generate-resources</phase>
+            <configuration>
+              <outputDirectory>${project.build.outputDirectory}/META-INF/resources/eudiw-assets</outputDirectory>
+              <resources>
+                <resource>
+                  <directory>${project.basedir}/../clients/web</directory>
+                  <includes>
+                    <include>eudiw-request.js</include>
+                    <include>vendor/qrcode.mjs</include>
+                    <include>fonts/*.woff2</include>
+                    <include>fonts/OFL.txt</include>
+                  </includes>
+                </resource>
+              </resources>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>

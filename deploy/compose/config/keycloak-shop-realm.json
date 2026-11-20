@@ -1,0 +1,32 @@
+{
+  "realm": "shop",
+  "displayName": "Demo shop (synthetic)",
+  "enabled": true,
+  "identityProviders": [
+    {
+      "alias": "eudi-wallet",
+      "displayName": "EU Digital Identity Wallet",
+      "providerId": "oidc",
+      "enabled": true,
+      "trustEmail": false,
+      "storeToken": false,
+      "firstBrokerLoginFlowAlias": "first broker login",
+      "config": {
+        "issuer": "http://adapter:8080/oidc/demo-city",
+        "authorizationUrl": "http://adapter:8080/oidc/demo-city/authorize",
+        "tokenUrl": "http://adapter:8080/oidc/demo-city/token",
+        "userInfoUrl": "http://adapter:8080/oidc/demo-city/userinfo",
+        "jwksUrl": "http://adapter:8080/oidc/demo-city/jwks",
+        "useJwksUrl": "true",
+        "validateSignature": "true",
+        "clientId": "keycloak-broker",
+        "clientSecret": "demo-only+broker/secret=0123456789abcdef",
+        "clientAuthMethod": "client_secret_basic",
+        "pkceEnabled": "true",
+        "pkceMethod": "S256",
+        "defaultScope": "openid",
+        "syncMode": "IMPORT"
+      }
+    }
+  ]
+}

@@ -11,6 +11,10 @@
         "certificate_chain_file": "/hsm/verifier-hsm.pem"
       },
       "wallet_invocation": "openid4vp://",
+      "oidc_provider": {
+        "signing_key_file": "/keys/oidc-id-token-key.pem",
+        "subject_key_file": "/keys/oidc-subject-key"
+      },
       "clients": [
         {
           "client_id": "demo-portal",
@@ -21,9 +25,71 @@
             "url": "http://host.docker.internal:3000/webhooks/eudiw",
             "secret_file": "/keys/webhook-secret"
           }
+        },
+        {
+          "client_id": "keycloak-broker",
+          "policies": ["pid-login"],
+          "oidc": {
+            "client_secret_file": "/keys/oidc-broker-secret",
+            "redirect_uris": ["http://localhost:8081/realms/shop/broker/eudi-wallet/endpoint"],
+            "policy_id": "pid-login",
+            "subject_claims": ["issuing_country", "personal_administrative_number"],
+            "id_token_claims": { "given_name": "given_name", "family_name": "family_name" }
+          }
+        },
+        {
+          "client_id": "nextcloud",
+          "policies": ["pid-login"],
+          "oidc": {
+            "client_secret_file": "/keys/oidc-nextcloud-secret",
+            "redirect_uris": [
+              "http://nextcloud/index.php/apps/user_oidc/code",
+              "http://nextcloud/apps/user_oidc/code"
+            ],
+            "policy_id": "pid-login",
+            "subject_claims": ["issuing_country", "personal_administrative_number"],
+            "id_token_claims": { "given_name": "given_name", "family_name": "family_name" }
+          }
         }
       ],
       "policies": [
+        {
+          "id": "pid-login",
+          "dcql": {
+            "credentials": [
+              {
+                "id": "pid",
+                "format": "dc+sd-jwt",
+                "meta": { "vct_values": ["https://credentials.demo.example/pid"] },
+                "claims": [
+                  { "path": ["issuing_country"] },
+                  { "path": ["personal_administrative_number"] },
+                  { "path": ["given_name"] },
+                  { "path": ["family_name"] }
+                ]
+              }
+            ]
+          },
+          "output": {
+            "issuing_country": { "credential": "pid", "path": ["issuing_country"] },
+            "personal_administrative_number": { "credential": "pid", "path": ["personal_administrative_number"] },
+            "given_name": { "credential": "pid", "path": ["given_name"] },
+            "family_name": { "credential": "pid", "path": ["family_name"] }
+          },
+          "trusted_lists": [
+            {
+              "identifier": "https://lists.demo.example/pid-providers.jwt",
+              "location": "/keys/pid-list.jwt",
+              "format": "lote_json",
+              "signer_certificates_file": "/keys/list-signer.pem",
+              "issuance_service_types": ["http://uri.etsi.org/19602/SvcType/PID/Issuance"]
+            }
+          ],
+          "allowed_issuers": ["https://issuer.demo.example"],
+          "status_policy": "reject_known_invalid",
+          "session_ttl_seconds": 300,
+          "result_ttl_seconds": 300
+        },
         {
           "id": "age-over-18",
           "dcql": {
